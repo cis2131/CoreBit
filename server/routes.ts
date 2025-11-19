@@ -2,8 +2,17 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { probeDevice, determineDeviceStatus } from "./deviceProbe";
-import { insertMapSchema, insertDeviceSchema, insertConnectionSchema } from "@shared/schema";
+import { insertMapSchema, insertDeviceSchema, insertConnectionSchema, insertCredentialProfileSchema, type Device } from "@shared/schema";
 import { z } from "zod";
+
+// Helper function to resolve credentials from profile or custom
+async function resolveCredentials(device: Pick<Device, 'credentialProfileId' | 'customCredentials'>) {
+  if (device.credentialProfileId) {
+    const profile = await storage.getCredentialProfile(device.credentialProfileId);
+    return profile?.credentials;
+  }
+  return device.customCredentials;
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Map routes
@@ -86,8 +95,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const data = insertDeviceSchema.parse(req.body);
       
+      // Resolve credentials from profile or custom
+      const credentials = await resolveCredentials({
+        credentialProfileId: data.credentialProfileId || null,
+        customCredentials: data.customCredentials || null,
+      });
+      
       // Probe device for additional information
-      const probeResult = await probeDevice(data.type, data.ipAddress || undefined, data.credentials);
+      const probeResult = await probeDevice(data.type, data.ipAddress || undefined, credentials);
       const status = determineDeviceStatus(probeResult.data, probeResult.success);
 
       const device = await storage.createDevice({
@@ -110,15 +125,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const updateData = insertDeviceSchema.partial().parse(req.body);
       
-      // Re-probe device if IP or type changed
+      // Re-probe device if IP, type, or credentials changed
       let finalUpdateData = { ...updateData };
-      if (updateData.type || updateData.ipAddress) {
+      if (updateData.type || updateData.ipAddress || updateData.credentialProfileId !== undefined || updateData.customCredentials !== undefined) {
         const existingDevice = await storage.getDevice(req.params.id);
         if (existingDevice) {
+          const mergedDevice = { ...existingDevice, ...updateData };
+          const credentials = await resolveCredentials(mergedDevice);
+          
           const probeResult = await probeDevice(
             updateData.type || existingDevice.type, 
             (updateData.ipAddress !== undefined ? updateData.ipAddress : existingDevice.ipAddress) || undefined,
-            updateData.credentials || existingDevice.credentials
+            credentials
           );
           const status = determineDeviceStatus(probeResult.data, probeResult.success);
           finalUpdateData = {
@@ -162,7 +180,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Device not found' });
       }
 
-      const probeResult = await probeDevice(device.type, device.ipAddress || undefined, device.credentials);
+      const credentials = await resolveCredentials(device);
+      const probeResult = await probeDevice(device.type, device.ipAddress || undefined, credentials);
       const status = determineDeviceStatus(probeResult.data, probeResult.success);
 
       const updatedDevice = await storage.updateDevice(req.params.id, {
@@ -216,42 +235,144 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Start periodic device probing (every 30 seconds)
-  console.log('[Probing] Starting automatic device probing service (30s interval)');
-  setInterval(async () => {
+  // Credential Profile routes
+  app.get("/api/credential-profiles", async (_req, res) => {
     try {
-      const maps = await storage.getAllMaps();
-      for (const map of maps) {
-        const devices = await storage.getDevicesByMapId(map.id);
-        
-        for (const device of devices) {
-          if (!device.ipAddress) continue;
+      const profiles = await storage.getAllCredentialProfiles();
+      res.json(profiles);
+    } catch (error) {
+      console.error('Error fetching credential profiles:', error);
+      res.status(500).json({ error: 'Failed to fetch credential profiles' });
+    }
+  });
+
+  app.get("/api/credential-profiles/:id", async (req, res) => {
+    try {
+      const profile = await storage.getCredentialProfile(req.params.id);
+      if (!profile) {
+        return res.status(404).json({ error: 'Credential profile not found' });
+      }
+      res.json(profile);
+    } catch (error) {
+      console.error('Error fetching credential profile:', error);
+      res.status(500).json({ error: 'Failed to fetch credential profile' });
+    }
+  });
+
+  app.post("/api/credential-profiles", async (req, res) => {
+    try {
+      const data = insertCredentialProfileSchema.parse(req.body);
+      const profile = await storage.createCredentialProfile(data);
+      res.status(201).json(profile);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid credential profile data', details: error.errors });
+      }
+      console.error('Error creating credential profile:', error);
+      res.status(500).json({ error: 'Failed to create credential profile' });
+    }
+  });
+
+  app.patch("/api/credential-profiles/:id", async (req, res) => {
+    try {
+      const data = insertCredentialProfileSchema.partial().parse(req.body);
+      const profile = await storage.updateCredentialProfile(req.params.id, data);
+      if (!profile) {
+        return res.status(404).json({ error: 'Credential profile not found' });
+      }
+      res.json(profile);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid credential profile data', details: error.errors });
+      }
+      console.error('Error updating credential profile:', error);
+      res.status(500).json({ error: 'Failed to update credential profile' });
+    }
+  });
+
+  app.delete("/api/credential-profiles/:id", async (req, res) => {
+    try {
+      await storage.deleteCredentialProfile(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting credential profile:', error);
+      res.status(500).json({ error: 'Failed to delete credential profile' });
+    }
+  });
+
+  // Settings routes
+  app.get("/api/settings/:key", async (req, res) => {
+    try {
+      const value = await storage.getSetting(req.params.key);
+      if (value === undefined) {
+        return res.status(404).json({ error: 'Setting not found' });
+      }
+      res.json({ key: req.params.key, value });
+    } catch (error) {
+      console.error('Error fetching setting:', error);
+      res.status(500).json({ error: 'Failed to fetch setting' });
+    }
+  });
+
+  app.put("/api/settings/:key", async (req, res) => {
+    try {
+      const { value } = req.body;
+      if (value === undefined) {
+        return res.status(400).json({ error: 'Value is required' });
+      }
+      await storage.setSetting(req.params.key, value);
+      res.json({ key: req.params.key, value });
+    } catch (error) {
+      console.error('Error updating setting:', error);
+      res.status(500).json({ error: 'Failed to update setting' });
+    }
+  });
+
+  // Start periodic device probing (configurable interval)
+  async function startPeriodicProbing() {
+    const pollingInterval = await storage.getSetting('polling_interval') || 30;
+    const intervalMs = parseInt(pollingInterval) * 1000;
+    
+    console.log(`[Probing] Starting automatic device probing service (${pollingInterval}s interval)`);
+    
+    setInterval(async () => {
+      try {
+        const maps = await storage.getAllMaps();
+        for (const map of maps) {
+          const devices = await storage.getDevicesByMapId(map.id);
           
-          try {
-            const probeResult = await probeDevice(
-              device.type,
-              device.ipAddress,
-              device.credentials
-            );
-            const status = determineDeviceStatus(probeResult.data, probeResult.success);
+          for (const device of devices) {
+            if (!device.ipAddress) continue;
             
-            // Only update if status or data changed
-            if (status !== device.status || probeResult.success) {
-              await storage.updateDevice(device.id, {
-                status,
-                deviceData: probeResult.success ? probeResult.data : (device.deviceData || undefined),
-              });
-              console.log(`[Probing] Updated ${device.name} (${device.ipAddress}): ${status}`);
+            try {
+              const credentials = await resolveCredentials(device);
+              const probeResult = await probeDevice(
+                device.type,
+                device.ipAddress,
+                credentials
+              );
+              const status = determineDeviceStatus(probeResult.data, probeResult.success);
+              
+              // Only update if status or data changed
+              if (status !== device.status || probeResult.success) {
+                await storage.updateDevice(device.id, {
+                  status,
+                  deviceData: probeResult.success ? probeResult.data : (device.deviceData || undefined),
+                });
+                console.log(`[Probing] Updated ${device.name} (${device.ipAddress}): ${status}`);
+              }
+            } catch (error: any) {
+              console.error(`[Probing] Failed to probe ${device.name}:`, error.message);
             }
-          } catch (error: any) {
-            console.error(`[Probing] Failed to probe ${device.name}:`, error.message);
           }
         }
+      } catch (error) {
+        console.error('[Probing] Error in periodic probing:', error);
       }
-    } catch (error) {
-      console.error('[Probing] Error in periodic probing:', error);
-    }
-  }, 30000); // 30 seconds
+    }, intervalMs);
+  }
+  
+  startPeriodicProbing();
 
   const httpServer = createServer(app);
   return httpServer;
