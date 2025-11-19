@@ -34,6 +34,7 @@ export interface IStorage {
   getConnectionsByMapId(mapId: string): Promise<Connection[]>;
   getConnection(id: string): Promise<Connection | undefined>;
   createConnection(connection: InsertConnection): Promise<Connection>;
+  updateConnection(id: string, connection: Partial<InsertConnection>): Promise<Connection | undefined>;
   deleteConnection(id: string): Promise<void>;
 
   // Credential Profiles
@@ -118,6 +119,15 @@ export class DatabaseStorage implements IStorage {
       .values(insertConnection)
       .returning();
     return connection;
+  }
+
+  async updateConnection(id: string, updateData: Partial<InsertConnection>): Promise<Connection | undefined> {
+    const [connection] = await db
+      .update(connections)
+      .set(updateData)
+      .where(eq(connections.id, id))
+      .returning();
+    return connection || undefined;
   }
 
   async deleteConnection(id: string): Promise<void> {

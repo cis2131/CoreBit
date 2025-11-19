@@ -225,6 +225,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.patch("/api/connections/:id", async (req, res) => {
+    try {
+      const data = insertConnectionSchema.partial().parse(req.body);
+      const connection = await storage.updateConnection(req.params.id, data);
+      if (!connection) {
+        return res.status(404).json({ error: 'Connection not found' });
+      }
+      res.json(connection);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid connection data', details: error.errors });
+      }
+      console.error('Error updating connection:', error);
+      res.status(500).json({ error: 'Failed to update connection' });
+    }
+  });
+
   app.delete("/api/connections/:id", async (req, res) => {
     try {
       await storage.deleteConnection(req.params.id);

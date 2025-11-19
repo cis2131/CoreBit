@@ -80,6 +80,13 @@ export const connections = pgTable("connections", {
   sourcePort: text("source_port"),
   targetPort: text("target_port"),
   connectionType: text("connection_type").default("ethernet"),
+  linkSpeed: text("link_speed").default("1G"),
+  linkStats: jsonb("link_stats").$type<{
+    inBytesPerSec?: number;
+    outBytesPerSec?: number;
+    utilizationPct?: number;
+    lastSampleAt?: string;
+  }>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -168,6 +175,14 @@ export const insertDeviceSchema = createInsertSchema(devices).omit({
 export const insertConnectionSchema = createInsertSchema(connections).omit({
   id: true,
   createdAt: true,
+}).extend({
+  linkSpeed: z.enum(['1G', '10G', '25G', '40G', '100G']).optional(),
+  linkStats: z.object({
+    inBytesPerSec: z.number().optional(),
+    outBytesPerSec: z.number().optional(),
+    utilizationPct: z.number().optional(),
+    lastSampleAt: z.string().optional(),
+  }).optional(),
 });
 
 export type Map = typeof maps.$inferSelect;
