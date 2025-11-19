@@ -87,13 +87,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const data = insertDeviceSchema.parse(req.body);
       
       // Probe device for additional information
-      const probeData = await probeDevice(data.type, data.ipAddress || undefined, data.credentials);
-      const status = determineDeviceStatus(probeData);
+      const probeResult = await probeDevice(data.type, data.ipAddress || undefined, data.credentials);
+      const status = determineDeviceStatus(probeResult.data, probeResult.success);
 
       const device = await storage.createDevice({
         ...data,
         status,
-        deviceData: probeData,
+        deviceData: probeResult.success ? probeResult.data : undefined,
       });
       
       res.status(201).json(device);
@@ -115,16 +115,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (updateData.type || updateData.ipAddress) {
         const existingDevice = await storage.getDevice(req.params.id);
         if (existingDevice) {
-          const probeData = await probeDevice(
+          const probeResult = await probeDevice(
             updateData.type || existingDevice.type, 
             (updateData.ipAddress !== undefined ? updateData.ipAddress : existingDevice.ipAddress) || undefined,
             updateData.credentials || existingDevice.credentials
           );
-          const status = determineDeviceStatus(probeData);
+          const status = determineDeviceStatus(probeResult.data, probeResult.success);
           finalUpdateData = {
             ...updateData,
             status,
-            deviceData: probeData,
+            deviceData: probeResult.success ? probeResult.data : (existingDevice.deviceData || undefined),
           };
         }
       }
@@ -162,12 +162,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Device not found' });
       }
 
-      const probeData = await probeDevice(device.type, device.ipAddress || undefined, device.credentials);
-      const status = determineDeviceStatus(probeData);
+      const probeResult = await probeDevice(device.type, device.ipAddress || undefined, device.credentials);
+      const status = determineDeviceStatus(probeResult.data, probeResult.success);
 
       const updatedDevice = await storage.updateDevice(req.params.id, {
         status,
-        deviceData: probeData,
+        deviceData: probeResult.success ? probeResult.data : (device.deviceData || undefined),
       });
 
       res.json(updatedDevice);
@@ -215,6 +215,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: 'Failed to delete connection' });
     }
   });
+
+  // Start periodic device probing (every 30 seconds)
+  console.log('[Probing] Starting automatic device probing service (30s interval)');
+  setInterval(async () => {
+    try {
+      const maps = await storage.getAllMaps();
+      for (const map of maps) {
+        const devices = await storage.getDevicesByMapId(map.id);
+        
+        for (const device of devices) {
+          if (!device.ipAddress) continue;
+          
+          try {
+            const probeResult = await probeDevice(
+              device.type,
+              device.ipAddress,
+              device.credentials
+            );
+            const status = determineDeviceStatus(probeResult.data, probeResult.success);
+            
+            // Only update if status or data changed
+            if (status !== device.status || probeResult.success) {
+              await storage.updateDevice(device.id, {
+                status,
+                deviceData: probeResult.success ? probeResult.data : (device.deviceData || undefined),
+              });
+              console.log(`[Probing] Updated ${device.name} (${device.ipAddress}): ${status}`);
+            }
+          } catch (error: any) {
+            console.error(`[Probing] Failed to probe ${device.name}:`, error.message);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[Probing] Error in periodic probing:', error);
+    }
+  }, 30000); // 30 seconds
 
   const httpServer = createServer(app);
   return httpServer;

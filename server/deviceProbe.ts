@@ -196,34 +196,28 @@ export async function probeDevice(
   deviceType: string,
   ipAddress?: string,
   credentials?: any
-): Promise<DeviceProbeData> {
+): Promise<{ data: DeviceProbeData; success: boolean }> {
   if (!ipAddress) {
     console.log(`[Probe] No IP address provided for ${deviceType}, returning empty data`);
-    return {};
+    return { data: {}, success: false };
   }
 
   try {
+    let data: DeviceProbeData;
     if (deviceType.startsWith('mikrotik_')) {
-      return await probeMikrotikDevice(ipAddress, credentials);
+      data = await probeMikrotikDevice(ipAddress, credentials);
     } else {
-      return await probeSnmpDevice(ipAddress, credentials);
+      data = await probeSnmpDevice(ipAddress, credentials);
     }
+    return { data, success: true };
   } catch (error: any) {
     console.error(`[Probe] Error probing ${deviceType} at ${ipAddress}:`, error.message);
-    return {};
+    return { data: {}, success: false };
   }
 }
 
-export function determineDeviceStatus(probeData: DeviceProbeData): string {
-  if (!probeData.uptime && !probeData.model) return 'offline';
-  if (!probeData.uptime) return 'unknown';
-  
-  const activePorts = probeData.ports?.filter(p => p.status === 'up').length || 0;
-  const totalPorts = probeData.ports?.length || 0;
-
-  if (totalPorts === 0) return 'online';
-  if (activePorts === 0) return 'offline';
-  if (activePorts < totalPorts * 0.5) return 'warning';
-  
-  return 'online';
+export function determineDeviceStatus(probeData: DeviceProbeData, probeSucceeded: boolean): string {
+  if (!probeSucceeded) return 'offline';
+  if (probeData.model || probeData.uptime || probeData.version) return 'online';
+  return 'unknown';
 }
