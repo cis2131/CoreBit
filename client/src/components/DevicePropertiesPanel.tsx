@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Device } from '@shared/schema';
+import { useQuery } from '@tanstack/react-query';
+import { Device, type CredentialProfile } from '@shared/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { X, Trash2, Edit, RefreshCw } from 'lucide-react';
-import { DeviceCredentialsCard } from './DeviceCredentialsCard';
+import { X, Trash2, Edit, RefreshCw, Key } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 
@@ -28,6 +28,17 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
   const { toast } = useToast();
   const [probing, setProbing] = useState(false);
   const status = statusLabels[device.status as keyof typeof statusLabels] || statusLabels.unknown;
+
+  const { data: credentialProfile } = useQuery<CredentialProfile>({
+    queryKey: ['/api/credential-profiles', device.credentialProfileId],
+    queryFn: async () => {
+      if (!device.credentialProfileId) return null;
+      const response = await fetch(`/api/credential-profiles/${device.credentialProfileId}`);
+      if (!response.ok) throw new Error('Failed to fetch credential profile');
+      return response.json();
+    },
+    enabled: !!device.credentialProfileId,
+  });
 
   const handleProbeNow = async () => {
     setProbing(true);
@@ -156,7 +167,37 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
             </Card>
           )}
 
-          <DeviceCredentialsCard device={device} />
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Key className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm">Credentials</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {device.credentialProfileId && credentialProfile ? (
+                <div className="space-y-1">
+                  <div className="text-sm text-foreground font-medium">{credentialProfile.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {credentialProfile.type === 'mikrotik' ? 'Mikrotik Device' : 'SNMP Device'}
+                  </div>
+                  <Badge variant="outline" className="text-xs mt-2">Profile</Badge>
+                </div>
+              ) : device.customCredentials ? (
+                <div className="space-y-1">
+                  <div className="text-sm text-foreground font-medium">Custom Credentials</div>
+                  <div className="text-xs text-muted-foreground">
+                    Device-specific credentials configured
+                  </div>
+                  <Badge variant="outline" className="text-xs mt-2">Custom</Badge>
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  No credentials configured
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           <div>
             <p className="text-xs text-muted-foreground mb-2">Position</p>

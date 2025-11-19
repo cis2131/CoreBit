@@ -23,7 +23,7 @@ const credentialFormSchema = z.object({
   credentials: z.object({
     username: z.string().optional(),
     password: z.string().optional(),
-    apiPort: z.number().optional(),
+    apiPort: z.coerce.number().optional(),
     snmpVersion: z.enum(["1", "2c", "3"]).optional(),
     snmpCommunity: z.string().optional(),
     snmpUsername: z.string().optional(),
