@@ -37,8 +37,8 @@ export function ConnectionPropertiesPanel({
 }: ConnectionPropertiesPanelProps) {
   const { toast } = useToast();
   const [linkSpeed, setLinkSpeed] = useState(connection.linkSpeed || '1G');
-  const [sourcePort, setSourcePort] = useState(connection.sourcePort || '');
-  const [targetPort, setTargetPort] = useState(connection.targetPort || '');
+  const [sourcePort, setSourcePort] = useState(connection.sourcePort || 'none');
+  const [targetPort, setTargetPort] = useState(connection.targetPort || 'none');
   const [saving, setSaving] = useState(false);
 
   const sourcePorts = sourceDevice.deviceData?.ports || [];
@@ -46,16 +46,16 @@ export function ConnectionPropertiesPanel({
 
   const hasChanges = 
     linkSpeed !== (connection.linkSpeed || '1G') ||
-    sourcePort !== (connection.sourcePort || '') ||
-    targetPort !== (connection.targetPort || '');
+    sourcePort !== (connection.sourcePort || 'none') ||
+    targetPort !== (connection.targetPort || 'none');
 
   const handleSave = async () => {
     setSaving(true);
     try {
       await apiRequest('PATCH', `/api/connections/${connection.id}`, {
         linkSpeed,
-        sourcePort: sourcePort || undefined,
-        targetPort: targetPort || undefined,
+        sourcePort: sourcePort === 'none' ? '' : sourcePort,
+        targetPort: targetPort === 'none' ? '' : targetPort,
       });
       queryClient.invalidateQueries({ queryKey: [`/api/connections?mapId=${connection.mapId}`] });
       toast({ title: 'Connection updated', description: 'Connection properties have been saved.' });
@@ -104,7 +104,7 @@ export function ConnectionPropertiesPanel({
                 <p className="font-medium text-foreground" data-testid="text-source-device">
                   {sourceDevice.name}
                 </p>
-                {sourcePort && (
+                {sourcePort && sourcePort !== 'none' && (
                   <Badge variant="outline" className="mt-1 text-xs">
                     Port: {sourcePort}
                   </Badge>
@@ -115,7 +115,7 @@ export function ConnectionPropertiesPanel({
                 <p className="font-medium text-foreground" data-testid="text-target-device">
                   {targetDevice.name}
                 </p>
-                {targetPort && (
+                {targetPort && targetPort !== 'none' && (
                   <Badge variant="outline" className="mt-1 text-xs">
                     Port: {targetPort}
                   </Badge>
@@ -153,7 +153,7 @@ export function ConnectionPropertiesPanel({
                       <SelectValue placeholder="Select port" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {sourcePorts.map((port, idx) => (
                         <SelectItem key={idx} value={port.name}>
                           {port.name} {port.speed && `(${port.speed})`}
@@ -172,7 +172,7 @@ export function ConnectionPropertiesPanel({
                       <SelectValue placeholder="Select port" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
                       {targetPorts.map((port, idx) => (
                         <SelectItem key={idx} value={port.name}>
                           {port.name} {port.speed && `(${port.speed})`}
