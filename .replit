@@ -4,6 +4,7 @@ hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-24_05"
+packages = ["net-snmp"]
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -17,6 +18,10 @@ externalPort = 80
 [[ports]]
 localPort = 32913
 externalPort = 3001
+
+[[ports]]
+localPort = 33875
+externalPort = 3000
 
 [env]
 PORT = "5000"
