@@ -43,9 +43,9 @@
   --chart-3: 216 75% 48%;
   --chart-4: 200 70% 42%;
   --chart-5: 195 65% 38%;
-  --font-sans: Open Sans, sans-serif;
-  --font-serif: Georgia, serif;
-  --font-mono: Menlo, monospace;
+  --font-sans: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-serif: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'Roboto', monospace;
   --radius: .5rem;
   --shadow-2xs: 0px 2px 0px 0px hsl(210 5% 15% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(210 5% 15% / 0.00);
