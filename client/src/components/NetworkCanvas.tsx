@@ -44,6 +44,7 @@ export function NetworkCanvas({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [tempPosition, setTempPosition] = useState<{ x: number; y: number } | null>(null);
   const pendingPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const [deviceWasDragged, setDeviceWasDragged] = useState(false);
 
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
@@ -60,7 +61,12 @@ export function NetworkCanvas({
   }, [handleWheel]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 1) {
+    // Allow panning with left button on canvas background or middle button anywhere
+    if (e.button === 0 && (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('canvas-grid'))) {
+      setIsPanning(true);
+      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+      e.preventDefault();
+    } else if (e.button === 1) {
       setIsPanning(true);
       setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
     }
@@ -87,6 +93,7 @@ export function NetworkCanvas({
     if (!rect) return;
 
     setDraggedDevice(deviceId);
+    setDeviceWasDragged(false);
     setDragOffset({
       x: e.clientX - (device.position.x * zoom + pan.x + rect.left),
       y: e.clientY - (device.position.y * zoom + pan.y + rect.top),
@@ -97,6 +104,7 @@ export function NetworkCanvas({
     handleMouseMove(e);
     
     if (draggedDevice) {
+      setDeviceWasDragged(true);
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
 
@@ -235,7 +243,12 @@ export function NetworkCanvas({
                 device={displayDevice}
                 isSelected={selectedDeviceId === device.id}
                 isHighlighted={matchesSearch(device)}
-                onClick={() => onDeviceClick(device.id)}
+                onClick={() => {
+                  if (!deviceWasDragged) {
+                    onDeviceClick(device.id);
+                  }
+                  setDeviceWasDragged(false);
+                }}
                 onDragStart={(e) => handleDeviceDragStart(device.id, e)}
               />
             );
