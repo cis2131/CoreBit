@@ -6,7 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { X, Trash2, Edit, RefreshCw, Key } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
+import { X, Trash2, Edit, RefreshCw, Key, Cpu, MemoryStick } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 
@@ -162,6 +163,48 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
                       )}
                     </div>
                   ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {device.deviceData?.cpuUsagePct !== undefined && device.deviceData?.memoryUsagePct !== undefined && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">System Vitals</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <Cpu className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-foreground font-medium">CPU Usage</span>
+                    </div>
+                    <span className="font-mono font-semibold text-foreground" data-testid="text-cpu-usage">
+                      {device.deviceData.cpuUsagePct}%
+                    </span>
+                  </div>
+                  <Progress 
+                    value={device.deviceData.cpuUsagePct} 
+                    className="h-2"
+                    data-testid="progress-cpu"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <MemoryStick className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-foreground font-medium">Memory Usage</span>
+                    </div>
+                    <span className="font-mono font-semibold text-foreground" data-testid="text-memory-usage">
+                      {device.deviceData.memoryUsagePct}%
+                    </span>
+                  </div>
+                  <Progress 
+                    value={device.deviceData.memoryUsagePct} 
+                    className="h-2"
+                    data-testid="progress-memory"
+                  />
                 </div>
               </CardContent>
             </Card>
