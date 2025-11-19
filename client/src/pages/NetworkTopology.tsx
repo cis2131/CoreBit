@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Map, Device, Connection, InsertDevice } from '@shared/schema';
+import { Map, Device, Connection, InsertDevice, InsertConnection } from '@shared/schema';
 import { NetworkCanvas } from '@/components/NetworkCanvas';
 import { DeviceLibrary } from '@/components/DeviceLibrary';
 import { DevicePropertiesPanel } from '@/components/DevicePropertiesPanel';
 import { TopToolbar } from '@/components/TopToolbar';
 import { AddDeviceDialog } from '@/components/AddDeviceDialog';
+import { CreateConnectionDialog } from '@/components/CreateConnectionDialog';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 
@@ -19,6 +20,10 @@ export default function NetworkTopology() {
   const [pendingDevicePosition, setPendingDevicePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [pendingDeviceType, setPendingDeviceType] = useState('');
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
+  const [connectionMode, setConnectionMode] = useState(false);
+  const [connectionSource, setConnectionSource] = useState<string | null>(null);
+  const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
+  const [connectionTarget, setConnectionTarget] = useState<string | null>(null);
   const { toast } = useToast();
 
   const { data: maps = [] } = useQuery<Map[]>({
@@ -74,6 +79,27 @@ export default function NetworkTopology() {
       queryClient.invalidateQueries({ queryKey: [`/api/connections?mapId=${currentMapId}`] });
       setSelectedDeviceId(null);
       toast({ title: 'Device deleted', description: 'Device has been removed from the map.' });
+    },
+  });
+
+  const createConnectionMutation = useMutation({
+    mutationFn: async (data: InsertConnection) => {
+      return await apiRequest('POST', '/api/connections', data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/connections?mapId=${currentMapId}`] });
+      toast({ title: 'Connection created', description: 'Devices have been connected successfully.' });
+    },
+  });
+
+  const deleteConnectionMutation = useMutation({
+    mutationFn: async (connectionId: string) => {
+      return await apiRequest('DELETE', `/api/connections/${connectionId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/connections?mapId=${currentMapId}`] });
+      setSelectedConnectionId(null);
+      toast({ title: 'Connection deleted', description: 'Connection has been removed.' });
     },
   });
 
@@ -146,7 +172,55 @@ export default function NetworkTopology() {
     setAddDeviceDialogOpen(true);
   };
 
+  const handleConnectionModeToggle = () => {
+    setConnectionMode(!connectionMode);
+    setConnectionSource(null);
+    setConnectionTarget(null);
+  };
+
+  const handleDeviceClickForConnection = (deviceId: string) => {
+    if (!connectionMode) {
+      setSelectedDeviceId(deviceId);
+      return;
+    }
+
+    if (!connectionSource) {
+      setConnectionSource(deviceId);
+      toast({ title: 'Source selected', description: 'Click another device to complete the connection.' });
+    } else if (connectionSource !== deviceId) {
+      setConnectionTarget(deviceId);
+      setConnectionDialogOpen(true);
+    } else {
+      toast({ title: 'Same device', description: 'Please select a different device.', variant: 'destructive' });
+    }
+  };
+
+  const handleConnectionCreate = (sourcePort: string, targetPort: string) => {
+    if (!currentMapId || !connectionSource || !connectionTarget) return;
+
+    createConnectionMutation.mutate({
+      mapId: currentMapId,
+      sourceDeviceId: connectionSource,
+      targetDeviceId: connectionTarget,
+      sourcePort,
+      targetPort,
+      type: 'ethernet',
+    });
+
+    setConnectionSource(null);
+    setConnectionTarget(null);
+    setConnectionMode(false);
+  };
+
+  const handleConnectionDelete = () => {
+    if (selectedConnectionId) {
+      deleteConnectionMutation.mutate(selectedConnectionId);
+    }
+  };
+
   const selectedDevice = selectedDeviceId ? devices.find(d => d.id === selectedDeviceId) : null;
+  const sourceDevice = connectionSource ? devices.find(d => d.id === connectionSource) : null;
+  const targetDevice = connectionTarget ? devices.find(d => d.id === connectionTarget) : null;
 
   if (maps.length === 0 && !currentMapId) {
     return (
@@ -158,6 +232,8 @@ export default function NetworkTopology() {
           onMapCreate={handleMapCreate}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          connectionMode={connectionMode}
+          onConnectionModeToggle={handleConnectionModeToggle}
         />
         <div className="flex-1 flex items-center justify-center bg-background">
           <div className="text-center space-y-4 max-w-md p-8">
@@ -180,6 +256,8 @@ export default function NetworkTopology() {
         onMapCreate={handleMapCreate}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        connectionMode={connectionMode}
+        onConnectionModeToggle={handleConnectionModeToggle}
       />
 
       <div className="flex-1 flex overflow-hidden">
@@ -192,14 +270,18 @@ export default function NetworkTopology() {
             <NetworkCanvas
               devices={devices}
               connections={connections}
-              selectedDeviceId={selectedDeviceId}
+              selectedDeviceId={connectionMode ? connectionSource : selectedDeviceId}
               selectedConnectionId={selectedConnectionId}
-              onDeviceClick={setSelectedDeviceId}
+              onDeviceClick={handleDeviceClickForConnection}
               onDeviceMove={handleDeviceMove}
               onConnectionClick={setSelectedConnectionId}
               onCanvasClick={() => {
                 setSelectedDeviceId(null);
                 setSelectedConnectionId(null);
+                if (connectionMode) {
+                  setConnectionSource(null);
+                  setConnectionTarget(null);
+                }
               }}
               searchQuery={searchQuery}
               onDeviceAdd={handleDeviceAdd}
@@ -213,7 +295,7 @@ export default function NetworkTopology() {
           )}
         </div>
 
-        {selectedDevice && (
+        {selectedDevice && !connectionMode && (
           <DevicePropertiesPanel
             device={selectedDevice}
             onClose={() => setSelectedDeviceId(null)}
@@ -233,6 +315,14 @@ export default function NetworkTopology() {
         initialPosition={pendingDevicePosition}
         initialType={pendingDeviceType}
         editDevice={editingDevice}
+      />
+
+      <CreateConnectionDialog
+        open={connectionDialogOpen}
+        onOpenChange={setConnectionDialogOpen}
+        sourceDevice={sourceDevice}
+        targetDevice={targetDevice}
+        onConfirm={handleConnectionCreate}
       />
     </div>
   );

@@ -19,7 +19,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Search, Plus, Network, Moon, Sun } from 'lucide-react';
+import { Search, Plus, Network, Moon, Sun, Link2 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 
 interface TopToolbarProps {
@@ -29,6 +29,8 @@ interface TopToolbarProps {
   onMapCreate: (name: string, description: string) => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  connectionMode: boolean;
+  onConnectionModeToggle: () => void;
 }
 
 export function TopToolbar({
@@ -38,6 +40,8 @@ export function TopToolbar({
   onMapCreate,
   searchQuery,
   onSearchChange,
+  connectionMode,
+  onConnectionModeToggle,
 }: TopToolbarProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newMapName, setNewMapName] = useState('');
@@ -128,6 +132,18 @@ export function TopToolbar({
       </div>
 
       <div className="flex items-center gap-2">
+        <Button
+          variant={connectionMode ? 'default' : 'outline'}
+          size="sm"
+          onClick={onConnectionModeToggle}
+          disabled={!currentMapId}
+          data-testid="button-connection-mode"
+          className="gap-2"
+        >
+          <Link2 className="h-4 w-4" />
+          {connectionMode ? 'Cancel' : 'Connect'}
+        </Button>
+
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
