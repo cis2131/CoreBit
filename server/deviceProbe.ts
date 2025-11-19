@@ -14,13 +14,6 @@ export interface DeviceProbeData {
   memoryUsagePct?: number;
 }
 
-function generateMockVitals() {
-  return {
-    cpuUsagePct: Math.floor(Math.random() * 80) + 5,
-    memoryUsagePct: Math.floor(Math.random() * 70) + 15,
-  };
-}
-
 async function probeMikrotikDevice(
   ipAddress: string,
   credentials?: any
@@ -53,6 +46,23 @@ async function probeMikrotikDevice(
     const board = resources[0]?.['board-name'] || 'Unknown Model';
     const version = resources[0]?.version || 'Unknown';
     const uptime = resources[0]?.uptime || '0s';
+    
+    // Extract real CPU and memory usage from Mikrotik resources
+    const cpuLoad = resources[0]?.['cpu-load'];
+    const totalMemory = parseInt(resources[0]?.['total-memory'] || '0');
+    const freeMemory = parseInt(resources[0]?.['free-memory'] || '0');
+    
+    let cpuUsagePct: number | undefined;
+    let memoryUsagePct: number | undefined;
+    
+    if (cpuLoad !== undefined) {
+      cpuUsagePct = parseInt(cpuLoad.toString());
+    }
+    
+    if (totalMemory > 0 && freeMemory >= 0) {
+      const usedMemory = totalMemory - freeMemory;
+      memoryUsagePct = Math.round((usedMemory / totalMemory) * 100);
+    }
 
     const ports = (interfaces as any[]).map((iface: any) => ({
       name: iface.name || 'unknown',
@@ -67,7 +77,8 @@ async function probeMikrotikDevice(
       version: `RouterOS ${version}`,
       uptime,
       ports,
-      ...generateMockVitals(),
+      cpuUsagePct,
+      memoryUsagePct,
     };
   } catch (error: any) {
     console.error(`[Mikrotik] Failed to connect to ${ipAddress}:`, error.message);
@@ -85,10 +96,10 @@ async function probeSnmpDevice(
 
   console.log(`[SNMP] Probing ${ipAddress} with SNMPv${snmpVersion}...`);
 
-  const oids = [
-    '1.3.6.1.2.1.1.1.0',  // sysDescr
-    '1.3.6.1.2.1.1.3.0',  // sysUpTime
-    '1.3.6.1.2.1.1.5.0',  // sysName
+  const basicOids = [
+    '1.3.6.1.2.1.1.1.0',       // sysDescr
+    '1.3.6.1.2.1.1.3.0',       // sysUpTime
+    '1.3.6.1.2.1.1.5.0',       // sysName
   ];
 
   return new Promise((resolve, reject) => {
@@ -119,7 +130,7 @@ async function probeSnmpDevice(
       });
     }
 
-    session.get(oids, (error: any, varbinds: any[]) => {
+    session.get(basicOids, (error: any, varbinds: any[]) => {
       if (error) {
         console.error(`[SNMP] Failed to probe ${ipAddress}:`, error.message);
         session.close();
@@ -140,52 +151,104 @@ async function probeSnmpDevice(
         }
       });
 
-      session.walk('1.3.6.1.2.1.2.2.1', (varbinds: any[]) => {
-        const ports: Array<{ name: string; status: string; speed?: string }> = [];
-        
-        varbinds.forEach((vb) => {
-          if (snmp.isVarbindError(vb)) return;
-          
-          const oid = vb.oid;
-          if (oid.startsWith('1.3.6.1.2.1.2.2.1.2.')) {
-            const ifIndex = oid.split('.').pop();
-            ports.push({
-              name: vb.value.toString(),
-              status: 'unknown',
-            });
-          }
-        });
-
-        session.close();
-        
-        resolve({
-          model: `${sysName}`,
-          version: sysDescr.substring(0, 100),
-          uptime: sysUpTime,
-          ports: ports.length > 0 ? ports.slice(0, 10) : [{
-            name: 'eth0',
-            status: 'up',
-            speed: '1Gbps',
-          }],
-          ...generateMockVitals(),
-        });
-      }, (error: any) => {
-        session.close();
-        
-        if (error) {
-          console.warn(`[SNMP] Walk failed, using basic data:`, error.message);
+      // Fetch CPU usage by walking hrProcessorTable and averaging all CPUs
+      const cpuLoads: number[] = [];
+      session.table('1.3.6.1.2.1.25.3.3.1.2', { maxRepetitions: 20 }, (error: any, table: any) => {
+        if (!error && table) {
+          Object.values(table).forEach((row: any) => {
+            const loadValue = row['2'];
+            if (loadValue && loadValue.value !== undefined) {
+              const load = parseInt(loadValue.value.toString());
+              if (!isNaN(load) && load >= 0 && load <= 100) {
+                cpuLoads.push(load);
+              }
+            }
+          });
         }
         
-        resolve({
-          model: sysName,
-          version: sysDescr.substring(0, 100),
-          uptime: sysUpTime,
-          ports: [{
-            name: 'eth0',
-            status: 'up',
-            speed: '1Gbps',
-          }],
-          ...generateMockVitals(),
+        const cpuUsagePct = cpuLoads.length > 0 
+          ? Math.round(cpuLoads.reduce((a, b) => a + b, 0) / cpuLoads.length)
+          : undefined;
+
+        // Fetch memory usage from hrStorageTable
+        session.table('1.3.6.1.2.1.25.2.3.1', { maxRepetitions: 20 }, (error: any, table: any) => {
+          let memoryUsagePct: number | undefined;
+          
+          if (!error && table) {
+            // Find physical memory entry (type 1.3.6.1.2.1.25.2.1.2 = hrStorageRam)
+            for (const [index, row] of Object.entries(table)) {
+              const storageTypeVb = (row as any)['2'];
+              // Check if this is physical memory (RAM)
+              if (storageTypeVb && storageTypeVb.value && storageTypeVb.value.toString().includes('1.3.6.1.2.1.25.2.1.2')) {
+                const allocationUnitsVb = (row as any)['4'];
+                const totalUnitsVb = (row as any)['5'];
+                const usedUnitsVb = (row as any)['6'];
+                
+                if (allocationUnitsVb && totalUnitsVb && usedUnitsVb) {
+                  const allocationUnits = parseInt(allocationUnitsVb.value?.toString() || '1');
+                  const totalUnits = parseInt(totalUnitsVb.value?.toString() || '0');
+                  const usedUnits = parseInt(usedUnitsVb.value?.toString() || '0');
+                  
+                  if (totalUnits > 0 && allocationUnits > 0) {
+                    memoryUsagePct = Math.round((usedUnits / totalUnits) * 100);
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          // Continue with interface walk
+          session.walk('1.3.6.1.2.1.2.2.1', (varbinds: any[]) => {
+            const ports: Array<{ name: string; status: string; speed?: string }> = [];
+            
+            varbinds.forEach((vb) => {
+              if (snmp.isVarbindError(vb)) return;
+              
+              const oid = vb.oid;
+              if (oid.startsWith('1.3.6.1.2.1.2.2.1.2.')) {
+                const ifIndex = oid.split('.').pop();
+                ports.push({
+                  name: vb.value.toString(),
+                  status: 'unknown',
+                });
+              }
+            });
+
+            session.close();
+            
+            resolve({
+              model: `${sysName}`,
+              version: sysDescr.substring(0, 100),
+              uptime: sysUpTime,
+              ports: ports.length > 0 ? ports.slice(0, 10) : [{
+                name: 'eth0',
+                status: 'up',
+                speed: '1Gbps',
+              }],
+              cpuUsagePct,
+              memoryUsagePct,
+            });
+          }, (error: any) => {
+            session.close();
+            
+            if (error) {
+              console.warn(`[SNMP] Walk failed, using basic data:`, error.message);
+            }
+            
+            resolve({
+              model: sysName,
+              version: sysDescr.substring(0, 100),
+              uptime: sysUpTime,
+              ports: [{
+                name: 'eth0',
+                status: 'up',
+                speed: '1Gbps',
+              }],
+              cpuUsagePct,
+              memoryUsagePct,
+            });
+          });
         });
       });
     });
