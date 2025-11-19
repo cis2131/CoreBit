@@ -87,7 +87,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const data = insertDeviceSchema.parse(req.body);
       
       // Probe device for additional information
-      const probeData = await probeDevice(data.type, data.ipAddress || undefined);
+      const probeData = await probeDevice(data.type, data.ipAddress || undefined, data.credentials);
       const status = determineDeviceStatus(probeData);
 
       const device = await storage.createDevice({
@@ -117,7 +117,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (existingDevice) {
           const probeData = await probeDevice(
             updateData.type || existingDevice.type, 
-            (updateData.ipAddress !== undefined ? updateData.ipAddress : existingDevice.ipAddress) || undefined
+            (updateData.ipAddress !== undefined ? updateData.ipAddress : existingDevice.ipAddress) || undefined,
+            updateData.credentials || existingDevice.credentials
           );
           const status = determineDeviceStatus(probeData);
           finalUpdateData = {
@@ -151,6 +152,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error deleting device:', error);
       res.status(500).json({ error: 'Failed to delete device' });
+    }
+  });
+
+  app.post("/api/devices/:id/probe", async (req, res) => {
+    try {
+      const device = await storage.getDevice(req.params.id);
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+
+      const probeData = await probeDevice(device.type, device.ipAddress || undefined, device.credentials);
+      const status = determineDeviceStatus(probeData);
+
+      const updatedDevice = await storage.updateDevice(req.params.id, {
+        status,
+        deviceData: probeData,
+      });
+
+      res.json(updatedDevice);
+    } catch (error) {
+      console.error('Error probing device:', error);
+      res.status(500).json({ error: 'Failed to probe device' });
     }
   });
 

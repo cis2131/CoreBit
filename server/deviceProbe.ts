@@ -73,14 +73,23 @@ const mockSnmpData: Record<string, DeviceProbeData> = {
   },
 };
 
-export async function probeDevice(deviceType: string, ipAddress?: string): Promise<DeviceProbeData> {
+export async function probeDevice(deviceType: string, ipAddress?: string, credentials?: any): Promise<DeviceProbeData> {
   // Simulate network delay
   await new Promise(resolve => setTimeout(resolve, 100));
 
   // In production, this would:
-  // 1. Connect to the device via Mikrotik API (for mikrotik_* types)
-  // 2. Query SNMP for port information (for generic_snmp and other types)
+  // 1. Connect to the device via Mikrotik API (for mikrotik_* types) using credentials.username/password
+  // 2. Query SNMP for port information (for generic_snmp and other types) using credentials.snmpCommunity/snmpUsername
   // 3. Parse and return real device data
+
+  // For now, return mock data but log that we would use credentials
+  if (credentials && ipAddress) {
+    console.log(`[Mock] Would probe ${deviceType} at ${ipAddress} with credentials:`, 
+      deviceType.startsWith('mikrotik_') ? 
+        { user: credentials.username, port: credentials.apiPort } : 
+        { version: credentials.snmpVersion, community: credentials.snmpCommunity }
+    );
+  }
 
   if (deviceType.startsWith('mikrotik_')) {
     return mockMikrotikData[deviceType] || {};

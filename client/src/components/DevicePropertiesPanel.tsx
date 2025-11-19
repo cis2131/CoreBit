@@ -1,11 +1,14 @@
+import { useState } from 'react';
 import { Device } from '@shared/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { X, Trash2, Edit } from 'lucide-react';
+import { X, Trash2, Edit, RefreshCw } from 'lucide-react';
 import { DeviceCredentialsCard } from './DeviceCredentialsCard';
+import { apiRequest, queryClient } from '@/lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
 
 interface DevicePropertiesPanelProps {
   device: Device;
@@ -22,7 +25,26 @@ const statusLabels = {
 };
 
 export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: DevicePropertiesPanelProps) {
+  const { toast } = useToast();
+  const [probing, setProbing] = useState(false);
   const status = statusLabels[device.status as keyof typeof statusLabels] || statusLabels.unknown;
+
+  const handleProbeNow = async () => {
+    setProbing(true);
+    try {
+      await apiRequest('POST', `/api/devices/${device.id}/probe`, {});
+      queryClient.invalidateQueries({ queryKey: [`/api/devices?mapId=${device.mapId}`] });
+      toast({ title: 'Device probed', description: 'Device information has been updated.' });
+    } catch (error) {
+      toast({
+        title: 'Probe failed',
+        description: 'Could not connect to device. Check credentials and IP address.',
+        variant: 'destructive',
+      });
+    } finally {
+      setProbing(false);
+    }
+  };
 
   return (
     <div className="h-full w-80 bg-background border-l border-border flex flex-col">
@@ -159,6 +181,16 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
       <Separator />
 
       <div className="p-4 space-y-2">
+        <Button
+          variant="outline"
+          className="w-full justify-start gap-2"
+          onClick={handleProbeNow}
+          disabled={probing}
+          data-testid="button-probe-device"
+        >
+          <RefreshCw className={`h-4 w-4 ${probing ? 'animate-spin' : ''}`} />
+          {probing ? 'Probing...' : 'Probe Now'}
+        </Button>
         <Button
           variant="outline"
           className="w-full justify-start gap-2"
