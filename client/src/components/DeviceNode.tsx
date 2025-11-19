@@ -76,6 +76,19 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
             )}
           </div>
         </div>
+
+        {device.deviceData?.cpuUsagePct !== undefined && device.deviceData?.memoryUsagePct !== undefined && (
+          <div className="flex gap-2 mt-2 pt-2 border-t border-border text-xs">
+            <div className="flex items-center gap-1" data-testid={`vitals-cpu-${device.id}`}>
+              <span className="font-medium text-muted-foreground">CPU</span>
+              <span className="font-mono font-semibold text-foreground">{device.deviceData.cpuUsagePct}%</span>
+            </div>
+            <div className="flex items-center gap-1" data-testid={`vitals-mem-${device.id}`}>
+              <span className="font-medium text-muted-foreground">MEM</span>
+              <span className="font-mono font-semibold text-foreground">{device.deviceData.memoryUsagePct}%</span>
+            </div>
+          </div>
+        )}
       </div>
 
       <Badge
