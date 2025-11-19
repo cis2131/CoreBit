@@ -4,6 +4,7 @@ import { Map, Device, Connection, InsertDevice, InsertConnection } from '@shared
 import { NetworkCanvas } from '@/components/NetworkCanvas';
 import { DeviceLibrary } from '@/components/DeviceLibrary';
 import { DevicePropertiesPanel } from '@/components/DevicePropertiesPanel';
+import { ConnectionPropertiesPanel } from '@/components/ConnectionPropertiesPanel';
 import { TopToolbar } from '@/components/TopToolbar';
 import { AddDeviceDialog } from '@/components/AddDeviceDialog';
 import { CreateConnectionDialog } from '@/components/CreateConnectionDialog';
@@ -254,6 +255,9 @@ export default function NetworkTopology() {
   };
 
   const selectedDevice = selectedDeviceId ? devices.find(d => d.id === selectedDeviceId) : null;
+  const selectedConnection = selectedConnectionId ? connections.find(c => c.id === selectedConnectionId) : null;
+  const selectedConnectionSourceDevice = selectedConnection ? devices.find(d => d.id === selectedConnection.sourceDeviceId) : null;
+  const selectedConnectionTargetDevice = selectedConnection ? devices.find(d => d.id === selectedConnection.targetDeviceId) : null;
   const sourceDevice = connectionSource ? devices.find(d => d.id === connectionSource) : null;
   const targetDevice = connectionTarget ? devices.find(d => d.id === connectionTarget) : null;
 
@@ -336,6 +340,16 @@ export default function NetworkTopology() {
             onClose={() => setSelectedDeviceId(null)}
             onDelete={handleDeviceDelete}
             onEdit={handleDeviceEdit}
+          />
+        )}
+
+        {selectedConnection && selectedConnectionSourceDevice && selectedConnectionTargetDevice && !connectionMode && (
+          <ConnectionPropertiesPanel
+            connection={selectedConnection}
+            sourceDevice={selectedConnectionSourceDevice}
+            targetDevice={selectedConnectionTargetDevice}
+            onClose={() => setSelectedConnectionId(null)}
+            onDelete={handleConnectionDelete}
           />
         )}
       </div>

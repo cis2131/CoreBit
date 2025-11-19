@@ -8,6 +8,14 @@ interface ConnectionLineProps {
   onClick: () => void;
 }
 
+const linkSpeedStyles = {
+  '1G': { width: 2, color: 'hsl(var(--muted-foreground))', dashArray: '' },
+  '10G': { width: 3, color: '#14b8a6', dashArray: '' }, // teal
+  '25G': { width: 4, color: '#3b82f6', dashArray: '8,4' }, // blue, dashed
+  '40G': { width: 5, color: '#a855f7', dashArray: '' }, // purple
+  '100G': { width: 6, color: 'hsl(var(--primary))', dashArray: '' }, // primary
+};
+
 export function ConnectionLine({
   connection,
   sourcePosition,
@@ -17,6 +25,10 @@ export function ConnectionLine({
 }: ConnectionLineProps) {
   const midX = (sourcePosition.x + targetPosition.x) / 2;
   const midY = (sourcePosition.y + targetPosition.y) / 2;
+
+  const speed = (connection.linkSpeed || '1G') as keyof typeof linkSpeedStyles;
+  const style = linkSpeedStyles[speed] || linkSpeedStyles['1G'];
+  const strokeWidth = isSelected ? style.width + 2 : style.width;
 
   return (
     <g
@@ -32,10 +44,11 @@ export function ConnectionLine({
         y1={sourcePosition.y}
         x2={targetPosition.x}
         y2={targetPosition.y}
-        stroke="hsl(var(--muted-foreground))"
-        strokeWidth={isSelected ? 3 : 2}
-        strokeOpacity={0.6}
-        className="transition-all hover:stroke-primary pointer-events-stroke"
+        stroke={style.color}
+        strokeWidth={strokeWidth}
+        strokeOpacity={0.7}
+        strokeDasharray={style.dashArray}
+        className="transition-all pointer-events-stroke"
       />
       
       <line
