@@ -37,6 +37,7 @@ export function ConnectionLine({
         onClick();
       }}
       className="cursor-pointer"
+      style={{ pointerEvents: 'auto' }}
       data-testid={`connection-line-${connection.id}`}
     >
       <line
@@ -48,7 +49,7 @@ export function ConnectionLine({
         strokeWidth={strokeWidth}
         strokeOpacity={0.7}
         strokeDasharray={style.dashArray}
-        className="transition-all pointer-events-stroke"
+        className="transition-all"
       />
       
       <line
@@ -58,7 +59,7 @@ export function ConnectionLine({
         y2={targetPosition.y}
         stroke="transparent"
         strokeWidth="20"
-        className="pointer-events-stroke"
+        pointerEvents="stroke"
       />
 
       {isSelected && (
