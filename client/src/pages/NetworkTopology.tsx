@@ -141,7 +141,14 @@ export default function NetworkTopology() {
     setAddDeviceDialogOpen(true);
   };
 
-  const handleDeviceSubmit = (deviceData: { name: string; type: string; ipAddress: string; position: { x: number; y: number } }) => {
+  const handleDeviceSubmit = (deviceData: { 
+    name: string; 
+    type: string; 
+    ipAddress: string; 
+    position: { x: number; y: number };
+    credentialProfileId?: string;
+    customCredentials?: any;
+  }) => {
     if (!currentMapId) return;
 
     if (editingDevice) {
@@ -154,6 +161,8 @@ export default function NetworkTopology() {
           mapId: currentMapId,
           position: deviceData.position,
           status: editingDevice.status,
+          credentialProfileId: deviceData.credentialProfileId || undefined,
+          customCredentials: deviceData.customCredentials || undefined,
         },
       });
       setEditingDevice(null);
@@ -165,6 +174,8 @@ export default function NetworkTopology() {
         ipAddress: deviceData.ipAddress || undefined,
         position: deviceData.position,
         status: 'unknown',
+        credentialProfileId: deviceData.credentialProfileId || undefined,
+        customCredentials: deviceData.customCredentials || undefined,
       });
     }
   };
