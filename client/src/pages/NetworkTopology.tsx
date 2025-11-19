@@ -65,7 +65,31 @@ export default function NetworkTopology() {
     mutationFn: async ({ id, data }: { id: string; data: Partial<InsertDevice> }) => {
       return await apiRequest('PATCH', `/api/devices/${id}`, data);
     },
-    onSuccess: () => {
+    onMutate: async ({ id, data }) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: [`/api/devices?mapId=${currentMapId}`] });
+      
+      // Snapshot the previous value
+      const previousDevices = queryClient.getQueryData([`/api/devices?mapId=${currentMapId}`]);
+      
+      // Optimistically update to the new value
+      queryClient.setQueryData([`/api/devices?mapId=${currentMapId}`], (old: Device[] | undefined) => {
+        if (!old) return old;
+        return old.map(device => 
+          device.id === id ? { ...device, ...data } : device
+        );
+      });
+      
+      return { previousDevices };
+    },
+    onError: (err, variables, context) => {
+      // Rollback on error
+      if (context?.previousDevices) {
+        queryClient.setQueryData([`/api/devices?mapId=${currentMapId}`], context.previousDevices);
+      }
+    },
+    onSettled: () => {
+      // Refetch after error or success to ensure we're in sync
       queryClient.invalidateQueries({ queryKey: [`/api/devices?mapId=${currentMapId}`] });
     },
   });

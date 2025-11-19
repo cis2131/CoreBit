@@ -30,13 +30,14 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
 
   return (
     <div
-      className={`absolute flex flex-col items-center cursor-move select-none transition-all ${
+      className={`absolute flex flex-col items-center cursor-move select-none ${
         isHighlighted ? 'animate-pulse' : ''
       }`}
       style={{
         left: `${device.position.x}px`,
         top: `${device.position.y}px`,
         transform: 'translate(-50%, -50%)',
+        willChange: 'left, top',
       }}
       onClick={(e) => {
         e.stopPropagation();

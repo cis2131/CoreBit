@@ -35,6 +35,7 @@ export function NetworkCanvas({
   onDraggingComplete,
 }: NetworkCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
+  const animationFrameRef = useRef<number | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -42,6 +43,7 @@ export function NetworkCanvas({
   const [draggedDevice, setDraggedDevice] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [tempPosition, setTempPosition] = useState<{ x: number; y: number } | null>(null);
+  const pendingPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
@@ -101,17 +103,38 @@ export function NetworkCanvas({
       const newX = (e.clientX - rect.left - pan.x - dragOffset.x) / zoom;
       const newY = (e.clientY - rect.top - pan.y - dragOffset.y) / zoom;
 
-      setTempPosition({ x: Math.max(0, newX), y: Math.max(0, newY) });
+      const newPosition = { x: Math.max(0, newX), y: Math.max(0, newY) };
+      pendingPositionRef.current = newPosition;
+
+      // Use requestAnimationFrame for smooth updates
+      if (animationFrameRef.current === null) {
+        animationFrameRef.current = requestAnimationFrame(() => {
+          if (pendingPositionRef.current) {
+            setTempPosition(pendingPositionRef.current);
+          }
+          animationFrameRef.current = null;
+        });
+      }
     }
   };
 
   const handleCanvasMouseUp = (e: React.MouseEvent) => {
     handleMouseUp();
     
-    if (draggedDevice && tempPosition) {
-      onDeviceMove(draggedDevice, tempPosition);
+    // Cancel any pending animation frame
+    if (animationFrameRef.current !== null) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    
+    if (draggedDevice && (tempPosition || pendingPositionRef.current)) {
+      const finalPosition = pendingPositionRef.current || tempPosition;
+      if (finalPosition) {
+        onDeviceMove(draggedDevice, finalPosition);
+      }
       setDraggedDevice(null);
       setTempPosition(null);
+      pendingPositionRef.current = null;
     } else if (draggedDevice) {
       setDraggedDevice(null);
     }
