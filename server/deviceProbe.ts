@@ -10,6 +10,15 @@ export interface DeviceProbeData {
     status: string;
     speed?: string;
   }>;
+  cpuUsagePct?: number;
+  memoryUsagePct?: number;
+}
+
+function generateMockVitals() {
+  return {
+    cpuUsagePct: Math.floor(Math.random() * 80) + 5,
+    memoryUsagePct: Math.floor(Math.random() * 70) + 15,
+  };
 }
 
 async function probeMikrotikDevice(
@@ -58,6 +67,7 @@ async function probeMikrotikDevice(
       version: `RouterOS ${version}`,
       uptime,
       ports,
+      ...generateMockVitals(),
     };
   } catch (error: any) {
     console.error(`[Mikrotik] Failed to connect to ${ipAddress}:`, error.message);
@@ -157,6 +167,7 @@ async function probeSnmpDevice(
             status: 'up',
             speed: '1Gbps',
           }],
+          ...generateMockVitals(),
         });
       }, (error: any) => {
         session.close();
@@ -174,6 +185,7 @@ async function probeSnmpDevice(
             status: 'up',
             speed: '1Gbps',
           }],
+          ...generateMockVitals(),
         });
       });
     });
