@@ -2,12 +2,16 @@ import {
   maps, 
   devices, 
   connections,
+  credentialProfiles,
+  settings,
   type Map, 
   type InsertMap,
   type Device,
   type InsertDevice,
   type Connection,
-  type InsertConnection
+  type InsertConnection,
+  type CredentialProfile,
+  type InsertCredentialProfile
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
@@ -31,6 +35,17 @@ export interface IStorage {
   getConnection(id: string): Promise<Connection | undefined>;
   createConnection(connection: InsertConnection): Promise<Connection>;
   deleteConnection(id: string): Promise<void>;
+
+  // Credential Profiles
+  getAllCredentialProfiles(): Promise<CredentialProfile[]>;
+  getCredentialProfile(id: string): Promise<CredentialProfile | undefined>;
+  createCredentialProfile(profile: InsertCredentialProfile): Promise<CredentialProfile>;
+  updateCredentialProfile(id: string, profile: Partial<InsertCredentialProfile>): Promise<CredentialProfile | undefined>;
+  deleteCredentialProfile(id: string): Promise<void>;
+
+  // Settings
+  getSetting(key: string): Promise<any>;
+  setSetting(key: string, value: any): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -107,6 +122,53 @@ export class DatabaseStorage implements IStorage {
 
   async deleteConnection(id: string): Promise<void> {
     await db.delete(connections).where(eq(connections.id, id));
+  }
+
+  // Credential Profiles
+  async getAllCredentialProfiles(): Promise<CredentialProfile[]> {
+    return await db.select().from(credentialProfiles).orderBy(credentialProfiles.name);
+  }
+
+  async getCredentialProfile(id: string): Promise<CredentialProfile | undefined> {
+    const [profile] = await db.select().from(credentialProfiles).where(eq(credentialProfiles.id, id));
+    return profile || undefined;
+  }
+
+  async createCredentialProfile(insertProfile: InsertCredentialProfile): Promise<CredentialProfile> {
+    const [profile] = await db
+      .insert(credentialProfiles)
+      .values(insertProfile)
+      .returning();
+    return profile;
+  }
+
+  async updateCredentialProfile(id: string, updateData: Partial<InsertCredentialProfile>): Promise<CredentialProfile | undefined> {
+    const [profile] = await db
+      .update(credentialProfiles)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(credentialProfiles.id, id))
+      .returning();
+    return profile || undefined;
+  }
+
+  async deleteCredentialProfile(id: string): Promise<void> {
+    await db.delete(credentialProfiles).where(eq(credentialProfiles.id, id));
+  }
+
+  // Settings
+  async getSetting(key: string): Promise<any> {
+    const [setting] = await db.select().from(settings).where(eq(settings.key, key));
+    return setting?.value;
+  }
+
+  async setSetting(key: string, value: any): Promise<void> {
+    await db
+      .insert(settings)
+      .values({ key, value })
+      .onConflictDoUpdate({
+        target: settings.key,
+        set: { value, updatedAt: new Date() },
+      });
   }
 }
 

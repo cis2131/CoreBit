@@ -27,10 +27,12 @@ This application provides:
 
 ## Database Setup
 
-The application uses PostgreSQL with three main tables:
+The application uses PostgreSQL with five main tables:
 - `maps` - Network topology maps
 - `devices` - Network devices with position and probe data
 - `connections` - Device-to-device connections
+- `credential_profiles` - Reusable credential profiles for device authentication
+- `settings` - Application settings (polling interval, etc.)
 
 **Schema is automatically managed via Drizzle:**
 ```bash
@@ -38,6 +40,8 @@ npm run db:push  # Push schema changes to database
 ```
 
 The DATABASE_URL environment variable is automatically configured by Replit.
+
+**⚠️ SECURITY NOTE**: Credentials are currently stored in plaintext in the database. For production deployment, implement encryption at rest using a solution like AWS KMS, HashiCorp Vault, or pgcrypto.
 
 ## Getting Started
 
