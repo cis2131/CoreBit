@@ -19,8 +19,9 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Search, Plus, Network, Moon, Sun, Link2 } from 'lucide-react';
+import { Search, Plus, Network, Moon, Sun, Link2, Settings } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
+import { Link } from 'wouter';
 
 interface TopToolbarProps {
   maps: Map[];
@@ -154,6 +155,16 @@ export function TopToolbar({
             data-testid="input-search-devices"
           />
         </div>
+
+        <Link href="/settings">
+          <Button
+            size="icon"
+            variant="ghost"
+            data-testid="button-settings"
+          >
+            <Settings className="h-5 w-5" />
+          </Button>
+        </Link>
 
         <Button
           size="icon"
