@@ -26,6 +26,21 @@ export const devices = pgTable("devices", {
     version?: string;
     ports?: Array<{ name: string; status: string; speed?: string }>;
   }>(),
+  credentials: jsonb("credentials").$type<{
+    // For Mikrotik devices
+    username?: string;
+    password?: string;
+    apiPort?: number;
+    // For SNMP devices
+    snmpVersion?: '1' | '2c' | '3';
+    snmpCommunity?: string;
+    // For SNMPv3
+    snmpUsername?: string;
+    snmpAuthProtocol?: 'MD5' | 'SHA';
+    snmpAuthKey?: string;
+    snmpPrivProtocol?: 'DES' | 'AES';
+    snmpPrivKey?: string;
+  }>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -96,6 +111,18 @@ export const insertDeviceSchema = createInsertSchema(devices).omit({
       status: z.string(),
       speed: z.string().optional(),
     })).optional(),
+  }).optional(),
+  credentials: z.object({
+    username: z.string().optional(),
+    password: z.string().optional(),
+    apiPort: z.number().optional(),
+    snmpVersion: z.enum(['1', '2c', '3']).optional(),
+    snmpCommunity: z.string().optional(),
+    snmpUsername: z.string().optional(),
+    snmpAuthProtocol: z.enum(['MD5', 'SHA']).optional(),
+    snmpAuthKey: z.string().optional(),
+    snmpPrivProtocol: z.enum(['DES', 'AES']).optional(),
+    snmpPrivKey: z.string().optional(),
   }).optional(),
 });
 

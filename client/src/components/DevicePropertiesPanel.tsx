@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { X, Trash2, Edit } from 'lucide-react';
+import { DeviceCredentialsCard } from './DeviceCredentialsCard';
 
 interface DevicePropertiesPanelProps {
   device: Device;
@@ -132,6 +133,8 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
               </CardContent>
             </Card>
           )}
+
+          <DeviceCredentialsCard device={device} />
 
           <div>
             <p className="text-xs text-muted-foreground mb-2">Position</p>
