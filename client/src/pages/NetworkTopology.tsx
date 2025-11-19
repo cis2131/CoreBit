@@ -204,7 +204,7 @@ export default function NetworkTopology() {
       targetDeviceId: connectionTarget,
       sourcePort,
       targetPort,
-      type: 'ethernet',
+      connectionType: 'ethernet',
     });
 
     setConnectionSource(null);
@@ -320,8 +320,8 @@ export default function NetworkTopology() {
       <CreateConnectionDialog
         open={connectionDialogOpen}
         onOpenChange={setConnectionDialogOpen}
-        sourceDevice={sourceDevice}
-        targetDevice={targetDevice}
+        sourceDevice={sourceDevice || null}
+        targetDevice={targetDevice || null}
         onConfirm={handleConnectionCreate}
       />
     </div>

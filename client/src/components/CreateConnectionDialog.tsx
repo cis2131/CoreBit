@@ -45,8 +45,8 @@ export function CreateConnectionDialog({
     }
   };
 
-  const sourcePorts = sourceDevice?.deviceData?.ports || [];
-  const targetPorts = targetDevice?.deviceData?.ports || [];
+  const sourcePorts = (sourceDevice?.deviceData?.ports as any[]) || [];
+  const targetPorts = (targetDevice?.deviceData?.ports as any[]) || [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

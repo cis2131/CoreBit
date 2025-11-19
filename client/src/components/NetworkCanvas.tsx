@@ -41,6 +41,7 @@ export function NetworkCanvas({
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [draggedDevice, setDraggedDevice] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [tempPosition, setTempPosition] = useState<{ x: number; y: number } | null>(null);
 
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
@@ -100,14 +101,18 @@ export function NetworkCanvas({
       const newX = (e.clientX - rect.left - pan.x - dragOffset.x) / zoom;
       const newY = (e.clientY - rect.top - pan.y - dragOffset.y) / zoom;
 
-      onDeviceMove(draggedDevice, { x: Math.max(0, newX), y: Math.max(0, newY) });
+      setTempPosition({ x: Math.max(0, newX), y: Math.max(0, newY) });
     }
   };
 
   const handleCanvasMouseUp = (e: React.MouseEvent) => {
     handleMouseUp();
     
-    if (draggedDevice) {
+    if (draggedDevice && tempPosition) {
+      onDeviceMove(draggedDevice, tempPosition);
+      setDraggedDevice(null);
+      setTempPosition(null);
+    } else if (draggedDevice) {
       setDraggedDevice(null);
     }
 
@@ -175,12 +180,19 @@ export function NetworkCanvas({
               const target = devices.find(d => d.id === conn.targetDeviceId);
               if (!source || !target) return null;
 
+              const sourcePosition = draggedDevice === source.id && tempPosition 
+                ? tempPosition 
+                : source.position;
+              const targetPosition = draggedDevice === target.id && tempPosition 
+                ? tempPosition 
+                : target.position;
+
               return (
                 <ConnectionLine
                   key={conn.id}
                   connection={conn}
-                  sourcePosition={source.position}
-                  targetPosition={target.position}
+                  sourcePosition={sourcePosition}
+                  targetPosition={targetPosition}
                   isSelected={selectedConnectionId === conn.id}
                   onClick={() => onConnectionClick(conn.id)}
                 />
@@ -188,16 +200,23 @@ export function NetworkCanvas({
             })}
           </svg>
 
-          {devices.map(device => (
-            <DeviceNode
-              key={device.id}
-              device={device}
-              isSelected={selectedDeviceId === device.id}
-              isHighlighted={matchesSearch(device)}
-              onClick={() => onDeviceClick(device.id)}
-              onDragStart={(e) => handleDeviceDragStart(device.id, e)}
-            />
-          ))}
+          {devices.map(device => {
+            const isDragging = draggedDevice === device.id;
+            const displayDevice = isDragging && tempPosition 
+              ? { ...device, position: tempPosition }
+              : device;
+            
+            return (
+              <DeviceNode
+                key={device.id}
+                device={displayDevice}
+                isSelected={selectedDeviceId === device.id}
+                isHighlighted={matchesSearch(device)}
+                onClick={() => onDeviceClick(device.id)}
+                onDragStart={(e) => handleDeviceDragStart(device.id, e)}
+              />
+            );
+          })}
 
           {devices.length === 0 && !draggingDeviceType && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
