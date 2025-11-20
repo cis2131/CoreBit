@@ -2,7 +2,7 @@ import { Device } from '@shared/schema';
 import { Server, Router, Wifi, HardDrive, Activity, Cpu, MemoryStick, Clock } from 'lucide-react';
 
 interface DeviceNodeProps {
-  device: Device;
+  device: Device & { position: { x: number; y: number } };
   isSelected: boolean;
   isHighlighted: boolean;
   onClick: () => void;
