@@ -130,7 +130,7 @@ export function AddDeviceDialog({
         name: name.trim(),
         type,
         ipAddress: ipAddress.trim(),
-        position: editDevice ? editDevice.position : initialPosition,
+        position: initialPosition,
       };
 
       let credentialData = {};

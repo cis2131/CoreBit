@@ -8,6 +8,7 @@ interface DeviceListSidebarProps {
   devices: Device[];
   onDeviceDragStart?: (deviceId: string) => void;
   onEditDevice?: (device: Device) => void;
+  onDeviceClick?: (deviceId: string) => void;
 }
 
 const deviceTypeIcons: Record<string, React.ElementType> = {
@@ -31,7 +32,7 @@ function getStatusColor(status: string): string {
   }
 }
 
-export function DeviceListSidebar({ devices, onDeviceDragStart, onEditDevice }: DeviceListSidebarProps) {
+export function DeviceListSidebar({ devices, onDeviceDragStart, onEditDevice, onDeviceClick }: DeviceListSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   return (
@@ -66,6 +67,7 @@ export function DeviceListSidebar({ devices, onDeviceDragStart, onEditDevice }: 
                     className="p-2 rounded-md cursor-grab active:cursor-grabbing hover-elevate border border-border"
                     draggable
                     onDragStart={() => onDeviceDragStart?.(device.id)}
+                    onClick={() => onDeviceClick?.(device.id)}
                     data-testid={`device-list-item-${device.id}`}
                   >
                     <div className="flex items-center gap-2">

@@ -413,6 +413,13 @@ export default function NetworkTopology() {
           devices={allDevices}
           onDeviceDragStart={setDraggingDeviceId}
           onEditDevice={handleDeviceEdit}
+          onDeviceClick={(deviceId) => {
+            const device = devicesOnMap.find(d => d.id === deviceId);
+            if (device) {
+              setSelectedDeviceId(deviceId);
+              setSelectedPlacementId(device.placementId);
+            }
+          }}
         />
 
         <div className="flex-1">
