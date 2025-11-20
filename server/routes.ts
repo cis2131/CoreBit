@@ -345,46 +345,146 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Parallel probing with bounded concurrency
+  // For 400+ devices in 30s window: 80 concurrent * 6s timeout = ~400 devices in 30s worst-case
+  const CONCURRENT_PROBES = 80; // Scaled for 400+ devices
+  const PROBE_TIMEOUT_MS = 6000; // Per-device timeout
+  
+  interface ProbeResult {
+    device: any;
+    success: boolean;
+    timeout: boolean;
+    error?: string;
+  }
+  
+  async function probeDeviceWithTimeout(device: any, credentials: any): Promise<ProbeResult> {
+    let timeoutId: NodeJS.Timeout;
+    let timedOut = false;
+    
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        reject(new Error('Probe timeout'));
+      }, PROBE_TIMEOUT_MS);
+    });
+    
+    const probePromise = (async () => {
+      const probeResult = await probeDevice(
+        device.type,
+        device.ipAddress,
+        credentials
+      );
+      
+      if (timedOut) {
+        return { device, success: false, timeout: true };
+      }
+      
+      const status = determineDeviceStatus(probeResult.data, probeResult.success);
+      
+      if (status !== device.status || probeResult.success) {
+        await storage.updateDevice(device.id, {
+          status,
+          deviceData: probeResult.success ? probeResult.data : (device.deviceData || undefined),
+        });
+        console.log(`[Probing] Updated ${device.name} (${device.ipAddress}): ${status}`);
+      }
+      
+      return { device, success: probeResult.success, timeout: false };
+    })();
+    
+    try {
+      const result = await Promise.race([probePromise, timeoutPromise]);
+      clearTimeout(timeoutId!);
+      return result;
+    } catch (error: any) {
+      clearTimeout(timeoutId!);
+      if (error.message === 'Probe timeout') {
+        console.warn(`[Probing] Timeout probing ${device.name} (${device.ipAddress})`);
+        return { device, success: false, timeout: true };
+      }
+      console.error(`[Probing] Failed to probe ${device.name}:`, error.message);
+      return { device, success: false, timeout: false, error: error.message };
+    }
+  }
+  
+  async function processConcurrentQueue(devices: any[], concurrency: number): Promise<ProbeResult[]> {
+    const results: ProbeResult[] = [];
+    const queue = [...devices];
+    const active: Promise<void>[] = [];
+    
+    while (queue.length > 0 || active.length > 0) {
+      while (active.length < concurrency && queue.length > 0) {
+        const device = queue.shift()!;
+        if (!device.ipAddress) continue;
+        
+        const promise = (async () => {
+          try {
+            const credentials = await resolveCredentials(device);
+            const result = await probeDeviceWithTimeout(device, credentials);
+            results.push(result);
+          } catch (error: any) {
+            results.push({ device, success: false, timeout: false, error: error.message });
+          }
+        })();
+        
+        active.push(promise);
+        promise.finally(() => {
+          const index = active.indexOf(promise);
+          if (index > -1) active.splice(index, 1);
+        });
+      }
+      
+      if (active.length > 0) {
+        await Promise.race(active);
+      }
+    }
+    
+    return results;
+  }
+  
   // Start periodic device probing (configurable interval)
+  let isProbing = false; // Guard against overlapping runs
+  
   async function startPeriodicProbing() {
     const pollingInterval = await storage.getSetting('polling_interval') || 30;
     const intervalMs = parseInt(pollingInterval) * 1000;
     
-    console.log(`[Probing] Starting automatic device probing service (${pollingInterval}s interval)`);
+    console.log(`[Probing] Starting automatic device probing service (${pollingInterval}s interval, ${CONCURRENT_PROBES} concurrent)`);
     
     setInterval(async () => {
+      if (isProbing) {
+        console.warn('[Probing] Previous probe cycle still running, skipping this interval');
+        return;
+      }
+      
+      isProbing = true;
+      const startTime = Date.now();
+      
       try {
         const maps = await storage.getAllMaps();
+        const allDevices: any[] = [];
+        
         for (const map of maps) {
           const devices = await storage.getDevicesByMapId(map.id);
-          
-          for (const device of devices) {
-            if (!device.ipAddress) continue;
-            
-            try {
-              const credentials = await resolveCredentials(device);
-              const probeResult = await probeDevice(
-                device.type,
-                device.ipAddress,
-                credentials
-              );
-              const status = determineDeviceStatus(probeResult.data, probeResult.success);
-              
-              // Only update if status or data changed
-              if (status !== device.status || probeResult.success) {
-                await storage.updateDevice(device.id, {
-                  status,
-                  deviceData: probeResult.success ? probeResult.data : (device.deviceData || undefined),
-                });
-                console.log(`[Probing] Updated ${device.name} (${device.ipAddress}): ${status}`);
-              }
-            } catch (error: any) {
-              console.error(`[Probing] Failed to probe ${device.name}:`, error.message);
-            }
-          }
+          allDevices.push(...devices.filter(d => d.ipAddress));
         }
+        
+        const totalDevices = allDevices.length;
+        console.log(`[Probing] Starting probe cycle for ${totalDevices} devices`);
+        
+        const results = await processConcurrentQueue(allDevices, CONCURRENT_PROBES);
+        
+        const successCount = results.filter(r => r.success).length;
+        const timeoutCount = results.filter(r => r.timeout).length;
+        const errorCount = results.filter(r => !r.success && !r.timeout).length;
+        const successRate = totalDevices > 0 ? ((successCount / totalDevices) * 100).toFixed(1) : '0';
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+        
+        console.log(`[Probing] Completed cycle in ${duration}s: ${totalDevices} devices, ${successCount} success (${successRate}%), ${timeoutCount} timeout, ${errorCount} error`);
       } catch (error) {
         console.error('[Probing] Error in periodic probing:', error);
+      } finally {
+        isProbing = false;
       }
     }, intervalMs);
   }

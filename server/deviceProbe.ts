@@ -29,7 +29,7 @@ async function probeMikrotikDevice(
     user: username,
     password: password,
     port: port,
-    timeout: 10,
+    timeout: 5,
   });
 
   try {
@@ -117,15 +117,15 @@ async function probeSnmpDevice(
 
       session = snmp.createV3Session(ipAddress, user, {
         port: 161,
-        retries: 1,
-        timeout: 5000,
+        retries: 0,
+        timeout: 4000,
       });
     } else {
       const version = snmpVersion === '1' ? snmp.Version1 : snmp.Version2c;
       session = snmp.createSession(ipAddress, community, {
         port: 161,
-        retries: 1,
-        timeout: 5000,
+        retries: 0,
+        timeout: 4000,
         version,
       });
     }
