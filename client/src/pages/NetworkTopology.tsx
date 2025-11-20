@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Map, Device, Connection, InsertDevice, InsertConnection } from '@shared/schema';
 import { NetworkCanvas } from '@/components/NetworkCanvas';
-import { DeviceLibrary } from '@/components/DeviceLibrary';
 import { DevicePropertiesPanel } from '@/components/DevicePropertiesPanel';
 import { ConnectionPropertiesPanel } from '@/components/ConnectionPropertiesPanel';
 import { TopToolbar } from '@/components/TopToolbar';
@@ -274,6 +273,7 @@ export default function NetworkTopology() {
           onSearchChange={setSearchQuery}
           connectionMode={connectionMode}
           onConnectionModeToggle={handleConnectionModeToggle}
+          onDeviceDragStart={setDraggingDeviceType}
         />
         <div className="flex-1 flex items-center justify-center bg-background">
           <div className="text-center space-y-4 max-w-md p-8">
@@ -298,13 +298,10 @@ export default function NetworkTopology() {
         onSearchChange={setSearchQuery}
         connectionMode={connectionMode}
         onConnectionModeToggle={handleConnectionModeToggle}
+        onDeviceDragStart={setDraggingDeviceType}
       />
 
       <div className="flex-1 flex overflow-hidden">
-        <div className="w-64 flex-shrink-0">
-          <DeviceLibrary onDeviceDragStart={setDraggingDeviceType} />
-        </div>
-
         <div className="flex-1">
           {currentMapId ? (
             <NetworkCanvas

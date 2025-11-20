@@ -93,10 +93,12 @@ The application runs on port 5000 with:
 
 ### UI/UX
 - Professional network management aesthetic
+- Compact device palette in top toolbar (draw.io style)
 - Dark/light theme toggle
 - Device properties panel
 - Empty states and loading indicators
 - Responsive design
+- Left sidebar available for future features
 
 ## API Endpoints
 
