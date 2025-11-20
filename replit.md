@@ -75,10 +75,12 @@ The application runs on port 5000 with:
 ### Devices
 - Drag-and-drop device placement from library
 - Device types: Mikrotik Router, Mikrotik Switch, Generic SNMP, Server, Access Point
-- Auto-probing returns mock data:
-  - Model, version, uptime
+- Real-time device probing with actual data:
+  - Model, version, uptime from Mikrotik API / SNMP
   - Network ports with status and speed
+  - CPU and memory usage from device APIs
   - Device status (online, warning, offline, unknown)
+- Parallel probing service (80 concurrent probes, 400+ device scale)
 - Search devices by name, IP, or type
 - Edit and delete devices
 
@@ -132,15 +134,36 @@ See `design_guidelines.md` for complete design specifications.
 - Zod for runtime validation
 - All components use Shadcn UI primitives
 
+## Parallel Probing Architecture
+
+The application uses a high-performance parallel probing system designed to handle 400+ devices within a 30-second polling interval:
+
+**Configuration:**
+- 80 concurrent device probes
+- 6-second per-device timeout wrapper
+- 5-second Mikrotik API timeout
+- 4-second SNMP timeout with 0 retries
+
+**Features:**
+- Bounded-concurrency queue maintains exactly 80 active probes
+- Non-overlapping probe scheduling with re-entry guard
+- Timeout protection prevents hung probes from blocking the queue
+- Storage update guard prevents late-arriving completions from writing after timeout
+- Comprehensive telemetry: success rate, timeout count, error count, cycle duration
+
+**Performance:**
+- Worst-case: ceil(400/80) × 6s = 30 seconds for 400 offline devices
+- Typical case: Much faster for responsive devices
+- Scales linearly with device count up to the concurrency limit
+
 ## Future Enhancements (Next Phase)
 
-- Real Mikrotik API integration (via node-routeros)
-- Actual SNMP protocol support (via net-snmp)
-- WebSocket for real-time device status updates
-- Connection drawing between devices
+- WebSocket for real-time device status updates (push vs. poll)
 - Device grouping and hierarchical organization
 - Export/import network topology configurations
 - Alert notifications for device status changes
+- Historical performance graphs (CPU/memory trends over time)
+- Network traffic monitoring on connections
 
 ## Project Structure
 
@@ -154,8 +177,8 @@ See `design_guidelines.md` for complete design specifications.
 ├── server/              # Express backend
 │   ├── db.ts           # Database connection
 │   ├── storage.ts      # Data access layer
-│   ├── routes.ts       # API endpoints
-│   └── deviceProbe.ts  # Mock device probing
+│   ├── routes.ts       # API endpoints & probing service
+│   └── deviceProbe.ts  # Real Mikrotik & SNMP probing
 ├── shared/             # Shared types and schemas
 │   └── schema.ts       # Drizzle schema and Zod validation
 └── design_guidelines.md # UI/UX specifications
@@ -164,6 +187,7 @@ See `design_guidelines.md` for complete design specifications.
 ## Notes
 
 - Database is pre-provisioned with DATABASE_URL environment variable
-- Mock device data simulates real Mikrotik and SNMP responses
+- Real device probing via Mikrotik API (node-routeros) and SNMP (net-snmp)
 - Canvas uses CSS transforms for pan/zoom operations
 - Device positions stored in database for persistence
+- Parallel probing service automatically starts on application launch
