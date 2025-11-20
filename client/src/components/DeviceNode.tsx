@@ -1,6 +1,5 @@
 import { Device } from '@shared/schema';
 import { Server, Router, Wifi, HardDrive, Activity } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 
 interface DeviceNodeProps {
   device: Device;
@@ -28,9 +27,18 @@ const statusColors = {
 export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragStart }: DeviceNodeProps) {
   const Icon = deviceIcons[device.type as keyof typeof deviceIcons] || Activity;
 
+  // Calculate port status counts
+  const ports = device.deviceData?.ports || [];
+  const onlinePorts = ports.filter(p => p.status === 'up').length;
+  const offlinePorts = ports.filter(p => p.status === 'down').length;
+  const unknownPorts = ports.filter(p => p.status !== 'up' && p.status !== 'down').length;
+
+  // Extract model or use type as fallback
+  const subtitle = device.deviceData?.model || device.type.replace(/_/g, ' ').toUpperCase();
+
   return (
     <div
-      className={`absolute flex flex-col items-center cursor-move select-none ${
+      className={`absolute cursor-move select-none ${
         isHighlighted ? 'animate-pulse' : ''
       }`}
       style={{
@@ -47,57 +55,97 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
       data-testid={`device-node-${device.id}`}
     >
       <div
-        className={`relative bg-white dark:bg-gray-900 rounded-md p-4 border-2 transition-all hover-elevate ${
+        className={`relative bg-white dark:bg-gray-800 rounded-lg border-2 transition-all hover-elevate ${
           isSelected
             ? 'border-primary shadow-lg'
             : isHighlighted
             ? 'border-yellow-400 shadow-md'
             : 'border-border'
         }`}
-        style={{ minWidth: '120px' }}
+        style={{ width: '300px', height: '110px' }}
       >
+        {/* Status indicator dot */}
         <div
-          className={`absolute -top-2 -right-2 w-4 h-4 rounded-full border-2 border-white dark:border-gray-900 ${
+          className={`absolute top-3 right-3 w-3 h-3 rounded-full ${
             statusColors[device.status as keyof typeof statusColors] || statusColors.unknown
           }`}
           data-testid={`status-indicator-${device.status}`}
         />
 
-        <div className="flex flex-col items-center gap-2">
-          <Icon className="h-12 w-12 text-primary" />
-          <div className="text-center space-y-1">
-            <p className="text-sm font-semibold text-foreground line-clamp-2" data-testid={`text-device-name-${device.id}`}>
-              {device.name}
-            </p>
-            {device.ipAddress && (
-              <p className="text-xs text-muted-foreground" data-testid={`text-ip-${device.id}`}>
-                {device.ipAddress}
+        {/* Main content */}
+        <div className="flex items-start gap-3 p-3 h-full">
+          {/* Left: Icon */}
+          <div className="flex-shrink-0 mt-0.5">
+            <Icon className="h-6 w-6 text-foreground" />
+          </div>
+
+          {/* Center: Device info */}
+          <div className="flex-1 min-w-0">
+            {/* Device name and subtitle */}
+            <div className="mb-2">
+              <h3 className="text-base font-bold text-foreground truncate" data-testid={`text-device-name-${device.id}`}>
+                {device.name}
+              </h3>
+              <p className="text-xs text-muted-foreground truncate">
+                {subtitle}
               </p>
-            )}
+            </div>
+
+            {/* Bottom row: Model/IP and port status */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                {device.ipAddress && (
+                  <p className="text-xs text-muted-foreground font-medium truncate" data-testid={`text-ip-${device.id}`}>
+                    {device.ipAddress}
+                  </p>
+                )}
+              </div>
+
+              {/* Port status indicators */}
+              {ports.length > 0 && (
+                <div className="flex items-center gap-2 text-xs">
+                  {onlinePorts > 0 && (
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-2 rounded-full bg-green-500" />
+                      <span className="font-medium text-foreground">{onlinePorts}</span>
+                    </div>
+                  )}
+                  {unknownPorts > 0 && (
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-2 rounded-full bg-gray-400" />
+                      <span className="font-medium text-foreground">{unknownPorts}</span>
+                    </div>
+                  )}
+                  {offlinePorts > 0 && (
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-2 rounded-full bg-red-500" />
+                      <span className="font-medium text-foreground">{offlinePorts}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Right: CPU/Memory stats */}
+          {device.deviceData?.cpuUsagePct !== undefined && device.deviceData?.memoryUsagePct !== undefined && (
+            <div className="flex-shrink-0 flex flex-col items-end gap-0.5 text-xs font-medium" data-testid={`vitals-${device.id}`}>
+              <div className="flex items-baseline gap-1">
+                <span className="font-mono font-bold text-foreground">{device.deviceData.cpuUsagePct}</span>
+                <span className="text-muted-foreground">/</span>
+                <span className="font-mono font-bold text-foreground">{device.deviceData.memoryUsagePct}</span>
+                <span className="text-muted-foreground">/</span>
+                <span className="font-mono font-bold text-foreground">
+                  {device.deviceData.uptime ? Math.floor(parseInt(device.deviceData.uptime) / 86400) : 0}
+                </span>
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                CPU/MEM/UP
+              </div>
+            </div>
+          )}
         </div>
-
-        {device.deviceData?.cpuUsagePct !== undefined && device.deviceData?.memoryUsagePct !== undefined && (
-          <div className="flex gap-2 mt-2 pt-2 border-t border-border text-xs">
-            <div className="flex items-center gap-1" data-testid={`vitals-cpu-${device.id}`}>
-              <span className="font-medium text-muted-foreground">CPU</span>
-              <span className="font-mono font-semibold text-foreground">{device.deviceData.cpuUsagePct}%</span>
-            </div>
-            <div className="flex items-center gap-1" data-testid={`vitals-mem-${device.id}`}>
-              <span className="font-medium text-muted-foreground">MEM</span>
-              <span className="font-mono font-semibold text-foreground">{device.deviceData.memoryUsagePct}%</span>
-            </div>
-          </div>
-        )}
       </div>
-
-      <Badge
-        variant="secondary"
-        className="mt-2 text-xs"
-        data-testid={`badge-device-type-${device.id}`}
-      >
-        {device.type.replace(/_/g, ' ')}
-      </Badge>
     </div>
   );
 }
