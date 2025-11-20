@@ -38,12 +38,12 @@ export default function NetworkTopology() {
 
   // Placements for current map
   const { data: placements = [] } = useQuery<DevicePlacement[]>({
-    queryKey: ['/api/placements', currentMapId],
+    queryKey: currentMapId ? ['/api/placements', currentMapId] : [],
     enabled: !!currentMapId,
   });
 
   const { data: connections = [] } = useQuery<Connection[]>({
-    queryKey: ['/api/connections', currentMapId],
+    queryKey: currentMapId ? ['/api/connections', currentMapId] : [],
     enabled: !!currentMapId,
   });
 
