@@ -41,11 +41,9 @@ export const settings = pgTable("settings", {
 
 export const devices = pgTable("devices", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  mapId: varchar("map_id").notNull().references(() => maps.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   type: text("type").notNull(),
   ipAddress: text("ip_address"),
-  position: jsonb("position").notNull().$type<{ x: number; y: number }>(),
   status: text("status").notNull().default("unknown"),
   deviceData: jsonb("device_data").$type<{
     uptime?: string;
@@ -72,6 +70,14 @@ export const devices = pgTable("devices", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const devicePlacements = pgTable("device_placements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  deviceId: varchar("device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
+  mapId: varchar("map_id").notNull().references(() => maps.id, { onDelete: "cascade" }),
+  position: jsonb("position").notNull().$type<{ x: number; y: number }>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const connections = pgTable("connections", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   mapId: varchar("map_id").notNull().references(() => maps.id, { onDelete: "cascade" }),
@@ -91,17 +97,25 @@ export const connections = pgTable("connections", {
 });
 
 export const mapsRelations = relations(maps, ({ many }) => ({
-  devices: many(devices),
+  devicePlacements: many(devicePlacements),
   connections: many(connections),
 }));
 
-export const devicesRelations = relations(devices, ({ one, many }) => ({
-  map: one(maps, {
-    fields: [devices.mapId],
-    references: [maps.id],
-  }),
+export const devicesRelations = relations(devices, ({ many }) => ({
+  placements: many(devicePlacements),
   sourceConnections: many(connections, { relationName: "sourceDevice" }),
   targetConnections: many(connections, { relationName: "targetDevice" }),
+}));
+
+export const devicePlacementsRelations = relations(devicePlacements, ({ one }) => ({
+  device: one(devices, {
+    fields: [devicePlacements.deviceId],
+    references: [devices.id],
+  }),
+  map: one(maps, {
+    fields: [devicePlacements.mapId],
+    references: [maps.id],
+  }),
 }));
 
 export const connectionsRelations = relations(connections, ({ one }) => ({
@@ -153,10 +167,6 @@ export const insertDeviceSchema = createInsertSchema(devices).omit({
   createdAt: true,
   updatedAt: true,
 }).extend({
-  position: z.object({
-    x: z.number(),
-    y: z.number(),
-  }),
   deviceData: z.object({
     uptime: z.string().optional(),
     model: z.string().optional(),
@@ -170,6 +180,16 @@ export const insertDeviceSchema = createInsertSchema(devices).omit({
     memoryUsagePct: z.number().optional(),
   }).optional(),
   customCredentials: credentialsSchema.optional(),
+});
+
+export const insertDevicePlacementSchema = createInsertSchema(devicePlacements).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  position: z.object({
+    x: z.number(),
+    y: z.number(),
+  }),
 });
 
 export const insertConnectionSchema = createInsertSchema(connections).omit({
@@ -189,6 +209,8 @@ export type Map = typeof maps.$inferSelect;
 export type InsertMap = z.infer<typeof insertMapSchema>;
 export type Device = typeof devices.$inferSelect;
 export type InsertDevice = z.infer<typeof insertDeviceSchema>;
+export type DevicePlacement = typeof devicePlacements.$inferSelect;
+export type InsertDevicePlacement = z.infer<typeof insertDevicePlacementSchema>;
 export type Connection = typeof connections.$inferSelect;
 export type InsertConnection = z.infer<typeof insertConnectionSchema>;
 export type CredentialProfile = typeof credentialProfiles.$inferSelect;
