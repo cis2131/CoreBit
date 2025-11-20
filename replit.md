@@ -27,12 +27,15 @@ This application provides:
 
 ## Database Setup
 
-The application uses PostgreSQL with five main tables:
+The application uses PostgreSQL with six main tables:
 - `maps` - Network topology maps
-- `devices` - Network devices with position and probe data
-- `connections` - Device-to-device connections
+- `devices` - Global network devices (independent of maps)
+- `device_placements` - Junction table linking devices to maps with positions
+- `connections` - Device-to-device connections (map-specific)
 - `credential_profiles` - Reusable credential profiles for device authentication
 - `settings` - Application settings (polling interval, etc.)
+
+**Global Device Model**: Devices are stored globally and can be placed on multiple maps via the `device_placements` junction table. This allows the same physical device to appear on different network topology maps.
 
 **Schema is automatically managed via Drizzle:**
 ```bash
@@ -73,7 +76,9 @@ The application runs on port 5000 with:
 - Organize devices by network segment
 
 ### Devices
-- Drag-and-drop device placement from library
+- **Global device library**: Devices exist independently and can be placed on multiple maps
+- **Drag-and-drop from sidebar**: Drag devices from the left sidebar onto any map
+- **Add new devices**: Create devices via "Add Device" button in toolbar
 - Device types: Mikrotik Router, Mikrotik Switch, Generic SNMP, Server, Access Point
 - Real-time device probing with actual data:
   - Model, version, uptime from Mikrotik API / SNMP
@@ -82,7 +87,9 @@ The application runs on port 5000 with:
   - Device status (online, warning, offline, unknown)
 - Parallel probing service (80 concurrent probes, 400+ device scale)
 - Search devices by name, IP, or type
-- Edit and delete devices
+- Edit devices (global changes apply to all maps)
+- Delete from map (removes placement only) or delete globally (removes device everywhere)
+- Duplicate placement prevention (same device can't be placed twice on same map)
 
 ### Canvas
 - Pan and zoom controls
@@ -93,12 +100,12 @@ The application runs on port 5000 with:
 
 ### UI/UX
 - Professional network management aesthetic
-- Compact device palette in top toolbar (draw.io style)
+- Collapsible left sidebar with global device library
+- "Add Device" button in top toolbar
 - Dark/light theme toggle
 - Device properties panel
 - Empty states and loading indicators
 - Responsive design
-- Left sidebar available for future features
 
 ## API Endpoints
 
@@ -107,14 +114,20 @@ The application runs on port 5000 with:
 - `POST /api/maps` - Create new map
 - `DELETE /api/maps/:id` - Delete map
 
-**Devices:**
-- `GET /api/devices?mapId=xxx` - List devices for map
+**Devices (Global):**
+- `GET /api/devices` - List all devices
 - `POST /api/devices` - Create device (auto-probes for data)
 - `PATCH /api/devices/:id` - Update device
-- `DELETE /api/devices/:id` - Delete device
+- `DELETE /api/devices/:id` - Delete device globally (cascades placements)
 
-**Connections:**
-- `GET /api/connections?mapId=xxx` - List connections for map
+**Device Placements (Map-specific):**
+- `GET /api/placements/:mapId` - List device placements for map
+- `POST /api/placements` - Place device on map (validates no duplicates)
+- `PATCH /api/placements/:id` - Update placement position
+- `DELETE /api/placements/:id` - Remove device from map (auto-cleans connections)
+
+**Connections (Map-specific):**
+- `GET /api/connections/:mapId` - List connections for map
 - `POST /api/connections` - Create connection
 - `DELETE /api/connections/:id` - Delete connection
 
@@ -186,10 +199,20 @@ The application uses a high-performance parallel probing system designed to hand
 └── design_guidelines.md # UI/UX specifications
 ```
 
+## Recent Architecture Changes
+
+**Global Device Model (November 2025):**
+- Migrated from map-specific devices to global device library
+- Devices can now appear on multiple maps via `device_placements` junction table
+- Left sidebar shows all devices, draggable onto any map
+- Duplicate placement prevention ensures a device only appears once per map
+- Connection cleanup automatically removes connections when device is removed from map
+- Cache invalidation ensures real-time UI updates for placements and connections
+
 ## Notes
 
 - Database is pre-provisioned with DATABASE_URL environment variable
 - Real device probing via Mikrotik API (node-routeros) and SNMP (net-snmp)
 - Canvas uses CSS transforms for pan/zoom operations
-- Device positions stored in database for persistence
-- Parallel probing service automatically starts on application launch
+- Device positions stored in `device_placements` table for persistence across maps
+- Parallel probing service automatically starts on application launch and probes all global devices
