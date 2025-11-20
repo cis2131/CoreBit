@@ -1,5 +1,5 @@
 import { Device } from '@shared/schema';
-import { Server, Router, Wifi, HardDrive, Activity, Cpu, MemoryStick } from 'lucide-react';
+import { Server, Router, Wifi, HardDrive, Activity, Cpu, MemoryStick, Clock } from 'lucide-react';
 
 interface DeviceNodeProps {
   device: Device;
@@ -31,10 +31,14 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
   const ports = device.deviceData?.ports || [];
   const onlinePorts = ports.filter(p => p.status === 'up').length;
   const offlinePorts = ports.filter(p => p.status === 'down').length;
-  const unknownPorts = ports.filter(p => p.status !== 'up' && p.status !== 'down').length;
 
   // Extract model or use type as fallback
   const subtitle = device.deviceData?.model || device.type.replace(/_/g, ' ').toUpperCase();
+
+  // Calculate uptime in days
+  const uptimeDays = device.deviceData?.uptime 
+    ? Math.floor(parseInt(device.deviceData.uptime) / 86400) 
+    : 0;
 
   return (
     <div
@@ -74,7 +78,7 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
 
         {/* Main content */}
         <div className="p-3">
-          {/* Top row: Icon + Name + CPU/MEM/UP */}
+          {/* Top row: Icon + Name */}
           <div className="flex items-start gap-3 mb-2">
             {/* Icon */}
             <div className="flex-shrink-0 mt-0.5">
@@ -82,25 +86,11 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
             </div>
 
             {/* Device name */}
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 pr-6">
               <h3 className="text-lg font-bold text-foreground truncate" data-testid={`text-device-name-${device.id}`}>
                 {device.name}
               </h3>
             </div>
-
-            {/* CPU/MEM/UP stats (top right) */}
-            {device.deviceData?.cpuUsagePct !== undefined && device.deviceData?.memoryUsagePct !== undefined && (
-              <div className="flex-shrink-0 flex flex-col items-end gap-0.5" data-testid={`vitals-${device.id}`}>
-                <div className="flex items-baseline gap-1 text-sm font-bold">
-                  <span className="font-mono text-foreground">{device.deviceData.cpuUsagePct}</span>
-                  <span className="text-muted-foreground">/</span>
-                  <span className="font-mono text-foreground">{device.deviceData.memoryUsagePct}</span>
-                </div>
-                <div className="text-[9px] text-muted-foreground font-medium">
-                  CPU/MEM/UP
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Subtitle (model) */}
@@ -111,8 +101,8 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
           </div>
 
           {/* Bottom status bar */}
-          <div className="flex items-center justify-between gap-3 pt-2 border-t border-border ml-9">
-            {/* IP address */}
+          <div className="flex items-center justify-between gap-3 pt-2 border-t border-border">
+            {/* Left: IP address */}
             <div className="flex-1 min-w-0">
               {device.ipAddress && (
                 <p className="text-sm text-muted-foreground font-medium truncate" data-testid={`text-ip-${device.id}`}>
@@ -121,23 +111,44 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
               )}
             </div>
 
-            {/* Port status indicators */}
-            {ports.length > 0 && (
-              <div className="flex items-center gap-3 text-sm font-bold">
-                {onlinePorts > 0 && (
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
-                    <span className="text-foreground">{onlinePorts}</span>
+            {/* Right: CPU, MEM, UP, and Port status */}
+            <div className="flex items-center gap-3">
+              {/* CPU/MEM/UP with icons */}
+              {device.deviceData?.cpuUsagePct !== undefined && device.deviceData?.memoryUsagePct !== undefined && (
+                <div className="flex items-center gap-2 text-xs" data-testid={`vitals-${device.id}`}>
+                  <div className="flex items-center gap-1">
+                    <Cpu className="h-3 w-3 text-muted-foreground" />
+                    <span className="font-bold text-foreground">{device.deviceData.cpuUsagePct}</span>
                   </div>
-                )}
-                {offlinePorts > 0 && (
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
-                    <span className="text-foreground">{offlinePorts}</span>
+                  <div className="flex items-center gap-1">
+                    <MemoryStick className="h-3 w-3 text-muted-foreground" />
+                    <span className="font-bold text-foreground">{device.deviceData.memoryUsagePct}</span>
                   </div>
-                )}
-              </div>
-            )}
+                  <div className="flex items-center gap-1">
+                    <Clock className="h-3 w-3 text-muted-foreground" />
+                    <span className="font-bold text-foreground">{uptimeDays}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Port status indicators */}
+              {ports.length > 0 && (
+                <div className="flex items-center gap-2 text-sm font-bold">
+                  {onlinePorts > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                      <span className="text-foreground">{onlinePorts}</span>
+                    </div>
+                  )}
+                  {offlinePorts > 0 && (
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                      <span className="text-foreground">{offlinePorts}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
