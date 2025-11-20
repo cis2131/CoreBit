@@ -1,5 +1,5 @@
 import { Device } from '@shared/schema';
-import { Server, Router, Wifi, HardDrive, Activity } from 'lucide-react';
+import { Server, Router, Wifi, HardDrive, Activity, Cpu, MemoryStick } from 'lucide-react';
 
 interface DeviceNodeProps {
   device: Device;
@@ -62,7 +62,7 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
             ? 'border-yellow-400 shadow-md'
             : 'border-border'
         }`}
-        style={{ width: '300px', height: '110px' }}
+        style={{ width: '320px' }}
       >
         {/* Status indicator dot */}
         <div
@@ -73,77 +73,72 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
         />
 
         {/* Main content */}
-        <div className="flex items-start gap-3 p-3 h-full">
-          {/* Left: Icon */}
-          <div className="flex-shrink-0 mt-0.5">
-            <Icon className="h-6 w-6 text-foreground" />
-          </div>
+        <div className="p-3">
+          {/* Top row: Icon + Name + CPU/MEM/UP */}
+          <div className="flex items-start gap-3 mb-2">
+            {/* Icon */}
+            <div className="flex-shrink-0 mt-0.5">
+              <Icon className="h-6 w-6 text-foreground" />
+            </div>
 
-          {/* Center: Device info */}
-          <div className="flex-1 min-w-0">
-            {/* Device name and subtitle */}
-            <div className="mb-2">
-              <h3 className="text-base font-bold text-foreground truncate" data-testid={`text-device-name-${device.id}`}>
+            {/* Device name */}
+            <div className="flex-1 min-w-0">
+              <h3 className="text-lg font-bold text-foreground truncate" data-testid={`text-device-name-${device.id}`}>
                 {device.name}
               </h3>
-              <p className="text-xs text-muted-foreground truncate">
-                {subtitle}
-              </p>
             </div>
 
-            {/* Bottom row: Model/IP and port status */}
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                {device.ipAddress && (
-                  <p className="text-xs text-muted-foreground font-medium truncate" data-testid={`text-ip-${device.id}`}>
-                    {device.ipAddress}
-                  </p>
-                )}
-              </div>
-
-              {/* Port status indicators */}
-              {ports.length > 0 && (
-                <div className="flex items-center gap-2 text-xs">
-                  {onlinePorts > 0 && (
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 rounded-full bg-green-500" />
-                      <span className="font-medium text-foreground">{onlinePorts}</span>
-                    </div>
-                  )}
-                  {unknownPorts > 0 && (
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 rounded-full bg-gray-400" />
-                      <span className="font-medium text-foreground">{unknownPorts}</span>
-                    </div>
-                  )}
-                  {offlinePorts > 0 && (
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 rounded-full bg-red-500" />
-                      <span className="font-medium text-foreground">{offlinePorts}</span>
-                    </div>
-                  )}
+            {/* CPU/MEM/UP stats (top right) */}
+            {device.deviceData?.cpuUsagePct !== undefined && device.deviceData?.memoryUsagePct !== undefined && (
+              <div className="flex-shrink-0 flex flex-col items-end gap-0.5" data-testid={`vitals-${device.id}`}>
+                <div className="flex items-baseline gap-1 text-sm font-bold">
+                  <span className="font-mono text-foreground">{device.deviceData.cpuUsagePct}</span>
+                  <span className="text-muted-foreground">/</span>
+                  <span className="font-mono text-foreground">{device.deviceData.memoryUsagePct}</span>
                 </div>
-              )}
-            </div>
+                <div className="text-[9px] text-muted-foreground font-medium">
+                  CPU/MEM/UP
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Right: CPU/Memory stats */}
-          {device.deviceData?.cpuUsagePct !== undefined && device.deviceData?.memoryUsagePct !== undefined && (
-            <div className="flex-shrink-0 flex flex-col items-end gap-0.5 text-xs font-medium" data-testid={`vitals-${device.id}`}>
-              <div className="flex items-baseline gap-1">
-                <span className="font-mono font-bold text-foreground">{device.deviceData.cpuUsagePct}</span>
-                <span className="text-muted-foreground">/</span>
-                <span className="font-mono font-bold text-foreground">{device.deviceData.memoryUsagePct}</span>
-                <span className="text-muted-foreground">/</span>
-                <span className="font-mono font-bold text-foreground">
-                  {device.deviceData.uptime ? Math.floor(parseInt(device.deviceData.uptime) / 86400) : 0}
-                </span>
-              </div>
-              <div className="text-[10px] text-muted-foreground">
-                CPU/MEM/UP
-              </div>
+          {/* Subtitle (model) */}
+          <div className="mb-3 ml-9">
+            <p className="text-xs text-muted-foreground truncate">
+              {subtitle}
+            </p>
+          </div>
+
+          {/* Bottom status bar */}
+          <div className="flex items-center justify-between gap-3 pt-2 border-t border-border ml-9">
+            {/* IP address */}
+            <div className="flex-1 min-w-0">
+              {device.ipAddress && (
+                <p className="text-sm text-muted-foreground font-medium truncate" data-testid={`text-ip-${device.id}`}>
+                  {device.ipAddress}
+                </p>
+              )}
             </div>
-          )}
+
+            {/* Port status indicators */}
+            {ports.length > 0 && (
+              <div className="flex items-center gap-3 text-sm font-bold">
+                {onlinePorts > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                    <span className="text-foreground">{onlinePorts}</span>
+                  </div>
+                )}
+                {offlinePorts > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                    <span className="text-foreground">{offlinePorts}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
