@@ -210,10 +210,19 @@ sudo -u networkapp npm run build
 ### 6. Test Application
 
 ```bash
-sudo -u networkapp npm start
-# Application should start on port 5000
+# Option 1: Using Node's built-in --env-file flag (Node 20.6+)
+cd /opt/network-topology
+sudo -u networkapp NODE_ENV=production node --env-file=.env dist/index.js
+
+# Option 2: Using dotenv preload
+sudo -u networkapp NODE_ENV=production node -r dotenv/config dist/index.js
+
+# Option 3: Using npm start (requires manual edit of package.json)
+# sudo -u networkapp npm start
 # Press Ctrl+C to stop
 ```
+
+**Note:** If using `npm start`, you'll need to manually edit `package.json` to add `-r dotenv/config` or `--env-file=.env` to the start script.
 
 ---
 
@@ -239,10 +248,38 @@ Add the following configuration:
 module.exports = {
   apps: [{
     name: 'network-topology',
-    script: './server/index.ts',
+    script: './dist/index.js',
     interpreter: 'node',
-    interpreter_args: '--require tsx/cjs',
+    interpreter_args: '--env-file=.env',  // Load .env file (Node 20.6+)
     instances: 2,  // Adjust based on CPU cores (or use 'max')
+    exec_mode: 'cluster',
+    autorestart: true,
+    watch: false,
+    max_memory_restart: '1G',
+    env_production: {
+      NODE_ENV: 'production',
+      PORT: 5000,
+      HOST: '0.0.0.0'
+    },
+    error_file: '/opt/network-topology/logs/err.log',
+    out_file: '/opt/network-topology/logs/out.log',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+    merge_logs: true,
+    min_uptime: '10s',
+    max_restarts: 10,
+    restart_delay: 4000
+  }]
+};
+```
+
+**Alternative for older Node versions (<20.6):**
+```javascript
+module.exports = {
+  apps: [{
+    name: 'network-topology',
+    script: './dist/index.js',
+    node_args: '-r dotenv/config',  // Preload dotenv
+    instances: 2,
     exec_mode: 'cluster',
     autorestart: true,
     watch: false,
