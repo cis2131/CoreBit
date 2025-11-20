@@ -18,6 +18,12 @@ Complete guide for deploying The Dude network management application on Ubuntu 2
 
 ---
 
+## Important Notes
+
+**Database Driver:** This application uses the standard `pg` (node-postgres) driver for local PostgreSQL deployments. The Replit version uses `@neondatabase/serverless` for cloud deployments, but for Ubuntu server deployments, we use the traditional PostgreSQL driver that connects directly via TCP (port 5432).
+
+---
+
 ## Prerequisites
 
 - Ubuntu 22.04 LTS or newer
@@ -148,11 +154,14 @@ cd /opt/network-topology
 ### 2. Install Dependencies
 
 ```bash
-# Install all dependencies (dotenv is required for production)
+# Install all dependencies (dotenv and pg are required for production)
 sudo -u networkapp npm ci
 ```
 
-**Note:** The application uses `dotenv` package to load environment variables from the `.env` file, so all dependencies must be installed (not just production dependencies).
+**Important Notes:**
+- The application uses `dotenv` to load environment variables from the `.env` file
+- The application uses `pg` (node-postgres) driver for standard PostgreSQL connections
+- On Replit, the app uses `@neondatabase/serverless`, but for Ubuntu deployments it uses `pg`
 
 ### 3. Configure Environment Variables
 
