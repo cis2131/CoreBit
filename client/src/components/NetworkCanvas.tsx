@@ -6,7 +6,7 @@ import { Plus, Minus, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface NetworkCanvasProps {
-  devices: Device[];
+  devices: (Device & { placementId: string; position: { x: number; y: number } })[];
   connections: Connection[];
   selectedDeviceId: string | null;
   selectedConnectionId: string | null;
@@ -15,8 +15,8 @@ interface NetworkCanvasProps {
   onConnectionClick: (connectionId: string) => void;
   onCanvasClick: () => void;
   searchQuery: string;
-  onDeviceAdd?: (position: { x: number; y: number }, type: string) => void;
-  draggingDeviceType: string | null;
+  draggingDeviceId: string | null;
+  onDeviceDropFromSidebar?: (deviceId: string, position: { x: number; y: number }) => void;
   onDraggingComplete: () => void;
 }
 
@@ -30,8 +30,8 @@ export function NetworkCanvas({
   onConnectionClick,
   onCanvasClick,
   searchQuery,
-  onDeviceAdd,
-  draggingDeviceType,
+  draggingDeviceId,
+  onDeviceDropFromSidebar,
   onDraggingComplete,
 }: NetworkCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -147,14 +147,14 @@ export function NetworkCanvas({
       setDraggedDevice(null);
     }
 
-    if (draggingDeviceType && onDeviceAdd) {
+    if (draggingDeviceId && onDeviceDropFromSidebar) {
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
 
       const x = (e.clientX - rect.left - pan.x) / zoom;
       const y = (e.clientY - rect.top - pan.y) / zoom;
 
-      onDeviceAdd({ x: Math.max(0, x), y: Math.max(0, y) }, draggingDeviceType);
+      onDeviceDropFromSidebar(draggingDeviceId, { x: Math.max(0, x), y: Math.max(0, y) });
       onDraggingComplete();
     }
   };
@@ -254,7 +254,7 @@ export function NetworkCanvas({
             );
           })}
 
-          {devices.length === 0 && !draggingDeviceType && (
+          {devices.length === 0 && !draggingDeviceId && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="text-center space-y-4 max-w-md p-8">
                 <div className="text-muted-foreground">

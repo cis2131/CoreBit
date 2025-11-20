@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { probeDevice, determineDeviceStatus } from "./deviceProbe";
-import { insertMapSchema, insertDeviceSchema, insertConnectionSchema, insertCredentialProfileSchema, type Device } from "@shared/schema";
+import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, type Device } from "@shared/schema";
 import { z } from "zod";
 
 // Helper function to resolve credentials from profile or custom
@@ -63,14 +63,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Device routes
-  app.get("/api/devices", async (req, res) => {
+  // Device routes (global devices)
+  app.get("/api/devices", async (_req, res) => {
     try {
-      const mapId = req.query.mapId as string;
-      if (!mapId) {
-        return res.status(400).json({ error: 'mapId query parameter is required' });
-      }
-      const devices = await storage.getDevicesByMapId(mapId);
+      const devices = await storage.getAllDevices();
       res.json(devices);
     } catch (error) {
       console.error('Error fetching devices:', error);
@@ -170,6 +166,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error deleting device:', error);
       res.status(500).json({ error: 'Failed to delete device' });
+    }
+  });
+
+  // Device Placement routes
+  app.get("/api/placements", async (req, res) => {
+    try {
+      const mapId = req.query.mapId as string;
+      if (!mapId) {
+        return res.status(400).json({ error: 'mapId query parameter is required' });
+      }
+      const placements = await storage.getPlacementsByMapId(mapId);
+      res.json(placements);
+    } catch (error) {
+      console.error('Error fetching placements:', error);
+      res.status(500).json({ error: 'Failed to fetch placements' });
+    }
+  });
+
+  app.post("/api/placements", async (req, res) => {
+    try {
+      const data = insertDevicePlacementSchema.parse(req.body);
+      
+      // Check for duplicate placement (same device on same map)
+      const existingPlacements = await storage.getPlacementsByMapId(data.mapId);
+      const duplicatePlacement = existingPlacements.find(p => p.deviceId === data.deviceId);
+      if (duplicatePlacement) {
+        return res.status(400).json({ error: 'Device is already placed on this map' });
+      }
+      
+      const placement = await storage.createPlacement(data);
+      res.status(201).json(placement);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid placement data', details: error.errors });
+      }
+      console.error('Error creating placement:', error);
+      res.status(500).json({ error: 'Failed to create placement' });
+    }
+  });
+
+  app.patch("/api/placements/:id", async (req, res) => {
+    try {
+      const data = insertDevicePlacementSchema.partial().parse(req.body);
+      const placement = await storage.updatePlacement(req.params.id, data);
+      if (!placement) {
+        return res.status(404).json({ error: 'Placement not found' });
+      }
+      res.json(placement);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid placement data', details: error.errors });
+      }
+      console.error('Error updating placement:', error);
+      res.status(500).json({ error: 'Failed to update placement' });
+    }
+  });
+
+  app.delete("/api/placements/:id", async (req, res) => {
+    try {
+      // Get placement to find deviceId and mapId
+      const placement = await storage.getPlacement(req.params.id);
+      if (!placement) {
+        return res.status(404).json({ error: 'Placement not found' });
+      }
+      
+      // Clean up connections on this map that involve this device
+      const mapConnections = await storage.getConnectionsByMapId(placement.mapId);
+      const connectionsToDelete = mapConnections.filter(
+        conn => conn.sourceDeviceId === placement.deviceId || conn.targetDeviceId === placement.deviceId
+      );
+      
+      for (const conn of connectionsToDelete) {
+        await storage.deleteConnection(conn.id);
+      }
+      
+      // Delete the placement
+      await storage.deletePlacement(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting placement:', error);
+      res.status(500).json({ error: 'Failed to delete placement' });
     }
   });
 
@@ -461,18 +538,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const startTime = Date.now();
       
       try {
-        const maps = await storage.getAllMaps();
-        const allDevices: any[] = [];
+        const allDevices = await storage.getAllDevices();
+        const devicesWithIp = allDevices.filter(d => d.ipAddress);
         
-        for (const map of maps) {
-          const devices = await storage.getDevicesByMapId(map.id);
-          allDevices.push(...devices.filter(d => d.ipAddress));
-        }
-        
-        const totalDevices = allDevices.length;
+        const totalDevices = devicesWithIp.length;
         console.log(`[Probing] Starting probe cycle for ${totalDevices} devices`);
         
-        const results = await processConcurrentQueue(allDevices, CONCURRENT_PROBES);
+        const results = await processConcurrentQueue(devicesWithIp, CONCURRENT_PROBES);
         
         const successCount = results.filter(r => r.success).length;
         const timeoutCount = results.filter(r => r.timeout).length;

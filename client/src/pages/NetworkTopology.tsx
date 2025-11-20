@@ -1,24 +1,24 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Map, Device, Connection, InsertDevice, InsertConnection } from '@shared/schema';
+import { Map, Device, DevicePlacement, Connection, InsertDevice, InsertDevicePlacement, InsertConnection } from '@shared/schema';
 import { NetworkCanvas } from '@/components/NetworkCanvas';
 import { DevicePropertiesPanel } from '@/components/DevicePropertiesPanel';
 import { ConnectionPropertiesPanel } from '@/components/ConnectionPropertiesPanel';
 import { TopToolbar } from '@/components/TopToolbar';
 import { AddDeviceDialog } from '@/components/AddDeviceDialog';
 import { CreateConnectionDialog } from '@/components/CreateConnectionDialog';
+import { DeviceListSidebar } from '@/components/DeviceListSidebar';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 
 export default function NetworkTopology() {
   const [currentMapId, setCurrentMapId] = useState<string | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [draggingDeviceType, setDraggingDeviceType] = useState<string | null>(null);
+  const [draggingDeviceId, setDraggingDeviceId] = useState<string | null>(null);
   const [addDeviceDialogOpen, setAddDeviceDialogOpen] = useState(false);
-  const [pendingDevicePosition, setPendingDevicePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [pendingDeviceType, setPendingDeviceType] = useState('');
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
   const [connectionMode, setConnectionMode] = useState(false);
   const [connectionSource, setConnectionSource] = useState<string | null>(null);
@@ -30,16 +30,33 @@ export default function NetworkTopology() {
     queryKey: ['/api/maps'],
   });
 
-  const { data: devices = [] } = useQuery<Device[]>({
-    queryKey: [`/api/devices?mapId=${currentMapId}`],
-    enabled: !!currentMapId,
+  // Global devices query
+  const { data: allDevices = [] } = useQuery<Device[]>({
+    queryKey: ['/api/devices'],
     refetchInterval: 10000, // Refetch every 10 seconds to show live device status updates
   });
 
-  const { data: connections = [] } = useQuery<Connection[]>({
-    queryKey: [`/api/connections?mapId=${currentMapId}`],
+  // Placements for current map
+  const { data: placements = [] } = useQuery<DevicePlacement[]>({
+    queryKey: ['/api/placements', currentMapId],
     enabled: !!currentMapId,
   });
+
+  const { data: connections = [] } = useQuery<Connection[]>({
+    queryKey: ['/api/connections', currentMapId],
+    enabled: !!currentMapId,
+  });
+
+  // Merge devices with their placements for the current map
+  const devicesOnMap = placements.map(placement => {
+    const device = allDevices.find(d => d.id === placement.deviceId);
+    if (!device) return null;
+    return {
+      ...device,
+      placementId: placement.id,
+      position: placement.position,
+    };
+  }).filter(Boolean) as (Device & { placementId: string; position: { x: number; y: number } })[];
 
   const createMapMutation = useMutation({
     mutationFn: async (data: { name: string; description: string }) => {
@@ -52,13 +69,14 @@ export default function NetworkTopology() {
     },
   });
 
+  // Device mutations (global devices)
   const createDeviceMutation = useMutation({
     mutationFn: async (data: InsertDevice) => {
       return await apiRequest('POST', '/api/devices', data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/devices?mapId=${currentMapId}`] });
-      toast({ title: 'Device added', description: 'Device has been added to the map.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/devices'] });
+      toast({ title: 'Device created', description: 'New device has been created.' });
     },
   });
 
@@ -66,32 +84,8 @@ export default function NetworkTopology() {
     mutationFn: async ({ id, data }: { id: string; data: Partial<InsertDevice> }) => {
       return await apiRequest('PATCH', `/api/devices/${id}`, data);
     },
-    onMutate: async ({ id, data }) => {
-      // Cancel outgoing refetches
-      await queryClient.cancelQueries({ queryKey: [`/api/devices?mapId=${currentMapId}`] });
-      
-      // Snapshot the previous value
-      const previousDevices = queryClient.getQueryData([`/api/devices?mapId=${currentMapId}`]);
-      
-      // Optimistically update to the new value
-      queryClient.setQueryData([`/api/devices?mapId=${currentMapId}`], (old: Device[] | undefined) => {
-        if (!old) return old;
-        return old.map(device => 
-          device.id === id ? { ...device, ...data } : device
-        );
-      });
-      
-      return { previousDevices };
-    },
-    onError: (err, variables, context) => {
-      // Rollback on error
-      if (context?.previousDevices) {
-        queryClient.setQueryData([`/api/devices?mapId=${currentMapId}`], context.previousDevices);
-      }
-    },
-    onSettled: () => {
-      // Refetch after error or success to ensure we're in sync
-      queryClient.invalidateQueries({ queryKey: [`/api/devices?mapId=${currentMapId}`] });
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/devices'] });
     },
   });
 
@@ -100,10 +94,62 @@ export default function NetworkTopology() {
       return await apiRequest('DELETE', `/api/devices/${deviceId}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/devices?mapId=${currentMapId}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/connections?mapId=${currentMapId}`] });
+      queryClient.invalidateQueries({ queryKey: ['/api/devices'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/placements', currentMapId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/connections', currentMapId] });
       setSelectedDeviceId(null);
-      toast({ title: 'Device deleted', description: 'Device has been removed from the map.' });
+      toast({ title: 'Device deleted', description: 'Device has been removed globally.' });
+    },
+  });
+
+  // Placement mutations (devices on maps)
+  const createPlacementMutation = useMutation({
+    mutationFn: async (data: InsertDevicePlacement) => {
+      return await apiRequest('POST', '/api/placements', data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/placements', currentMapId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/connections', currentMapId] });
+      toast({ title: 'Device added to map', description: 'Device has been placed on the map.' });
+    },
+  });
+
+  const updatePlacementMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<InsertDevicePlacement> }) => {
+      return await apiRequest('PATCH', `/api/placements/${id}`, data);
+    },
+    onMutate: async ({ id, data }) => {
+      await queryClient.cancelQueries({ queryKey: ['/api/placements', currentMapId] });
+      const previousPlacements = queryClient.getQueryData(['/api/placements', currentMapId]);
+      
+      queryClient.setQueryData(['/api/placements', currentMapId], (old: DevicePlacement[] | undefined) => {
+        if (!old) return old;
+        return old.map(p => p.id === id ? { ...p, ...data } : p);
+      });
+      
+      return { previousPlacements };
+    },
+    onError: (err, variables, context) => {
+      if (context?.previousPlacements) {
+        queryClient.setQueryData(['/api/placements', currentMapId], context.previousPlacements);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/placements', currentMapId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/connections', currentMapId] });
+    },
+  });
+
+  const deletePlacementMutation = useMutation({
+    mutationFn: async (placementId: string) => {
+      return await apiRequest('DELETE', `/api/placements/${placementId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/placements', currentMapId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/connections', currentMapId] });
+      setSelectedPlacementId(null);
+      setSelectedDeviceId(null);
+      toast({ title: 'Device removed from map', description: 'Device has been removed from this map.' });
     },
   });
 
@@ -112,7 +158,7 @@ export default function NetworkTopology() {
       return await apiRequest('POST', '/api/connections', data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/connections?mapId=${currentMapId}`] });
+      queryClient.invalidateQueries({ queryKey: ['/api/connections', currentMapId] });
       toast({ title: 'Connection created', description: 'Devices have been connected successfully.' });
     },
   });
@@ -122,7 +168,7 @@ export default function NetworkTopology() {
       return await apiRequest('DELETE', `/api/connections/${connectionId}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/connections?mapId=${currentMapId}`] });
+      queryClient.invalidateQueries({ queryKey: ['/api/connections', currentMapId] });
       setSelectedConnectionId(null);
       toast({ title: 'Connection deleted', description: 'Connection has been removed.' });
     },
@@ -132,17 +178,16 @@ export default function NetworkTopology() {
     createMapMutation.mutate({ name, description });
   };
 
-  const handleDeviceAdd = (position: { x: number; y: number }, type: string) => {
+  const handleAddDevice = () => {
     if (!currentMapId) {
       toast({ title: 'No map selected', description: 'Please select or create a map first.', variant: 'destructive' });
       return;
     }
-    setPendingDevicePosition(position);
-    setPendingDeviceType(type);
+    setEditingDevice(null);
     setAddDeviceDialogOpen(true);
   };
 
-  const handleDeviceSubmit = (deviceData: { 
+  const handleDeviceSubmit = async (deviceData: { 
     name: string; 
     type: string; 
     ipAddress: string; 
@@ -153,58 +198,77 @@ export default function NetworkTopology() {
     if (!currentMapId) return;
 
     if (editingDevice) {
+      // Update existing device (global)
       updateDeviceMutation.mutate({
         id: editingDevice.id,
         data: {
           name: deviceData.name,
           type: deviceData.type,
           ipAddress: deviceData.ipAddress || undefined,
-          mapId: currentMapId,
-          position: deviceData.position,
-          status: editingDevice.status,
           credentialProfileId: deviceData.credentialProfileId || undefined,
           customCredentials: deviceData.customCredentials || undefined,
         },
       });
       setEditingDevice(null);
     } else {
-      createDeviceMutation.mutate({
-        mapId: currentMapId,
+      // Create new device and place on map
+      const newDevice = await createDeviceMutation.mutateAsync({
         name: deviceData.name,
         type: deviceData.type,
         ipAddress: deviceData.ipAddress || undefined,
-        position: deviceData.position,
-        status: 'unknown',
         credentialProfileId: deviceData.credentialProfileId || undefined,
         customCredentials: deviceData.customCredentials || undefined,
+      });
+      
+      // Create placement for the new device
+      createPlacementMutation.mutate({
+        deviceId: newDevice.id,
+        mapId: currentMapId,
+        position: deviceData.position,
       });
     }
   };
 
-  const handleDeviceMove = (deviceId: string, position: { x: number; y: number }) => {
-    if (!currentMapId) return;
-    const device = devices.find(d => d.id === deviceId);
-    if (!device) return;
+  const handleDeviceDragFromSidebar = (deviceId: string, position: { x: number; y: number }) => {
+    if (!currentMapId) {
+      toast({ title: 'No map selected', description: 'Please select a map first.', variant: 'destructive' });
+      return;
+    }
+    
+    // Check if device is already on this map
+    const existingPlacement = placements.find(p => p.deviceId === deviceId);
+    if (existingPlacement) {
+      toast({ title: 'Device already on map', description: 'This device is already placed on this map.', variant: 'destructive' });
+      return;
+    }
 
-    updateDeviceMutation.mutate({
-      id: deviceId,
-      data: {
-        mapId: currentMapId,
-        name: device.name,
-        type: device.type,
-        position,
-        status: device.status,
-      },
+    createPlacementMutation.mutate({
+      deviceId,
+      mapId: currentMapId,
+      position,
+    });
+  };
+
+  const handleDeviceMove = (deviceId: string, position: { x: number; y: number }) => {
+    const deviceOnMap = devicesOnMap.find(d => d.id === deviceId);
+    if (!deviceOnMap) return;
+
+    updatePlacementMutation.mutate({
+      id: deviceOnMap.placementId,
+      data: { position },
     });
   };
 
   const handleDeviceDelete = (deviceId: string) => {
-    deleteDeviceMutation.mutate(deviceId);
+    const deviceOnMap = devicesOnMap.find(d => d.id === deviceId);
+    if (!deviceOnMap) return;
+    
+    // Delete placement (removes device from this map only)
+    deletePlacementMutation.mutate(deviceOnMap.placementId);
   };
 
   const handleDeviceEdit = (device: Device) => {
     setEditingDevice(device);
-    setPendingDeviceType(device.type);
     setAddDeviceDialogOpen(true);
   };
 
@@ -254,12 +318,12 @@ export default function NetworkTopology() {
     }
   };
 
-  const selectedDevice = selectedDeviceId ? devices.find(d => d.id === selectedDeviceId) : null;
+  const selectedDevice = selectedDeviceId ? devicesOnMap.find(d => d.id === selectedDeviceId) : null;
   const selectedConnection = selectedConnectionId ? connections.find(c => c.id === selectedConnectionId) : null;
-  const selectedConnectionSourceDevice = selectedConnection ? devices.find(d => d.id === selectedConnection.sourceDeviceId) : null;
-  const selectedConnectionTargetDevice = selectedConnection ? devices.find(d => d.id === selectedConnection.targetDeviceId) : null;
-  const sourceDevice = connectionSource ? devices.find(d => d.id === connectionSource) : null;
-  const targetDevice = connectionTarget ? devices.find(d => d.id === connectionTarget) : null;
+  const selectedConnectionSourceDevice = selectedConnection ? devicesOnMap.find(d => d.id === selectedConnection.sourceDeviceId) : null;
+  const selectedConnectionTargetDevice = selectedConnection ? devicesOnMap.find(d => d.id === selectedConnection.targetDeviceId) : null;
+  const sourceDevice = connectionSource ? devicesOnMap.find(d => d.id === connectionSource) : null;
+  const targetDevice = connectionTarget ? devicesOnMap.find(d => d.id === connectionTarget) : null;
 
   if (maps.length === 0 && !currentMapId) {
     return (
@@ -273,7 +337,7 @@ export default function NetworkTopology() {
           onSearchChange={setSearchQuery}
           connectionMode={connectionMode}
           onConnectionModeToggle={handleConnectionModeToggle}
-          onDeviceDragStart={setDraggingDeviceType}
+          onAddDevice={handleAddDevice}
         />
         <div className="flex-1 flex items-center justify-center bg-background">
           <div className="text-center space-y-4 max-w-md p-8">
@@ -298,14 +362,19 @@ export default function NetworkTopology() {
         onSearchChange={setSearchQuery}
         connectionMode={connectionMode}
         onConnectionModeToggle={handleConnectionModeToggle}
-        onDeviceDragStart={setDraggingDeviceType}
+        onAddDevice={handleAddDevice}
       />
 
       <div className="flex-1 flex overflow-hidden">
+        <DeviceListSidebar
+          devices={allDevices}
+          onDeviceDragStart={setDraggingDeviceId}
+        />
+
         <div className="flex-1">
           {currentMapId ? (
             <NetworkCanvas
-              devices={devices}
+              devices={devicesOnMap}
               connections={connections}
               selectedDeviceId={connectionMode ? connectionSource : selectedDeviceId}
               selectedConnectionId={selectedConnectionId}
@@ -321,9 +390,9 @@ export default function NetworkTopology() {
                 }
               }}
               searchQuery={searchQuery}
-              onDeviceAdd={handleDeviceAdd}
-              draggingDeviceType={draggingDeviceType}
-              onDraggingComplete={() => setDraggingDeviceType(null)}
+              draggingDeviceId={draggingDeviceId}
+              onDeviceDropFromSidebar={handleDeviceDragFromSidebar}
+              onDraggingComplete={() => setDraggingDeviceId(null)}
             />
           ) : (
             <div className="h-full flex items-center justify-center bg-white dark:bg-gray-950">
@@ -359,8 +428,8 @@ export default function NetworkTopology() {
           setEditingDevice(null);
         }}
         onSubmit={handleDeviceSubmit}
-        initialPosition={pendingDevicePosition}
-        initialType={pendingDeviceType}
+        initialPosition={{ x: 100, y: 100 }}
+        initialType={editingDevice?.type || ''}
         editDevice={editingDevice}
       />
 

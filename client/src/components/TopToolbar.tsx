@@ -22,7 +22,6 @@ import { Label } from '@/components/ui/label';
 import { Search, Plus, Network, Moon, Sun, Link2, Settings } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { Link } from 'wouter';
-import { CompactDevicePalette } from './CompactDevicePalette';
 
 interface TopToolbarProps {
   maps: Map[];
@@ -33,7 +32,7 @@ interface TopToolbarProps {
   onSearchChange: (query: string) => void;
   connectionMode: boolean;
   onConnectionModeToggle: () => void;
-  onDeviceDragStart?: (deviceType: string) => void;
+  onAddDevice?: () => void;
 }
 
 export function TopToolbar({
@@ -45,7 +44,7 @@ export function TopToolbar({
   onSearchChange,
   connectionMode,
   onConnectionModeToggle,
-  onDeviceDragStart,
+  onAddDevice,
 }: TopToolbarProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newMapName, setNewMapName] = useState('');
@@ -68,13 +67,6 @@ export function TopToolbar({
           <Network className="h-6 w-6 text-primary" />
           <h1 className="text-base font-bold text-foreground hidden sm:block">Network Manager</h1>
         </div>
-
-        {onDeviceDragStart && (
-          <CompactDevicePalette
-            onDeviceDragStart={onDeviceDragStart}
-            disabled={!currentMapId}
-          />
-        )}
 
         <div className="flex items-center gap-2">
           <Select value={currentMapId || undefined} onValueChange={onMapChange}>
@@ -143,6 +135,19 @@ export function TopToolbar({
       </div>
 
       <div className="flex items-center gap-2">
+        {onAddDevice && (
+          <Button
+            size="sm"
+            onClick={onAddDevice}
+            disabled={!currentMapId}
+            data-testid="button-add-device"
+            className="gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Add Device
+          </Button>
+        )}
+
         <Button
           variant={connectionMode ? 'default' : 'outline'}
           size="sm"
