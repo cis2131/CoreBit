@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { Device } from '@shared/schema';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Server, Router, Wifi, HardDrive } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Server, Router, Wifi, HardDrive, Settings } from 'lucide-react';
 
 interface DeviceListSidebarProps {
   devices: Device[];
   onDeviceDragStart?: (deviceId: string) => void;
+  onEditDevice?: (device: Device) => void;
 }
 
 const deviceTypeIcons: Record<string, React.ElementType> = {
@@ -30,7 +31,7 @@ function getStatusColor(status: string): string {
   }
 }
 
-export function DeviceListSidebar({ devices, onDeviceDragStart }: DeviceListSidebarProps) {
+export function DeviceListSidebar({ devices, onDeviceDragStart, onEditDevice }: DeviceListSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   return (
@@ -78,6 +79,20 @@ export function DeviceListSidebar({ devices, onDeviceDragStart }: DeviceListSide
                           {device.ipAddress || 'No IP'}
                         </p>
                       </div>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 flex-shrink-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditDevice?.(device);
+                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        draggable={false}
+                        data-testid={`button-edit-device-${device.id}`}
+                      >
+                        <Settings className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
                 );

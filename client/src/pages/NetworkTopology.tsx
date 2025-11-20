@@ -369,6 +369,7 @@ export default function NetworkTopology() {
         <DeviceListSidebar
           devices={allDevices}
           onDeviceDragStart={setDraggingDeviceId}
+          onEditDevice={handleDeviceEdit}
         />
 
         <div className="flex-1">
