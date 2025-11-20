@@ -170,12 +170,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Device Placement routes
-  app.get("/api/placements", async (req, res) => {
+  app.get("/api/placements/:mapId", async (req, res) => {
     try {
-      const mapId = req.query.mapId as string;
-      if (!mapId) {
-        return res.status(400).json({ error: 'mapId query parameter is required' });
-      }
+      const mapId = req.params.mapId;
       const placements = await storage.getPlacementsByMapId(mapId);
       res.json(placements);
     } catch (error) {
@@ -274,12 +271,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Connection routes
-  app.get("/api/connections", async (req, res) => {
+  app.get("/api/connections/:mapId", async (req, res) => {
     try {
-      const mapId = req.query.mapId as string;
-      if (!mapId) {
-        return res.status(400).json({ error: 'mapId query parameter is required' });
-      }
+      const mapId = req.params.mapId;
       const connections = await storage.getConnectionsByMapId(mapId);
       res.json(connections);
     } catch (error) {
