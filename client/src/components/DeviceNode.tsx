@@ -24,6 +24,40 @@ const statusColors = {
   unknown: 'bg-gray-400',
 };
 
+// Parse uptime from various formats
+function parseUptime(uptime: string | undefined): { value: number; unit: string } {
+  if (!uptime) return { value: 0, unit: 'h' };
+
+  // Mikrotik format: "9w4d17h40m8s"
+  const mikrotikMatch = uptime.match(/(?:(\d+)w)?(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/);
+  if (mikrotikMatch) {
+    const weeks = parseInt(mikrotikMatch[1] || '0');
+    const days = parseInt(mikrotikMatch[2] || '0');
+    const hours = parseInt(mikrotikMatch[3] || '0');
+    const totalDays = weeks * 7 + days;
+    
+    if (totalDays >= 1) {
+      return { value: totalDays, unit: 'd' };
+    } else {
+      return { value: hours, unit: 'h' };
+    }
+  }
+
+  // SNMP format: "X days, HH:MM:SS" or "HH:MM:SS"
+  const snmpDaysMatch = uptime.match(/(\d+)\s+days/);
+  if (snmpDaysMatch) {
+    return { value: parseInt(snmpDaysMatch[1]), unit: 'd' };
+  }
+
+  const snmpHoursMatch = uptime.match(/^(\d+):/);
+  if (snmpHoursMatch) {
+    const hours = parseInt(snmpHoursMatch[1]);
+    return { value: hours, unit: 'h' };
+  }
+
+  return { value: 0, unit: 'h' };
+}
+
 export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragStart }: DeviceNodeProps) {
   const Icon = deviceIcons[device.type as keyof typeof deviceIcons] || Activity;
 
@@ -35,10 +69,8 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
   // Extract model or use type as fallback
   const subtitle = device.deviceData?.model || device.type.replace(/_/g, ' ').toUpperCase();
 
-  // Calculate uptime in days
-  const uptimeDays = device.deviceData?.uptime 
-    ? Math.floor(parseInt(device.deviceData.uptime) / 86400) 
-    : 0;
+  // Parse uptime
+  const uptime = parseUptime(device.deviceData?.uptime);
 
   return (
     <div
@@ -118,15 +150,15 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
                 <div className="flex items-center gap-2 text-xs" data-testid={`vitals-${device.id}`}>
                   <div className="flex items-center gap-1">
                     <Cpu className="h-3 w-3 text-muted-foreground" />
-                    <span className="font-bold text-foreground">{device.deviceData.cpuUsagePct}</span>
+                    <span className="font-bold text-foreground">{device.deviceData.cpuUsagePct}%</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <MemoryStick className="h-3 w-3 text-muted-foreground" />
-                    <span className="font-bold text-foreground">{device.deviceData.memoryUsagePct}</span>
+                    <span className="font-bold text-foreground">{device.deviceData.memoryUsagePct}%</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <Clock className="h-3 w-3 text-muted-foreground" />
-                    <span className="font-bold text-foreground">{uptimeDays}</span>
+                    <span className="font-bold text-foreground">{uptime.value}{uptime.unit}</span>
                   </div>
                 </div>
               )}
