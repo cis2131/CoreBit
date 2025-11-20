@@ -1,6 +1,7 @@
 import { 
   maps, 
-  devices, 
+  devices,
+  devicePlacements,
   connections,
   credentialProfiles,
   settings,
@@ -8,6 +9,8 @@ import {
   type InsertMap,
   type Device,
   type InsertDevice,
+  type DevicePlacement,
+  type InsertDevicePlacement,
   type Connection,
   type InsertConnection,
   type CredentialProfile,
@@ -23,12 +26,19 @@ export interface IStorage {
   createMap(map: InsertMap): Promise<Map>;
   deleteMap(id: string): Promise<void>;
 
-  // Devices
-  getDevicesByMapId(mapId: string): Promise<Device[]>;
+  // Devices (global)
+  getAllDevices(): Promise<Device[]>;
   getDevice(id: string): Promise<Device | undefined>;
   createDevice(device: InsertDevice): Promise<Device>;
   updateDevice(id: string, device: Partial<InsertDevice>): Promise<Device | undefined>;
   deleteDevice(id: string): Promise<void>;
+
+  // Device Placements
+  getPlacementsByMapId(mapId: string): Promise<DevicePlacement[]>;
+  getPlacement(id: string): Promise<DevicePlacement | undefined>;
+  createPlacement(placement: InsertDevicePlacement): Promise<DevicePlacement>;
+  updatePlacement(id: string, placement: Partial<InsertDevicePlacement>): Promise<DevicePlacement | undefined>;
+  deletePlacement(id: string): Promise<void>;
 
   // Connections
   getConnectionsByMapId(mapId: string): Promise<Connection[]>;
@@ -72,9 +82,9 @@ export class DatabaseStorage implements IStorage {
     await db.delete(maps).where(eq(maps.id, id));
   }
 
-  // Devices
-  async getDevicesByMapId(mapId: string): Promise<Device[]> {
-    return await db.select().from(devices).where(eq(devices.mapId, mapId));
+  // Devices (global)
+  async getAllDevices(): Promise<Device[]> {
+    return await db.select().from(devices).orderBy(devices.name);
   }
 
   async getDevice(id: string): Promise<Device | undefined> {
@@ -101,6 +111,37 @@ export class DatabaseStorage implements IStorage {
 
   async deleteDevice(id: string): Promise<void> {
     await db.delete(devices).where(eq(devices.id, id));
+  }
+
+  // Device Placements
+  async getPlacementsByMapId(mapId: string): Promise<DevicePlacement[]> {
+    return await db.select().from(devicePlacements).where(eq(devicePlacements.mapId, mapId));
+  }
+
+  async getPlacement(id: string): Promise<DevicePlacement | undefined> {
+    const [placement] = await db.select().from(devicePlacements).where(eq(devicePlacements.id, id));
+    return placement || undefined;
+  }
+
+  async createPlacement(insertPlacement: InsertDevicePlacement): Promise<DevicePlacement> {
+    const [placement] = await db
+      .insert(devicePlacements)
+      .values(insertPlacement)
+      .returning();
+    return placement;
+  }
+
+  async updatePlacement(id: string, updateData: Partial<InsertDevicePlacement>): Promise<DevicePlacement | undefined> {
+    const [placement] = await db
+      .update(devicePlacements)
+      .set(updateData)
+      .where(eq(devicePlacements.id, id))
+      .returning();
+    return placement || undefined;
+  }
+
+  async deletePlacement(id: string): Promise<void> {
+    await db.delete(devicePlacements).where(eq(devicePlacements.id, id));
   }
 
   // Connections
