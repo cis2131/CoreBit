@@ -18,8 +18,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
-import { Search, Plus, Network, Moon, Sun, Link2, Settings } from 'lucide-react';
+import { Search, Plus, Network, Moon, Sun, Link2, Settings, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { Link } from 'wouter';
 
@@ -28,6 +34,8 @@ interface TopToolbarProps {
   currentMapId: string | null;
   onMapChange: (mapId: string) => void;
   onMapCreate: (name: string, description: string) => void;
+  onMapEdit?: (map: Map) => void;
+  onMapDelete?: (mapId: string) => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   connectionMode: boolean;
@@ -40,6 +48,8 @@ export function TopToolbar({
   currentMapId,
   onMapChange,
   onMapCreate,
+  onMapEdit,
+  onMapDelete,
   searchQuery,
   onSearchChange,
   connectionMode,
@@ -50,6 +60,8 @@ export function TopToolbar({
   const [newMapName, setNewMapName] = useState('');
   const [newMapDescription, setNewMapDescription] = useState('');
   const { theme, setTheme } = useTheme();
+  
+  const currentMap = maps.find(m => m.id === currentMapId);
 
   const handleCreateMap = () => {
     if (newMapName.trim()) {
@@ -81,6 +93,33 @@ export function TopToolbar({
               ))}
             </SelectContent>
           </Select>
+
+          {currentMap && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon" variant="ghost" data-testid="button-map-actions">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem
+                  onClick={() => onMapEdit?.(currentMap)}
+                  data-testid="button-edit-map"
+                >
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Edit Map
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => onMapDelete?.(currentMap.id)}
+                  className="text-destructive"
+                  data-testid="button-delete-map"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Map
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <DialogTrigger asChild>

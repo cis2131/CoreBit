@@ -53,6 +53,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.patch("/api/maps/:id", async (req, res) => {
+    try {
+      const data = insertMapSchema.partial().parse(req.body);
+      const map = await storage.updateMap(req.params.id, data);
+      res.json(map);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid map data', details: error.errors });
+      }
+      console.error('Error updating map:', error);
+      res.status(500).json({ error: 'Failed to update map' });
+    }
+  });
+
   app.delete("/api/maps/:id", async (req, res) => {
     try {
       await storage.deleteMap(req.params.id);

@@ -24,6 +24,7 @@ export interface IStorage {
   getAllMaps(): Promise<Map[]>;
   getMap(id: string): Promise<Map | undefined>;
   createMap(map: InsertMap): Promise<Map>;
+  updateMap(id: string, map: Partial<InsertMap>): Promise<Map>;
   deleteMap(id: string): Promise<void>;
 
   // Devices (global)
@@ -74,6 +75,15 @@ export class DatabaseStorage implements IStorage {
     const [map] = await db
       .insert(maps)
       .values(insertMap)
+      .returning();
+    return map;
+  }
+
+  async updateMap(id: string, updateData: Partial<InsertMap>): Promise<Map> {
+    const [map] = await db
+      .update(maps)
+      .set(updateData)
+      .where(eq(maps.id, id))
       .returning();
     return map;
   }

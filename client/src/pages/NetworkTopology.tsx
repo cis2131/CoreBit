@@ -8,6 +8,10 @@ import { TopToolbar } from '@/components/TopToolbar';
 import { AddDeviceDialog } from '@/components/AddDeviceDialog';
 import { CreateConnectionDialog } from '@/components/CreateConnectionDialog';
 import { DeviceListSidebar } from '@/components/DeviceListSidebar';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 
@@ -20,6 +24,7 @@ export default function NetworkTopology() {
   const [draggingDeviceId, setDraggingDeviceId] = useState<string | null>(null);
   const [addDeviceDialogOpen, setAddDeviceDialogOpen] = useState(false);
   const [editingDevice, setEditingDevice] = useState<Device | null>(null);
+  const [editingMap, setEditingMap] = useState<Map | null>(null);
   const [connectionMode, setConnectionMode] = useState(false);
   const [connectionSource, setConnectionSource] = useState<string | null>(null);
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
@@ -66,6 +71,28 @@ export default function NetworkTopology() {
       queryClient.invalidateQueries({ queryKey: ['/api/maps'] });
       setCurrentMapId(newMap.id);
       toast({ title: 'Map created', description: `"${newMap.name}" has been created successfully.` });
+    },
+  });
+
+  const updateMapMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<{ name: string; description: string }> }) => {
+      return await apiRequest('PATCH', `/api/maps/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/maps'] });
+      setEditingMap(null);
+      toast({ title: 'Map updated', description: 'Map has been updated successfully.' });
+    },
+  });
+
+  const deleteMapMutation = useMutation({
+    mutationFn: async (mapId: string) => {
+      return await apiRequest('DELETE', `/api/maps/${mapId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/maps'] });
+      setCurrentMapId(null);
+      toast({ title: 'Map deleted', description: 'Map has been deleted.' });
     },
   });
 
@@ -176,6 +203,20 @@ export default function NetworkTopology() {
 
   const handleMapCreate = (name: string, description: string) => {
     createMapMutation.mutate({ name, description });
+  };
+
+  const handleMapEdit = (map: Map) => {
+    setEditingMap(map);
+  };
+
+  const handleMapUpdate = (mapId: string, name: string, description: string) => {
+    updateMapMutation.mutate({ id: mapId, data: { name, description } });
+  };
+
+  const handleMapDelete = (mapId: string) => {
+    if (confirm('Are you sure you want to delete this map? All device placements and connections on this map will be removed.')) {
+      deleteMapMutation.mutate(mapId);
+    }
   };
 
   const handleAddDevice = () => {
@@ -358,6 +399,8 @@ export default function NetworkTopology() {
         currentMapId={currentMapId}
         onMapChange={setCurrentMapId}
         onMapCreate={handleMapCreate}
+        onMapEdit={handleMapEdit}
+        onMapDelete={handleMapDelete}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         connectionMode={connectionMode}
@@ -433,6 +476,63 @@ export default function NetworkTopology() {
         initialType={editingDevice?.type || ''}
         editDevice={editingDevice}
       />
+
+      <Dialog open={!!editingMap} onOpenChange={(open) => !open && setEditingMap(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Map</DialogTitle>
+            <DialogDescription>
+              Update the name and description of this network topology map
+            </DialogDescription>
+          </DialogHeader>
+          {editingMap && (
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              handleMapUpdate(
+                editingMap.id,
+                formData.get('name') as string,
+                formData.get('description') as string
+              );
+            }}>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-map-name">Map Name</Label>
+                  <Input
+                    id="edit-map-name"
+                    name="name"
+                    defaultValue={editingMap.name}
+                    required
+                    data-testid="input-edit-map-name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-map-description">Description (optional)</Label>
+                  <Input
+                    id="edit-map-description"
+                    name="description"
+                    defaultValue={editingMap.description || ''}
+                    data-testid="input-edit-map-description"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditingMap(null)}
+                  data-testid="button-cancel-edit-map"
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" data-testid="button-confirm-edit-map">
+                  Save Changes
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <CreateConnectionDialog
         open={connectionDialogOpen}
