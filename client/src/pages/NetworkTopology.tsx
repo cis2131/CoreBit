@@ -34,6 +34,7 @@ export default function NetworkTopology() {
   const { data: devices = [] } = useQuery<Device[]>({
     queryKey: [`/api/devices?mapId=${currentMapId}`],
     enabled: !!currentMapId,
+    refetchInterval: 10000, // Refetch every 10 seconds to show live device status updates
   });
 
   const { data: connections = [] } = useQuery<Connection[]>({
