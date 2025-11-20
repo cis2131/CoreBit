@@ -148,12 +148,11 @@ cd /opt/network-topology
 ### 2. Install Dependencies
 
 ```bash
-# Install production dependencies
-sudo -u networkapp npm ci --production
-
-# If you need to run database migrations, install dev dependencies temporarily
+# Install all dependencies (dotenv is required for production)
 sudo -u networkapp npm ci
 ```
+
+**Note:** The application uses `dotenv` package to load environment variables from the `.env` file, so all dependencies must be installed (not just production dependencies).
 
 ### 3. Configure Environment Variables
 
@@ -547,7 +546,7 @@ sudo -u networkapp git pull origin main
 
 # Install dependencies
 echo "📦 Installing dependencies..."
-sudo -u networkapp npm ci --production
+sudo -u networkapp npm ci
 
 # Run database migrations
 echo "🗄️  Running migrations..."
@@ -595,7 +594,7 @@ jobs:
           script: |
             cd /opt/network-topology
             sudo -u networkapp git pull origin main
-            sudo -u networkapp npm ci --production
+            sudo -u networkapp npm ci
             sudo -u networkapp npm run db:push
             sudo -u networkapp pm2 reload ecosystem.config.js --env production
 ```
