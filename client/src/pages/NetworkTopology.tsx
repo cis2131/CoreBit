@@ -472,6 +472,7 @@ export default function NetworkTopology() {
           setEditingDevice(null);
         }}
         onSubmit={handleDeviceSubmit}
+        onDelete={(deviceId) => deleteDeviceMutation.mutate(deviceId)}
         initialPosition={{ x: 100, y: 100 }}
         initialType={editingDevice?.type || ''}
         editDevice={editingDevice}

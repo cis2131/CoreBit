@@ -33,6 +33,7 @@ interface AddDeviceDialogProps {
     credentialProfileId?: string;
     customCredentials?: any;
   }) => void;
+  onDelete?: (deviceId: string) => void;
   initialPosition: { x: number; y: number };
   initialType: string;
   editDevice?: Device | null;
@@ -50,6 +51,7 @@ export function AddDeviceDialog({
   open,
   onClose,
   onSubmit,
+  onDelete,
   initialPosition,
   initialType,
   editDevice,
@@ -391,13 +393,29 @@ export function AddDeviceDialog({
             </>
           )}
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} data-testid="button-cancel-device">
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} data-testid="button-submit-device">
-            {editDevice ? 'Update' : 'Add'} Device
-          </Button>
+        <DialogFooter className="flex items-center justify-between">
+          {editDevice && onDelete && (
+            <Button 
+              variant="destructive" 
+              onClick={() => {
+                if (confirm('Are you sure you want to delete this device? It will be removed from all maps.')) {
+                  onDelete(editDevice.id);
+                  onClose();
+                }
+              }}
+              data-testid="button-delete-device-dialog"
+            >
+              Delete Device
+            </Button>
+          )}
+          <div className="flex gap-2 ml-auto">
+            <Button variant="outline" onClick={onClose} data-testid="button-cancel-device">
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} data-testid="button-submit-device">
+              {editDevice ? 'Update' : 'Add'} Device
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
