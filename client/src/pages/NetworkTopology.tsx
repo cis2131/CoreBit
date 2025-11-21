@@ -386,6 +386,7 @@ export default function NetworkTopology() {
       <div className="h-screen flex flex-col">
         <TopToolbar
           maps={maps}
+          devices={allDevices}
           currentMapId={currentMapId}
           onMapChange={setCurrentMapId}
           onMapCreate={handleMapCreate}
@@ -394,6 +395,7 @@ export default function NetworkTopology() {
           connectionMode={connectionMode}
           onConnectionModeToggle={handleConnectionModeToggle}
           onAddDevice={handleAddDevice}
+          onDeviceStatusSelect={handleDeviceStatusSelect}
         />
         <div className="flex-1 flex items-center justify-center bg-background">
           <div className="text-center space-y-4 max-w-md p-8">
@@ -411,6 +413,7 @@ export default function NetworkTopology() {
     <div className="h-screen flex flex-col">
       <TopToolbar
         maps={maps}
+        devices={allDevices}
         currentMapId={currentMapId}
         onMapChange={setCurrentMapId}
         onMapCreate={handleMapCreate}
@@ -421,6 +424,7 @@ export default function NetworkTopology() {
         connectionMode={connectionMode}
         onConnectionModeToggle={handleConnectionModeToggle}
         onAddDevice={handleAddDevice}
+        onDeviceStatusSelect={handleDeviceStatusSelect}
       />
 
       <div className="flex-1 flex overflow-hidden">

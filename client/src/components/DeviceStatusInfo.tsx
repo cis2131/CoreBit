@@ -10,12 +10,12 @@ import {
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface DeviceStatusInfoProps {
-  devices: Device[];
+  devices?: Device[];
   maps: Map[];
   onDeviceSelect: (deviceId: string) => void;
 }
 
-export function DeviceStatusInfo({ devices, maps, onDeviceSelect }: DeviceStatusInfoProps) {
+export function DeviceStatusInfo({ devices = [], maps, onDeviceSelect }: DeviceStatusInfoProps) {
   const [showDownDevices, setShowDownDevices] = useState(false);
 
   const upDevices = devices.filter(d => d.status === 'online').length;
