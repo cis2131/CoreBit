@@ -34,6 +34,26 @@ export function ConnectionLine({
   const style = linkSpeedStyles[speed] || linkSpeedStyles['1G'];
   const strokeWidth = isSelected ? style.width + 2 : style.width;
 
+  // Calculate offset positions for port indicators (outside device nodes)
+  const dx = targetPosition.x - sourcePosition.x;
+  const dy = targetPosition.y - sourcePosition.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const offset = 40; // Distance from device center to indicator
+
+  let sourceIndicatorX = sourcePosition.x;
+  let sourceIndicatorY = sourcePosition.y;
+  let targetIndicatorX = targetPosition.x;
+  let targetIndicatorY = targetPosition.y;
+
+  if (distance > 0) {
+    const normalizedDx = dx / distance;
+    const normalizedDy = dy / distance;
+    sourceIndicatorX = sourcePosition.x + normalizedDx * offset;
+    sourceIndicatorY = sourcePosition.y + normalizedDy * offset;
+    targetIndicatorX = targetPosition.x - normalizedDx * offset;
+    targetIndicatorY = targetPosition.y - normalizedDy * offset;
+  }
+
   // Get port status colors
   const getPortStatusColor = (device: Device | undefined, portName: string | undefined): string => {
     if (!device || !portName || portName === 'none') return 'hsl(var(--muted-foreground))';
@@ -81,15 +101,15 @@ export function ConnectionLine({
       {(connection.sourcePort && connection.sourcePort !== 'none') && (
         <>
           <circle
-            cx={sourcePosition.x}
-            cy={sourcePosition.y}
+            cx={sourceIndicatorX}
+            cy={sourceIndicatorY}
             r="5"
             fill={sourcePortStatus}
             opacity="0.8"
           />
           <circle
-            cx={sourcePosition.x}
-            cy={sourcePosition.y}
+            cx={sourceIndicatorX}
+            cy={sourceIndicatorY}
             r="5"
             fill="none"
             stroke="white"
@@ -102,15 +122,15 @@ export function ConnectionLine({
       {(connection.targetPort && connection.targetPort !== 'none') && (
         <>
           <circle
-            cx={targetPosition.x}
-            cy={targetPosition.y}
+            cx={targetIndicatorX}
+            cy={targetIndicatorY}
             r="5"
             fill={targetPortStatus}
             opacity="0.8"
           />
           <circle
-            cx={targetPosition.x}
-            cy={targetPosition.y}
+            cx={targetIndicatorX}
+            cy={targetIndicatorY}
             r="5"
             fill="none"
             stroke="white"
