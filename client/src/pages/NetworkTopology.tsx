@@ -359,6 +359,21 @@ export default function NetworkTopology() {
     }
   };
 
+  const handleDeviceStatusSelect = (deviceId: string) => {
+    // Find first map that contains this device
+    const mapWithDevice = maps.find(map => {
+      const hasDevice = placements.some(p => p.deviceId === deviceId && p.mapId === map.id);
+      return hasDevice;
+    });
+
+    if (mapWithDevice) {
+      setCurrentMapId(mapWithDevice.id);
+      setSelectedDeviceId(deviceId);
+    } else {
+      toast({ title: 'Device not on any map', description: 'This device is not placed on any map yet.', variant: 'destructive' });
+    }
+  };
+
   const selectedDevice = selectedDeviceId ? devicesOnMap.find(d => d.id === selectedDeviceId) : null;
   const selectedConnection = selectedConnectionId ? connections.find(c => c.id === selectedConnectionId) : null;
   const selectedConnectionSourceDevice = selectedConnection ? devicesOnMap.find(d => d.id === selectedConnection.sourceDeviceId) : null;

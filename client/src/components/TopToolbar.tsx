@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Map } from '@shared/schema';
+import { Map, Device } from '@shared/schema';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -28,9 +28,11 @@ import { Label } from '@/components/ui/label';
 import { Search, Plus, Network, Moon, Sun, Link2, Settings, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { Link } from 'wouter';
+import { DeviceStatusInfo } from '@/components/DeviceStatusInfo';
 
 interface TopToolbarProps {
   maps: Map[];
+  devices: Device[];
   currentMapId: string | null;
   onMapChange: (mapId: string) => void;
   onMapCreate: (name: string, description: string) => void;
@@ -41,10 +43,12 @@ interface TopToolbarProps {
   connectionMode: boolean;
   onConnectionModeToggle: () => void;
   onAddDevice?: () => void;
+  onDeviceStatusSelect?: (deviceId: string) => void;
 }
 
 export function TopToolbar({
   maps,
+  devices,
   currentMapId,
   onMapChange,
   onMapCreate,
@@ -55,6 +59,7 @@ export function TopToolbar({
   connectionMode,
   onConnectionModeToggle,
   onAddDevice,
+  onDeviceStatusSelect,
 }: TopToolbarProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newMapName, setNewMapName] = useState('');
@@ -174,6 +179,12 @@ export function TopToolbar({
       </div>
 
       <div className="flex items-center gap-2">
+        <DeviceStatusInfo
+          devices={devices}
+          maps={maps}
+          onDeviceSelect={onDeviceStatusSelect || (() => {})}
+        />
+
         {onAddDevice && (
           <Button
             size="sm"
