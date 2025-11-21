@@ -156,7 +156,12 @@ export function ConnectionPropertiesPanel({
                       <SelectItem value="none">None</SelectItem>
                       {sourcePorts.map((port, idx) => (
                         <SelectItem key={idx} value={port.name}>
-                          {port.name} {port.speed && `(${port.speed})`}
+                          <div className="flex flex-col">
+                            <span>{port.name} {port.speed && `(${port.speed})`}</span>
+                            {port.description && (
+                              <span className="text-xs text-muted-foreground">{port.description}</span>
+                            )}
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -175,7 +180,12 @@ export function ConnectionPropertiesPanel({
                       <SelectItem value="none">None</SelectItem>
                       {targetPorts.map((port, idx) => (
                         <SelectItem key={idx} value={port.name}>
-                          {port.name} {port.speed && `(${port.speed})`}
+                          <div className="flex flex-col">
+                            <span>{port.name} {port.speed && `(${port.speed})`}</span>
+                            {port.description && (
+                              <span className="text-xs text-muted-foreground">{port.description}</span>
+                            )}
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectContent>
