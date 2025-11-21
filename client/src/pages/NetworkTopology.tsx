@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Map, Device, DevicePlacement, Connection, InsertDevice, InsertDevicePlacement, InsertConnection } from '@shared/schema';
 import { NetworkCanvas } from '@/components/NetworkCanvas';
@@ -29,11 +29,24 @@ export default function NetworkTopology() {
   const [connectionSource, setConnectionSource] = useState<string | null>(null);
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [connectionTarget, setConnectionTarget] = useState<string | null>(null);
+  const [editMapName, setEditMapName] = useState('');
+  const [editMapDescription, setEditMapDescription] = useState('');
+  const [editMapIsDefault, setEditMapIsDefault] = useState(false);
   const { toast } = useToast();
 
   const { data: maps = [] } = useQuery<Map[]>({
     queryKey: ['/api/maps'],
   });
+
+  // Auto-load default map on startup
+  const defaultMap = maps.find(m => m.isDefault);
+  const shouldLoadDefaultMap = !currentMapId && defaultMap && maps.length > 0;
+  
+  useEffect(() => {
+    if (shouldLoadDefaultMap) {
+      setCurrentMapId(defaultMap.id);
+    }
+  }, [shouldLoadDefaultMap, defaultMap?.id]);
 
   // Global devices query
   const { data: allDevices = [] } = useQuery<Device[]>({
@@ -75,7 +88,7 @@ export default function NetworkTopology() {
   });
 
   const updateMapMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Partial<{ name: string; description: string }> }) => {
+    mutationFn: async ({ id, data }: { id: string; data: Partial<{ name: string; description: string; isDefault: boolean }> }) => {
       return await apiRequest('PATCH', `/api/maps/${id}`, data);
     },
     onSuccess: () => {

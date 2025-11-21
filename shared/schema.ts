@@ -8,6 +8,7 @@ export const maps = pgTable("maps", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   description: text("description"),
+  isDefault: boolean("is_default").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -140,6 +141,8 @@ export const insertMapSchema = createInsertSchema(maps).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  isDefault: z.boolean().optional(),
 });
 
 const credentialsSchema = z.object({
