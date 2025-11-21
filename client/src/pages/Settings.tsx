@@ -11,11 +11,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Plus, Trash2, Edit, ArrowLeft } from "lucide-react";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff } from "lucide-react";
 import { Link } from "wouter";
 import { z } from "zod";
-import type { CredentialProfile, InsertCredentialProfile } from "@shared/schema";
+import type { CredentialProfile, InsertCredentialProfile, Notification, InsertNotification } from "@shared/schema";
 
 const credentialFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -35,6 +37,232 @@ const credentialFormSchema = z.object({
 });
 
 type CredentialFormData = z.infer<typeof credentialFormSchema>;
+
+const notificationFormSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  url: z.string().url("Must be a valid URL"),
+  method: z.enum(["GET", "POST"]),
+  messageTemplate: z.string().min(1, "Message template is required"),
+  enabled: z.boolean().optional(),
+});
+
+type NotificationFormData = z.infer<typeof notificationFormSchema>;
+
+function NotificationDialog({ 
+  notification, 
+  open, 
+  onOpenChange 
+}: { 
+  notification?: Notification; 
+  open: boolean; 
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { toast } = useToast();
+  const isEdit = !!notification;
+
+  const form = useForm<NotificationFormData>({
+    resolver: zodResolver(notificationFormSchema),
+    defaultValues: notification ? {
+      name: notification.name,
+      url: notification.url,
+      method: notification.method as "GET" | "POST",
+      messageTemplate: notification.messageTemplate,
+      enabled: notification.enabled,
+    } : {
+      name: "",
+      url: "",
+      method: "POST",
+      messageTemplate: "Device [Device.Name] ([Device.Address]) changed status: [Status.Old] → [Status.New]",
+      enabled: true,
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: InsertNotification) => 
+      apiRequest("POST", "/api/notifications", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      toast({ description: "Notification created successfully" });
+      onOpenChange(false);
+      form.reset();
+    },
+    onError: () => {
+      toast({ 
+        variant: "destructive",
+        description: "Failed to create notification" 
+      });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: InsertNotification) =>
+      apiRequest("PATCH", `/api/notifications/${notification?.id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      toast({ description: "Notification updated successfully" });
+      onOpenChange(false);
+    },
+    onError: () => {
+      toast({ 
+        variant: "destructive",
+        description: "Failed to update notification" 
+      });
+    },
+  });
+
+  const onSubmit = (data: NotificationFormData) => {
+    if (isEdit) {
+      updateMutation.mutate(data);
+    } else {
+      createMutation.mutate(data);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="dialog-notification">
+        <DialogHeader>
+          <DialogTitle data-testid="text-dialog-title">
+            {isEdit ? "Edit Notification" : "Create Notification"}
+          </DialogTitle>
+          <DialogDescription>
+            {isEdit 
+              ? "Update the notification settings." 
+              : "Create a new notification endpoint for device status alerts."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Notification Name</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="Telegram Alert" data-testid="input-notification-name" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="url"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>API Endpoint URL</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="https://api.telegram.org/bot..." data-testid="input-notification-url" />
+                  </FormControl>
+                  <FormDescription>
+                    The HTTP endpoint to send notifications to (e.g., Telegram bot, Pushover, webhook)
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="method"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>HTTP Method</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger data-testid="select-notification-method">
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="GET">GET</SelectItem>
+                      <SelectItem value="POST">POST</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="messageTemplate"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Message Template</FormLabel>
+                  <FormControl>
+                    <Textarea 
+                      {...field} 
+                      placeholder="Device [Device.Name] status changed to [Service.Status]"
+                      className="min-h-[100px]"
+                      data-testid="input-notification-message"
+                    />
+                  </FormControl>
+                  <FormDescription className="space-y-1">
+                    <div>Available variables:</div>
+                    <div className="font-mono text-xs space-x-2">
+                      <span>[Device.Name]</span>
+                      <span>[Device.Address]</span>
+                      <span>[Device.Identity]</span>
+                      <span>[Device.Type]</span>
+                      <span>[Service.Status]</span>
+                      <span>[Status.Old]</span>
+                      <span>[Status.New]</span>
+                    </div>
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="enabled"
+              render={({ field }) => (
+                <FormItem className="flex items-center justify-between rounded-md border p-4">
+                  <div>
+                    <FormLabel>Enabled</FormLabel>
+                    <FormDescription>
+                      Enable or disable this notification
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      data-testid="switch-notification-enabled"
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <DialogFooter>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => onOpenChange(false)}
+                data-testid="button-cancel"
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="submit" 
+                disabled={createMutation.isPending || updateMutation.isPending}
+                data-testid="button-save-notification"
+              >
+                {isEdit ? "Update" : "Create"} Notification
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function CredentialProfileDialog({ 
   profile, 
@@ -379,10 +607,17 @@ export default function Settings() {
   const [editingProfile, setEditingProfile] = useState<CredentialProfile | undefined>();
   const [deletingProfile, setDeletingProfile] = useState<CredentialProfile | undefined>();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingNotification, setEditingNotification] = useState<Notification | undefined>();
+  const [deletingNotification, setDeletingNotification] = useState<Notification | undefined>();
+  const [notificationDialogOpen, setNotificationDialogOpen] = useState(false);
   const [pollingInterval, setPollingInterval] = useState("30");
 
   const { data: profiles = [], isLoading } = useQuery<CredentialProfile[]>({
     queryKey: ["/api/credential-profiles"],
+  });
+
+  const { data: notifications = [], isLoading: notificationsLoading } = useQuery<Notification[]>({
+    queryKey: ["/api/notifications"],
   });
 
   const { data: pollingIntervalData } = useQuery<{ key: string; value: string }>({
@@ -394,7 +629,7 @@ export default function Settings() {
     },
   });
 
-  const deleteMutation = useMutation({
+  const deleteProfileMutation = useMutation({
     mutationFn: async (id: string) => 
       apiRequest("DELETE", `/api/credential-profiles/${id}`),
     onSuccess: () => {
@@ -406,6 +641,22 @@ export default function Settings() {
       toast({ 
         variant: "destructive",
         description: "Failed to delete credential profile" 
+      });
+    },
+  });
+
+  const deleteNotificationMutation = useMutation({
+    mutationFn: async (id: string) => 
+      apiRequest("DELETE", `/api/notifications/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      toast({ description: "Notification deleted successfully" });
+      setDeletingNotification(undefined);
+    },
+    onError: () => {
+      toast({ 
+        variant: "destructive",
+        description: "Failed to delete notification" 
       });
     },
   });
@@ -434,6 +685,18 @@ export default function Settings() {
     setDialogOpen(open);
     if (!open) {
       setEditingProfile(undefined);
+    }
+  };
+
+  const handleEditNotification = (notification: Notification) => {
+    setEditingNotification(notification);
+    setNotificationDialogOpen(true);
+  };
+
+  const handleNotificationDialogClose = (open: boolean) => {
+    setNotificationDialogOpen(open);
+    if (!open) {
+      setEditingNotification(undefined);
     }
   };
 
@@ -562,8 +825,90 @@ export default function Settings() {
               )}
             </CardContent>
           </Card>
+
+          <Card data-testid="card-notifications">
+            <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
+              <div>
+                <CardTitle>Notifications</CardTitle>
+                <CardDescription>
+                  Configure notification endpoints for device status alerts
+                </CardDescription>
+              </div>
+              <Button 
+                onClick={() => {
+                  setEditingNotification(undefined);
+                  setNotificationDialogOpen(true);
+                }}
+                data-testid="button-add-notification"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Notification
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {notificationsLoading ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  Loading notifications...
+                </div>
+              ) : notifications.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No notifications configured yet. Create one to get started.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {notifications.map((notification) => (
+                    <div 
+                      key={notification.id}
+                      className="flex items-center justify-between p-4 border rounded-md hover-elevate"
+                      data-testid={`notification-item-${notification.id}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        {notification.enabled ? (
+                          <Bell className="h-5 w-5 text-primary" />
+                        ) : (
+                          <BellOff className="h-5 w-5 text-muted-foreground" />
+                        )}
+                        <div>
+                          <div className="font-medium text-foreground" data-testid={`text-notification-name-${notification.id}`}>
+                            {notification.name}
+                          </div>
+                          <div className="text-sm text-muted-foreground" data-testid={`text-notification-url-${notification.id}`}>
+                            {notification.method} {notification.url}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => handleEditNotification(notification)}
+                          data-testid={`button-edit-notification-${notification.id}`}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => setDeletingNotification(notification)}
+                          data-testid={`button-delete-notification-${notification.id}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </main>
+
+      <NotificationDialog 
+        notification={editingNotification}
+        open={notificationDialogOpen}
+        onOpenChange={handleNotificationDialogClose}
+      />
 
       <CredentialProfileDialog 
         profile={editingProfile}
@@ -582,8 +927,28 @@ export default function Settings() {
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => deletingProfile && deleteMutation.mutate(deletingProfile.id)}
+              onClick={() => deletingProfile && deleteProfileMutation.mutate(deletingProfile.id)}
               data-testid="button-confirm-delete"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deletingNotification} onOpenChange={(open) => !open && setDeletingNotification(undefined)}>
+        <AlertDialogContent data-testid="dialog-delete-notification-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Notification</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{deletingNotification?.name}"? This will remove all device assignments for this notification.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-notification">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deletingNotification && deleteNotificationMutation.mutate(deletingNotification.id)}
+              data-testid="button-confirm-delete-notification"
             >
               Delete
             </AlertDialogAction>
