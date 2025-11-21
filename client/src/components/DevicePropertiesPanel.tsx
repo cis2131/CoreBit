@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Device, type CredentialProfile } from '@shared/schema';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { Device, type CredentialProfile, type Notification, type DeviceNotification } from '@shared/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
-import { X, Trash2, Edit, RefreshCw, Key, Cpu, MemoryStick } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { X, Trash2, Edit, RefreshCw, Key, Cpu, MemoryStick, Bell } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 
@@ -40,6 +41,55 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
     },
     enabled: !!device.credentialProfileId,
   });
+
+  const { data: notifications = [] } = useQuery<Notification[]>({
+    queryKey: ['/api/notifications'],
+  });
+
+  const { data: deviceNotifications = [] } = useQuery<DeviceNotification[]>({
+    queryKey: ['/api/devices', device.id, 'notifications'],
+    queryFn: async () => {
+      const response = await fetch(`/api/devices/${device.id}/notifications`);
+      if (!response.ok) throw new Error('Failed to fetch device notifications');
+      return response.json();
+    },
+  });
+
+  const addNotificationMutation = useMutation({
+    mutationFn: async (notificationId: string) =>
+      apiRequest('POST', `/api/devices/${device.id}/notifications`, { notificationId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/devices', device.id, 'notifications'] });
+      toast({ description: 'Notification enabled for device' });
+    },
+    onError: () => {
+      toast({ variant: 'destructive', description: 'Failed to enable notification' });
+    },
+  });
+
+  const removeNotificationMutation = useMutation({
+    mutationFn: async (notificationId: string) =>
+      apiRequest('DELETE', `/api/devices/${device.id}/notifications/${notificationId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/devices', device.id, 'notifications'] });
+      toast({ description: 'Notification disabled for device' });
+    },
+    onError: () => {
+      toast({ variant: 'destructive', description: 'Failed to disable notification' });
+    },
+  });
+
+  const isNotificationEnabled = (notificationId: string) => {
+    return deviceNotifications.some(dn => dn.notificationId === notificationId);
+  };
+
+  const handleNotificationToggle = (notificationId: string, enabled: boolean) => {
+    if (enabled) {
+      addNotificationMutation.mutate(notificationId);
+    } else {
+      removeNotificationMutation.mutate(notificationId);
+    }
+  };
 
   const handleProbeNow = async () => {
     setProbing(true);
@@ -248,6 +298,50 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
               ) : (
                 <div className="text-sm text-muted-foreground">
                   No credentials configured
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Bell className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm">Notifications</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {notifications.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  No notifications configured. Create notifications in Settings.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {notifications.map((notification) => (
+                    <div key={notification.id} className="flex items-start space-x-3" data-testid={`notification-checkbox-${notification.id}`}>
+                      <Checkbox
+                        id={`notification-${notification.id}`}
+                        checked={isNotificationEnabled(notification.id)}
+                        onCheckedChange={(checked) => handleNotificationToggle(notification.id, checked as boolean)}
+                        disabled={!notification.enabled}
+                        data-testid={`checkbox-notification-${notification.id}`}
+                      />
+                      <div className="flex-1 space-y-1">
+                        <label
+                          htmlFor={`notification-${notification.id}`}
+                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                        >
+                          {notification.name}
+                        </label>
+                        <p className="text-xs text-muted-foreground">
+                          {notification.method} {notification.url}
+                        </p>
+                        {!notification.enabled && (
+                          <Badge variant="outline" className="text-xs">Disabled</Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </CardContent>
