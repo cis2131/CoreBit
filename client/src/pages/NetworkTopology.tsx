@@ -220,10 +220,13 @@ export default function NetworkTopology() {
 
   const handleMapEdit = (map: Map) => {
     setEditingMap(map);
+    setEditMapName(map.name);
+    setEditMapDescription(map.description || '');
+    setEditMapIsDefault(map.isDefault || false);
   };
 
-  const handleMapUpdate = (mapId: string, name: string, description: string) => {
-    updateMapMutation.mutate({ id: mapId, data: { name, description } });
+  const handleMapUpdate = (mapId: string, name: string, description: string, isDefault: boolean) => {
+    updateMapMutation.mutate({ id: mapId, data: { name, description, isDefault } });
   };
 
   const handleMapDelete = (mapId: string) => {
@@ -526,17 +529,17 @@ export default function NetworkTopology() {
           <DialogHeader>
             <DialogTitle>Edit Map</DialogTitle>
             <DialogDescription>
-              Update the name and description of this network topology map
+              Update the name, description, and settings of this network topology map
             </DialogDescription>
           </DialogHeader>
           {editingMap && (
             <form onSubmit={(e) => {
               e.preventDefault();
-              const formData = new FormData(e.currentTarget);
               handleMapUpdate(
                 editingMap.id,
-                formData.get('name') as string,
-                formData.get('description') as string
+                editMapName,
+                editMapDescription,
+                editMapIsDefault
               );
             }}>
               <div className="space-y-4 py-4">
@@ -544,8 +547,8 @@ export default function NetworkTopology() {
                   <Label htmlFor="edit-map-name">Map Name</Label>
                   <Input
                     id="edit-map-name"
-                    name="name"
-                    defaultValue={editingMap.name}
+                    value={editMapName}
+                    onChange={(e) => setEditMapName(e.target.value)}
                     required
                     data-testid="input-edit-map-name"
                   />
@@ -554,10 +557,22 @@ export default function NetworkTopology() {
                   <Label htmlFor="edit-map-description">Description (optional)</Label>
                   <Input
                     id="edit-map-description"
-                    name="description"
-                    defaultValue={editingMap.description || ''}
+                    value={editMapDescription}
+                    onChange={(e) => setEditMapDescription(e.target.value)}
                     data-testid="input-edit-map-description"
                   />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="edit-map-default"
+                    checked={editMapIsDefault}
+                    onChange={(e) => setEditMapIsDefault(e.target.checked)}
+                    data-testid="checkbox-set-default-map"
+                  />
+                  <Label htmlFor="edit-map-default" className="cursor-pointer text-sm">
+                    Set as default map (loads on startup)
+                  </Label>
                 </div>
               </div>
               <DialogFooter>
