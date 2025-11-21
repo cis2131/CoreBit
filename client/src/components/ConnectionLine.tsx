@@ -132,6 +132,8 @@ export function ConnectionLine({
   // Get port status colors
   const getPortStatusColor = (device: Device | undefined, portName: string | undefined): string => {
     if (!device || !portName || portName === 'none') return 'hsl(var(--muted-foreground))';
+    // If device is down, show grey regardless of port status
+    if (device.status !== 'online') return 'hsl(var(--muted-foreground))';
     const port = device.deviceData?.ports?.find(p => p.name === portName);
     if (!port) return 'hsl(var(--muted-foreground))';
     return port.status === 'up' ? '#22c55e' : '#ef4444'; // green for up, red for down
