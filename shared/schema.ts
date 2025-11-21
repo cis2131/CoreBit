@@ -49,6 +49,7 @@ export const devices = pgTable("devices", {
     uptime?: string;
     model?: string;
     version?: string;
+    systemIdentity?: string;
     ports?: Array<{ name: string; status: string; speed?: string }>;
     cpuUsagePct?: number;
     memoryUsagePct?: number;

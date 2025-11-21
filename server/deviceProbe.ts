@@ -5,6 +5,7 @@ export interface DeviceProbeData {
   uptime?: string;
   model?: string;
   version?: string;
+  systemIdentity?: string;
   ports?: Array<{
     name: string;
     status: string;
@@ -73,8 +74,9 @@ async function probeMikrotikDevice(
     conn.close();
 
     return {
-      model: `${board} (${identityName})`,
+      model: board,
       version: `RouterOS ${version}`,
+      systemIdentity: identityName,
       uptime,
       ports,
       cpuUsagePct,
@@ -218,8 +220,9 @@ async function probeSnmpDevice(
             session.close();
             
             resolve({
-              model: `${sysName}`,
-              version: sysDescr.substring(0, 100),
+              model: sysDescr.substring(0, 100),
+              systemIdentity: sysName,
+              version: 'SNMP',
               uptime: sysUpTime,
               ports: ports.length > 0 ? ports.slice(0, 10) : [{
                 name: 'eth0',
@@ -237,8 +240,9 @@ async function probeSnmpDevice(
             }
             
             resolve({
-              model: sysName,
-              version: sysDescr.substring(0, 100),
+              model: sysDescr.substring(0, 100),
+              systemIdentity: sysName,
+              version: 'SNMP',
               uptime: sysUpTime,
               ports: [{
                 name: 'eth0',
