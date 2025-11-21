@@ -171,8 +171,16 @@ function NotificationDialog({
                   <FormControl>
                     <Input {...field} placeholder="https://api.telegram.org/bot..." data-testid="input-notification-url" />
                   </FormControl>
-                  <FormDescription>
-                    The HTTP endpoint to send notifications to (e.g., Telegram bot, Pushover, webhook)
+                  <FormDescription className="space-y-1">
+                    <div>
+                      <strong>For GET:</strong> End URL with parameter name and = (e.g., <code className="text-xs">...?text=</code>)
+                    </div>
+                    <div>
+                      <strong>For POST:</strong> Message sent as request body. Add other parameters to URL as needed.
+                    </div>
+                    <div className="text-xs mt-1">
+                      Example: <code>https://api.telegram.org/botTOKEN/sendMessage?chat_id=12345&text=</code>
+                    </div>
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

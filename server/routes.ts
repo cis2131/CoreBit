@@ -41,19 +41,27 @@ async function sendNotification(notification: any, device: any, newStatus: strin
     
     console.log(`[Notification] Sending ${method} to ${url} for device ${device.name}`);
     
-    const fetchOptions: RequestInit = {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      ...(method === 'POST' && { body: JSON.stringify({ message }) }),
-    };
+    let finalUrl = url;
+    let fetchOptions: RequestInit = { method };
     
-    const finalUrl = method === 'GET' ? `${url}?message=${encodeURIComponent(message)}` : url;
+    if (method === 'GET') {
+      // For GET, append the message to the URL
+      // User should provide URL ending with parameter name and '=' (e.g., ...?text=)
+      // We append the URL-encoded message value
+      finalUrl = `${url}${encodeURIComponent(message)}`;
+    } else {
+      // For POST, send the rendered message as the body
+      // User can configure the URL with query params for any additional parameters
+      fetchOptions.headers = { 'Content-Type': 'text/plain' };
+      fetchOptions.body = message;
+    }
+    
     const response = await fetch(finalUrl, fetchOptions);
     
     if (!response.ok) {
-      console.error(`[Notification] HTTP ${response.status} from ${url}`);
+      console.error(`[Notification] HTTP ${response.status} from ${finalUrl}`);
     } else {
-      console.log(`[Notification] Successfully sent to ${url}`);
+      console.log(`[Notification] Successfully sent to ${finalUrl}`);
     }
   } catch (error: any) {
     console.error(`[Notification] Failed to send to ${notification.url}:`, error.message);
