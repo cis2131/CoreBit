@@ -359,19 +359,23 @@ export default function NetworkTopology() {
     }
   };
 
-  const handleDeviceStatusSelect = (deviceId: string) => {
-    // Find first map that contains this device
-    const mapWithDevice = maps.find(map => {
-      const hasDevice = placements.some(p => p.deviceId === deviceId && p.mapId === map.id);
-      return hasDevice;
-    });
-
-    if (mapWithDevice) {
-      setCurrentMapId(mapWithDevice.id);
-      setSelectedDeviceId(deviceId);
-    } else {
-      toast({ title: 'Device not on any map', description: 'This device is not placed on any map yet.', variant: 'destructive' });
+  const handleDeviceStatusSelect = async (deviceId: string) => {
+    // Find first map that contains this device by checking each map's placements
+    for (const map of maps) {
+      try {
+        const mapPlacements = await apiRequest('GET', `/api/placements/${map.id}`);
+        const hasDevice = (mapPlacements as DevicePlacement[]).some(p => p.deviceId === deviceId);
+        if (hasDevice) {
+          setCurrentMapId(map.id);
+          setSelectedDeviceId(deviceId);
+          return;
+        }
+      } catch (error) {
+        console.error(`Failed to check placements for map ${map.id}:`, error);
+      }
     }
+
+    toast({ title: 'Device not on any map', description: 'This device is not placed on any map yet.', variant: 'destructive' });
   };
 
   const selectedDevice = selectedDeviceId ? devicesOnMap.find(d => d.id === selectedDeviceId) : null;
