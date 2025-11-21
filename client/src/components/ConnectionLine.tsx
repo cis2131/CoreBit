@@ -34,25 +34,65 @@ export function ConnectionLine({
   const style = linkSpeedStyles[speed] || linkSpeedStyles['1G'];
   const strokeWidth = isSelected ? style.width + 2 : style.width;
 
-  // Calculate offset positions for port indicators (outside device nodes)
-  const dx = targetPosition.x - sourcePosition.x;
-  const dy = targetPosition.y - sourcePosition.y;
-  const distance = Math.sqrt(dx * dx + dy * dy);
-  const offset = 40; // Distance from device center to indicator
+  // Calculate intersection points with device rectangle boundaries
+  // Device nodes are 320px wide and approximately 130px tall, centered at their position
+  const DEVICE_WIDTH = 320;
+  const DEVICE_HEIGHT = 130;
+  const HALF_WIDTH = DEVICE_WIDTH / 2;
+  const HALF_HEIGHT = DEVICE_HEIGHT / 2;
 
-  let sourceIndicatorX = sourcePosition.x;
-  let sourceIndicatorY = sourcePosition.y;
-  let targetIndicatorX = targetPosition.x;
-  let targetIndicatorY = targetPosition.y;
+  const calculateRectangleIntersection = (
+    centerX: number,
+    centerY: number,
+    targetX: number,
+    targetY: number
+  ): { x: number; y: number } => {
+    const dx = targetX - centerX;
+    const dy = targetY - centerY;
 
-  if (distance > 0) {
-    const normalizedDx = dx / distance;
-    const normalizedDy = dy / distance;
-    sourceIndicatorX = sourcePosition.x + normalizedDx * offset;
-    sourceIndicatorY = sourcePosition.y + normalizedDy * offset;
-    targetIndicatorX = targetPosition.x - normalizedDx * offset;
-    targetIndicatorY = targetPosition.y - normalizedDy * offset;
-  }
+    if (dx === 0 && dy === 0) {
+      return { x: centerX, y: centerY };
+    }
+
+    // Find which edge the line intersects
+    const ratio = Math.abs(dy) > 0 ? Math.abs(dx / dy) : Infinity;
+
+    let intersectX = centerX;
+    let intersectY = centerY;
+
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      // Hits left or right edge
+      intersectX = centerX + (dx > 0 ? HALF_WIDTH : -HALF_WIDTH);
+      const t = (intersectX - centerX) / dx;
+      intersectY = centerY + t * dy;
+    } else {
+      // Hits top or bottom edge
+      intersectY = centerY + (dy > 0 ? HALF_HEIGHT : -HALF_HEIGHT);
+      const t = (intersectY - centerY) / dy;
+      intersectX = centerX + t * dx;
+    }
+
+    return { x: intersectX, y: intersectY };
+  };
+
+  const sourceIntersection = calculateRectangleIntersection(
+    sourcePosition.x,
+    sourcePosition.y,
+    targetPosition.x,
+    targetPosition.y
+  );
+
+  const targetIntersection = calculateRectangleIntersection(
+    targetPosition.x,
+    targetPosition.y,
+    sourcePosition.x,
+    sourcePosition.y
+  );
+
+  const sourceIndicatorX = sourceIntersection.x;
+  const sourceIndicatorY = sourceIntersection.y;
+  const targetIndicatorX = targetIntersection.x;
+  const targetIndicatorY = targetIntersection.y;
 
   // Get port status colors
   const getPortStatusColor = (device: Device | undefined, portName: string | undefined): string => {
