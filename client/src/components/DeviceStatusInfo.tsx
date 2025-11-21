@@ -72,7 +72,7 @@ export function DeviceStatusInfo({ devices = [], maps, onDeviceSelect }: DeviceS
         ) : (
           <div className="flex items-center gap-1 text-foreground">
             <CheckCircle2 className="h-4 w-4 text-green-500" />
-            <span>{totalDevices}</span>
+            <span>0</span>
           </div>
         )}
       </div>
