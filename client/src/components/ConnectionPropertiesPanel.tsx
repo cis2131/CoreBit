@@ -57,7 +57,7 @@ export function ConnectionPropertiesPanel({
         sourcePort: sourcePort === 'none' ? '' : sourcePort,
         targetPort: targetPort === 'none' ? '' : targetPort,
       });
-      queryClient.invalidateQueries({ queryKey: [`/api/connections?mapId=${connection.mapId}`] });
+      queryClient.invalidateQueries({ queryKey: ['/api/connections', connection.mapId] });
       toast({ title: 'Connection updated', description: 'Connection properties have been saved.' });
     } catch (error) {
       toast({
