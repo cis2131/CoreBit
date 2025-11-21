@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -62,13 +62,7 @@ function NotificationDialog({
 
   const form = useForm<NotificationFormData>({
     resolver: zodResolver(notificationFormSchema),
-    defaultValues: notification ? {
-      name: notification.name,
-      url: notification.url,
-      method: notification.method as "GET" | "POST",
-      messageTemplate: notification.messageTemplate,
-      enabled: notification.enabled,
-    } : {
+    defaultValues: {
       name: "",
       url: "",
       method: "POST",
@@ -76,6 +70,26 @@ function NotificationDialog({
       enabled: true,
     },
   });
+
+  useEffect(() => {
+    if (notification) {
+      form.reset({
+        name: notification.name,
+        url: notification.url,
+        method: notification.method as "GET" | "POST",
+        messageTemplate: notification.messageTemplate,
+        enabled: notification.enabled,
+      });
+    } else {
+      form.reset({
+        name: "",
+        url: "",
+        method: "POST",
+        messageTemplate: "Device [Device.Name] ([Device.Address]) changed status: [Status.Old] → [Status.New]",
+        enabled: true,
+      });
+    }
+  }, [notification, open, form]);
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertNotification) => 
