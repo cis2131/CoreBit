@@ -96,36 +96,6 @@ export function ConnectionPropertiesPanel({
         <div className="p-4 space-y-4">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Connected Devices</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div>
-                <p className="text-muted-foreground text-xs">Source</p>
-                <p className="font-medium text-foreground" data-testid="text-source-device">
-                  {sourceDevice.name}
-                </p>
-                {sourcePort && sourcePort !== 'none' && (
-                  <Badge variant="outline" className="mt-1 text-xs">
-                    Port: {sourcePort}
-                  </Badge>
-                )}
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Target</p>
-                <p className="font-medium text-foreground" data-testid="text-target-device">
-                  {targetDevice.name}
-                </p>
-                {targetPort && targetPort !== 'none' && (
-                  <Badge variant="outline" className="mt-1 text-xs">
-                    Port: {targetPort}
-                  </Badge>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
               <CardTitle className="text-sm">Link Configuration</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -147,7 +117,10 @@ export function ConnectionPropertiesPanel({
 
               {sourcePorts.length > 0 && (
                 <div className="space-y-2">
-                  <Label htmlFor="source-port">Source Port</Label>
+                  <div className="flex items-baseline justify-between">
+                    <Label htmlFor="source-port" className="text-xs text-muted-foreground">Source</Label>
+                    <span className="text-xs font-medium text-foreground">{sourceDevice.name}</span>
+                  </div>
                   <Select value={sourcePort} onValueChange={setSourcePort}>
                     <SelectTrigger id="source-port" data-testid="select-source-port">
                       <SelectValue placeholder="Select port" />
@@ -156,11 +129,18 @@ export function ConnectionPropertiesPanel({
                       <SelectItem value="none">None</SelectItem>
                       {sourcePorts.map((port, idx) => (
                         <SelectItem key={idx} value={port.name}>
-                          <div className="flex flex-col">
-                            <span>{port.name} {port.speed && `(${port.speed})`}</span>
-                            {port.description && (
-                              <span className="text-xs text-muted-foreground">{port.description}</span>
-                            )}
+                          <div className="flex items-start gap-2">
+                            <div
+                              className={`w-2 h-2 rounded-full flex-shrink-0 mt-1 ${
+                                port.status === 'up' ? 'bg-green-500' : 'bg-red-500'
+                              }`}
+                            />
+                            <div className="flex flex-col">
+                              <span>{port.name} {port.speed && `(${port.speed})`}</span>
+                              {port.description && (
+                                <span className="text-xs text-muted-foreground">{port.description}</span>
+                              )}
+                            </div>
                           </div>
                         </SelectItem>
                       ))}
@@ -171,7 +151,10 @@ export function ConnectionPropertiesPanel({
 
               {targetPorts.length > 0 && (
                 <div className="space-y-2">
-                  <Label htmlFor="target-port">Target Port</Label>
+                  <div className="flex items-baseline justify-between">
+                    <Label htmlFor="target-port" className="text-xs text-muted-foreground">Target</Label>
+                    <span className="text-xs font-medium text-foreground">{targetDevice.name}</span>
+                  </div>
                   <Select value={targetPort} onValueChange={setTargetPort}>
                     <SelectTrigger id="target-port" data-testid="select-target-port">
                       <SelectValue placeholder="Select port" />
@@ -180,11 +163,18 @@ export function ConnectionPropertiesPanel({
                       <SelectItem value="none">None</SelectItem>
                       {targetPorts.map((port, idx) => (
                         <SelectItem key={idx} value={port.name}>
-                          <div className="flex flex-col">
-                            <span>{port.name} {port.speed && `(${port.speed})`}</span>
-                            {port.description && (
-                              <span className="text-xs text-muted-foreground">{port.description}</span>
-                            )}
+                          <div className="flex items-start gap-2">
+                            <div
+                              className={`w-2 h-2 rounded-full flex-shrink-0 mt-1 ${
+                                port.status === 'up' ? 'bg-green-500' : 'bg-red-500'
+                              }`}
+                            />
+                            <div className="flex flex-col">
+                              <span>{port.name} {port.speed && `(${port.speed})`}</span>
+                              {port.description && (
+                                <span className="text-xs text-muted-foreground">{port.description}</span>
+                              )}
+                            </div>
                           </div>
                         </SelectItem>
                       ))}
