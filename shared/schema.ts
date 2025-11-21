@@ -40,6 +40,33 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const notifications = pgTable("notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  method: text("method").notNull().default("POST"),
+  messageTemplate: text("message_template").notNull(),
+  enabled: boolean("enabled").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const deviceNotifications = pgTable("device_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  deviceId: varchar("device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
+  notificationId: varchar("notification_id").notNull().references(() => notifications.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const notificationHistory = pgTable("notification_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  deviceId: varchar("device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
+  notificationId: varchar("notification_id").notNull().references(() => notifications.id, { onDelete: "cascade" }),
+  oldStatus: text("old_status"),
+  newStatus: text("new_status").notNull(),
+  sentAt: timestamp("sent_at").defaultNow().notNull(),
+});
+
 export const devices = pgTable("devices", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
@@ -210,6 +237,19 @@ export const insertConnectionSchema = createInsertSchema(connections).omit({
   }).optional(),
 });
 
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  enabled: z.boolean().optional(),
+});
+
+export const insertDeviceNotificationSchema = createInsertSchema(deviceNotifications).omit({
+  id: true,
+  createdAt: true,
+});
+
 export type Map = typeof maps.$inferSelect;
 export type InsertMap = z.infer<typeof insertMapSchema>;
 export type Device = typeof devices.$inferSelect;
@@ -220,3 +260,7 @@ export type Connection = typeof connections.$inferSelect;
 export type InsertConnection = z.infer<typeof insertConnectionSchema>;
 export type CredentialProfile = typeof credentialProfiles.$inferSelect;
 export type InsertCredentialProfile = z.infer<typeof insertCredentialProfileSchema>;
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type DeviceNotification = typeof deviceNotifications.$inferSelect;
+export type InsertDeviceNotification = z.infer<typeof insertDeviceNotificationSchema>;
