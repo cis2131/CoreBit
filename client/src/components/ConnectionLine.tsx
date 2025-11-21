@@ -1,4 +1,4 @@
-import { Connection } from '@shared/schema';
+import { Connection, Device } from '@shared/schema';
 
 interface ConnectionLineProps {
   connection: Connection;
@@ -6,6 +6,8 @@ interface ConnectionLineProps {
   targetPosition: { x: number; y: number };
   isSelected: boolean;
   onClick: () => void;
+  sourceDevice?: Device;
+  targetDevice?: Device;
 }
 
 const linkSpeedStyles = {
@@ -22,6 +24,8 @@ export function ConnectionLine({
   targetPosition,
   isSelected,
   onClick,
+  sourceDevice,
+  targetDevice,
 }: ConnectionLineProps) {
   const midX = (sourcePosition.x + targetPosition.x) / 2;
   const midY = (sourcePosition.y + targetPosition.y) / 2;
@@ -29,6 +33,17 @@ export function ConnectionLine({
   const speed = (connection.linkSpeed || '1G') as keyof typeof linkSpeedStyles;
   const style = linkSpeedStyles[speed] || linkSpeedStyles['1G'];
   const strokeWidth = isSelected ? style.width + 2 : style.width;
+
+  // Get port status colors
+  const getPortStatusColor = (device: Device | undefined, portName: string | undefined): string => {
+    if (!device || !portName || portName === 'none') return 'hsl(var(--muted-foreground))';
+    const port = device.deviceData?.ports?.find(p => p.name === portName);
+    if (!port) return 'hsl(var(--muted-foreground))';
+    return port.status === 'up' ? '#22c55e' : '#ef4444'; // green for up, red for down
+  };
+
+  const sourcePortStatus = getPortStatusColor(sourceDevice, connection.sourcePort);
+  const targetPortStatus = getPortStatusColor(targetDevice, connection.targetPort);
 
   return (
     <g
@@ -62,29 +77,58 @@ export function ConnectionLine({
         pointerEvents="stroke"
       />
 
-      {isSelected && (
+      {/* Port status indicators at connection endpoints */}
+      {(connection.sourcePort && connection.sourcePort !== 'none') && (
         <>
           <circle
             cx={sourcePosition.x}
             cy={sourcePosition.y}
-            r="4"
-            fill="hsl(var(--primary))"
+            r="5"
+            fill={sourcePortStatus}
+            opacity="0.8"
+          />
+          <circle
+            cx={sourcePosition.x}
+            cy={sourcePosition.y}
+            r="5"
+            fill="none"
+            stroke="white"
+            strokeWidth="1"
+            opacity="0.6"
+          />
+        </>
+      )}
+
+      {(connection.targetPort && connection.targetPort !== 'none') && (
+        <>
+          <circle
+            cx={targetPosition.x}
+            cy={targetPosition.y}
+            r="5"
+            fill={targetPortStatus}
+            opacity="0.8"
           />
           <circle
             cx={targetPosition.x}
             cy={targetPosition.y}
-            r="4"
-            fill="hsl(var(--primary))"
-          />
-          <circle
-            cx={midX}
-            cy={midY}
-            r="6"
-            fill="hsl(var(--primary))"
+            r="5"
+            fill="none"
             stroke="white"
-            strokeWidth="2"
+            strokeWidth="1"
+            opacity="0.6"
           />
         </>
+      )}
+
+      {isSelected && (
+        <circle
+          cx={midX}
+          cy={midY}
+          r="6"
+          fill="hsl(var(--primary))"
+          stroke="white"
+          strokeWidth="2"
+        />
       )}
     </g>
   );

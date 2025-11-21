@@ -226,6 +226,8 @@ export function NetworkCanvas({
                   targetPosition={targetPosition}
                   isSelected={selectedConnectionId === conn.id}
                   onClick={() => onConnectionClick(conn.id)}
+                  sourceDevice={source}
+                  targetDevice={target}
                 />
               );
             })}
