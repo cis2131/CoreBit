@@ -333,9 +333,6 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
                         >
                           {notification.name}
                         </label>
-                        <p className="text-xs text-muted-foreground">
-                          {notification.method} {notification.url}
-                        </p>
                         {!notification.enabled && (
                           <Badge variant="outline" className="text-xs">Disabled</Badge>
                         )}
