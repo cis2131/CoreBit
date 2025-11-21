@@ -14,6 +14,52 @@ async function resolveCredentials(device: Pick<Device, 'credentialProfileId' | '
   return device.customCredentials;
 }
 
+// Helper function to render message template with device variables
+function renderMessageTemplate(template: string, device: any, newStatus: string, oldStatus?: string): string {
+  return template
+    .replace(/\[Device\.Name\]/g, device.name || 'Unknown')
+    .replace(/\[Device\.Address\]/g, device.ipAddress || 'N/A')
+    .replace(/\[Device\.Identity\]/g, device.deviceData?.systemIdentity || device.name || 'Unknown')
+    .replace(/\[Device\.Type\]/g, device.type?.replace(/_/g, ' ') || 'Unknown')
+    .replace(/\[Service\.Status\]/g, newStatus)
+    .replace(/\[Status\.Old\]/g, oldStatus || 'unknown')
+    .replace(/\[Status\.New\]/g, newStatus);
+}
+
+// Helper function to send notification via HTTP
+async function sendNotification(notification: any, device: any, newStatus: string, oldStatus?: string) {
+  if (!notification.enabled) {
+    console.log(`[Notification] Skipping disabled notification: ${notification.name}`);
+    return;
+  }
+
+  const message = renderMessageTemplate(notification.messageTemplate, device, newStatus, oldStatus);
+  
+  try {
+    const url = notification.url;
+    const method = notification.method.toUpperCase();
+    
+    console.log(`[Notification] Sending ${method} to ${url} for device ${device.name}`);
+    
+    const fetchOptions: RequestInit = {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      ...(method === 'POST' && { body: JSON.stringify({ message }) }),
+    };
+    
+    const finalUrl = method === 'GET' ? `${url}?message=${encodeURIComponent(message)}` : url;
+    const response = await fetch(finalUrl, fetchOptions);
+    
+    if (!response.ok) {
+      console.error(`[Notification] HTTP ${response.status} from ${url}`);
+    } else {
+      console.log(`[Notification] Successfully sent to ${url}`);
+    }
+  } catch (error: any) {
+    console.error(`[Notification] Failed to send to ${notification.url}:`, error.message);
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Map routes
   app.get("/api/maps", async (_req, res) => {
@@ -402,6 +448,109 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Notification routes
+  app.get("/api/notifications", async (_req, res) => {
+    try {
+      const notifications = await storage.getAllNotifications();
+      res.json(notifications);
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+      res.status(500).json({ error: 'Failed to fetch notifications' });
+    }
+  });
+
+  app.get("/api/notifications/:id", async (req, res) => {
+    try {
+      const notification = await storage.getNotification(req.params.id);
+      if (!notification) {
+        return res.status(404).json({ error: 'Notification not found' });
+      }
+      res.json(notification);
+    } catch (error) {
+      console.error('Error fetching notification:', error);
+      res.status(500).json({ error: 'Failed to fetch notification' });
+    }
+  });
+
+  app.post("/api/notifications", async (req, res) => {
+    try {
+      const data = insertNotificationSchema.parse(req.body);
+      const notification = await storage.createNotification(data);
+      res.status(201).json(notification);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid notification data', details: error.errors });
+      }
+      console.error('Error creating notification:', error);
+      res.status(500).json({ error: 'Failed to create notification' });
+    }
+  });
+
+  app.patch("/api/notifications/:id", async (req, res) => {
+    try {
+      const data = insertNotificationSchema.partial().parse(req.body);
+      const notification = await storage.updateNotification(req.params.id, data);
+      if (!notification) {
+        return res.status(404).json({ error: 'Notification not found' });
+      }
+      res.json(notification);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid notification data', details: error.errors });
+      }
+      console.error('Error updating notification:', error);
+      res.status(500).json({ error: 'Failed to update notification' });
+    }
+  });
+
+  app.delete("/api/notifications/:id", async (req, res) => {
+    try {
+      await storage.deleteNotification(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+      res.status(500).json({ error: 'Failed to delete notification' });
+    }
+  });
+
+  // Device notification assignment routes
+  app.get("/api/devices/:deviceId/notifications", async (req, res) => {
+    try {
+      const assignments = await storage.getDeviceNotifications(req.params.deviceId);
+      res.json(assignments);
+    } catch (error) {
+      console.error('Error fetching device notifications:', error);
+      res.status(500).json({ error: 'Failed to fetch device notifications' });
+    }
+  });
+
+  app.post("/api/devices/:deviceId/notifications", async (req, res) => {
+    try {
+      const data = insertDeviceNotificationSchema.parse({
+        deviceId: req.params.deviceId,
+        notificationId: req.body.notificationId,
+      });
+      const assignment = await storage.addDeviceNotification(data);
+      res.status(201).json(assignment);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid data', details: error.errors });
+      }
+      console.error('Error adding device notification:', error);
+      res.status(500).json({ error: 'Failed to add device notification' });
+    }
+  });
+
+  app.delete("/api/devices/:deviceId/notifications/:notificationId", async (req, res) => {
+    try {
+      await storage.removeDeviceNotification(req.params.deviceId, req.params.notificationId);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error removing device notification:', error);
+      res.status(500).json({ error: 'Failed to remove device notification' });
+    }
+  });
+
   // Settings routes
   app.get("/api/settings/:key", async (req, res) => {
     try {
@@ -465,13 +614,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const status = determineDeviceStatus(probeResult.data, probeResult.success);
+      const oldStatus = device.status;
+      const statusChanged = status !== oldStatus;
       
       if (status !== device.status || probeResult.success) {
         await storage.updateDevice(device.id, {
           status,
           deviceData: probeResult.success ? probeResult.data : (device.deviceData || undefined),
         });
-        console.log(`[Probing] Updated ${device.name} (${device.ipAddress}): ${status}`);
+        console.log(`[Probing] Updated ${device.name} (${device.ipAddress}): ${oldStatus} → ${status}`);
+      }
+      
+      // Trigger notifications only on status change
+      if (statusChanged) {
+        try {
+          const deviceNotifications = await storage.getDeviceNotifications(device.id);
+          if (deviceNotifications.length > 0) {
+            console.log(`[Notification] Status changed for ${device.name}: ${oldStatus} → ${status}`);
+            
+            for (const dn of deviceNotifications) {
+              const notification = await storage.getNotification(dn.notificationId);
+              if (notification) {
+                await sendNotification(notification, device, status, oldStatus);
+              }
+            }
+          }
+        } catch (error: any) {
+          console.error(`[Notification] Error sending notifications for ${device.name}:`, error.message);
+        }
       }
       
       return { device, success: probeResult.success, timeout: false };
