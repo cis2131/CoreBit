@@ -119,6 +119,18 @@ async function probeSnmpDevice(
 
   return new Promise((resolve, reject) => {
     let session: any;
+    let sessionClosed = false;
+
+    const closeSession = () => {
+      if (!sessionClosed && session) {
+        sessionClosed = true;
+        try {
+          session.close();
+        } catch (err: any) {
+          console.warn(`[SNMP] Error closing session:`, err.message);
+        }
+      }
+    };
 
     if (snmpVersion === '3') {
       const user = {
@@ -148,7 +160,7 @@ async function probeSnmpDevice(
     session.get(basicOids, (error: any, varbinds: any[]) => {
       if (error) {
         console.error(`[SNMP] Failed to probe ${ipAddress}:`, error.message);
-        session.close();
+        closeSession();
         return reject(new Error(`SNMP probe failed: ${error.message}`));
       }
 
@@ -259,7 +271,7 @@ async function probeSnmpDevice(
               description: undefined,
             }));
 
-            session.close();
+            closeSession();
             
             resolve({
               model: sysDescr.substring(0, 100),
@@ -275,7 +287,7 @@ async function probeSnmpDevice(
               memoryUsagePct,
             });
           }, (error: any) => {
-            session.close();
+            closeSession();
             
             if (error) {
               console.warn(`[SNMP] Walk failed, using basic data:`, error.message);
