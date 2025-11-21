@@ -147,35 +147,52 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
             <div className="flex items-center gap-3">
               {/* CPU/MEM/UP with icons */}
               {device.deviceData?.cpuUsagePct !== undefined && device.deviceData?.memoryUsagePct !== undefined && (
-                <div className="flex items-center gap-2 text-xs" data-testid={`vitals-${device.id}`}>
+                <div 
+                  className={`flex items-center gap-2 text-xs ${
+                    device.status === 'online' ? '' : 'opacity-40'
+                  }`} 
+                  data-testid={`vitals-${device.id}`}
+                >
                   <div className="flex items-center gap-1">
                     <Cpu className="h-3 w-3 text-muted-foreground" />
-                    <span className="font-bold text-foreground">{device.deviceData.cpuUsagePct}%</span>
+                    <span className={`font-bold ${
+                      device.status === 'online' ? 'text-foreground' : 'text-muted-foreground'
+                    }`}>{device.deviceData.cpuUsagePct}%</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <MemoryStick className="h-3 w-3 text-muted-foreground" />
-                    <span className="font-bold text-foreground">{device.deviceData.memoryUsagePct}%</span>
+                    <span className={`font-bold ${
+                      device.status === 'online' ? 'text-foreground' : 'text-muted-foreground'
+                    }`}>{device.deviceData.memoryUsagePct}%</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <Clock className="h-3 w-3 text-muted-foreground" />
-                    <span className="font-bold text-foreground">{uptime.value}{uptime.unit}</span>
+                    <span className={`font-bold ${
+                      device.status === 'online' ? 'text-foreground' : 'text-muted-foreground'
+                    }`}>{uptime.value}{uptime.unit}</span>
                   </div>
                 </div>
               )}
 
               {/* Port status indicators */}
               {ports.length > 0 && (
-                <div className="flex items-center gap-2 text-sm font-bold">
+                <div className={`flex items-center gap-2 text-sm font-bold ${
+                  device.status === 'online' ? '' : 'opacity-40'
+                }`}>
                   {onlinePorts > 0 && (
                     <div className="flex items-center gap-1.5">
-                      <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
-                      <span className="text-foreground">{onlinePorts}</span>
+                      <div className={`w-2.5 h-2.5 rounded-full ${
+                        device.status === 'online' ? 'bg-green-500' : 'bg-gray-400'
+                      }`} />
+                      <span className={device.status === 'online' ? 'text-foreground' : 'text-muted-foreground'}>{onlinePorts}</span>
                     </div>
                   )}
                   {offlinePorts > 0 && (
                     <div className="flex items-center gap-1.5">
-                      <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
-                      <span className="text-foreground">{offlinePorts}</span>
+                      <div className={`w-2.5 h-2.5 rounded-full ${
+                        device.status === 'online' ? 'bg-red-500' : 'bg-gray-400'
+                      }`} />
+                      <span className={device.status === 'online' ? 'text-foreground' : 'text-muted-foreground'}>{offlinePorts}</span>
                     </div>
                   )}
                 </div>
