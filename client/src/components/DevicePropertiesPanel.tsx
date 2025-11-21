@@ -158,7 +158,7 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
                         <div className="flex items-center gap-2">
                           <div
                             className={`w-2 h-2 rounded-full ${
-                              port.status === 'up' ? 'bg-green-500' : 'bg-gray-400'
+                              device.status === 'online' && port.status === 'up' ? 'bg-green-500' : 'bg-gray-400'
                             }`}
                           />
                           <span className="font-medium text-foreground">{port.name}</span>

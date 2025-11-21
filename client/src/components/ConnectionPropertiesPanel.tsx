@@ -132,7 +132,7 @@ export function ConnectionPropertiesPanel({
                           <div className="flex items-start gap-2">
                             <div
                               className={`w-2 h-2 rounded-full flex-shrink-0 mt-1 ${
-                                port.status === 'up' ? 'bg-green-500' : 'bg-red-500'
+                                sourceDevice.status === 'online' && port.status === 'up' ? 'bg-green-500' : sourceDevice.status === 'online' && port.status === 'down' ? 'bg-red-500' : 'bg-gray-400'
                               }`}
                             />
                             <div className="flex flex-col">
@@ -166,7 +166,7 @@ export function ConnectionPropertiesPanel({
                           <div className="flex items-start gap-2">
                             <div
                               className={`w-2 h-2 rounded-full flex-shrink-0 mt-1 ${
-                                port.status === 'up' ? 'bg-green-500' : 'bg-red-500'
+                                targetDevice.status === 'online' && port.status === 'up' ? 'bg-green-500' : targetDevice.status === 'online' && port.status === 'down' ? 'bg-red-500' : 'bg-gray-400'
                               }`}
                             />
                             <div className="flex flex-col">
