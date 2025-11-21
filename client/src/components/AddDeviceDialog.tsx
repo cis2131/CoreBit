@@ -82,7 +82,7 @@ export function AddDeviceDialog({
   });
 
   const deviceCategory = type.startsWith('mikrotik') ? 'mikrotik' : 
-                        type === 'generic_snmp' ? 'snmp' : 
+                        (type === 'generic_snmp' || type === 'server' || type === 'access_point') ? 'snmp' : 
                         'none';
 
   const availableProfiles = profiles.filter(p => 
