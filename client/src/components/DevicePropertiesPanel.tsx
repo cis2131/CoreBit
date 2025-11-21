@@ -117,6 +117,12 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
                 <CardTitle className="text-sm">Device Information</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
+                {device.deviceData.systemIdentity && (
+                  <div>
+                    <p className="text-muted-foreground text-xs">System Identity</p>
+                    <p className="font-medium text-foreground">{device.deviceData.systemIdentity}</p>
+                  </div>
+                )}
                 {device.deviceData.model && (
                   <div>
                     <p className="text-muted-foreground text-xs">Model</p>
