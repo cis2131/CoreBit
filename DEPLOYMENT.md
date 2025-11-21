@@ -20,7 +20,14 @@ Complete guide for deploying The Dude network management application on Ubuntu 2
 
 ## Important Notes
 
-**Database Driver:** This application uses the standard `pg` (node-postgres) driver for local PostgreSQL deployments. The Replit version uses `@neondatabase/serverless` for cloud deployments, but for Ubuntu server deployments, we use the traditional PostgreSQL driver that connects directly via TCP (port 5432).
+**Database Driver Configuration:**
+
+This application needs **different database drivers** depending on where it's deployed:
+
+- **Replit Environment**: Uses `@neondatabase/serverless` (WebSocket-based connection to Neon cloud)
+- **Ubuntu/Production Server**: Uses `pg` (node-postgres) for standard PostgreSQL (TCP port 5432)
+
+**Before deploying to Ubuntu**, you must modify `server/db.ts` to switch drivers. See [Database Driver Setup](#database-driver-setup) below.
 
 ---
 
@@ -138,7 +145,56 @@ psql -U netapp -d network_topology -h localhost -W
 
 ## Application Setup
 
-### 1. Clone Repository
+### 1. Database Driver Setup
+
+**IMPORTANT:** Before deploying to Ubuntu, you must modify the database driver in `server/db.ts`.
+
+Replace the Neon serverless driver with the standard PostgreSQL driver:
+
+```typescript
+// server/db.ts - FOR UBUNTU DEPLOYMENT
+import { drizzle } from 'drizzle-orm/node-postgres';
+import pg from 'pg';
+import * as schema from "@shared/schema";
+
+if (!process.env.DATABASE_URL) {
+  throw new Error(
+    "DATABASE_URL must be set. Did you forget to provision a database?",
+  );
+}
+
+export const pool = new pg.Pool({ 
+  connectionString: process.env.DATABASE_URL,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+export const db = drizzle({ client: pool, schema });
+```
+
+**Revert for Replit:** If you need to run on Replit again, revert to:
+
+```typescript
+// server/db.ts - FOR REPLIT
+import { Pool, neonConfig } from '@neondatabase/serverless';
+import { drizzle } from 'drizzle-orm/neon-serverless';
+import ws from "ws";
+import * as schema from "@shared/schema";
+
+neonConfig.webSocketConstructor = ws;
+
+if (!process.env.DATABASE_URL) {
+  throw new Error(
+    "DATABASE_URL must be set. Did you forget to provision a database?",
+  );
+}
+
+export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export const db = drizzle({ client: pool, schema });
+```
+
+### 2. Clone Repository
 
 ```bash
 # Create application directory
@@ -151,7 +207,7 @@ sudo -u networkapp git clone https://github.com/yourusername/network-topology.gi
 cd /opt/network-topology
 ```
 
-### 2. Install Dependencies
+### 3. Install Dependencies
 
 ```bash
 # Install all dependencies (dotenv and pg are required for production)
@@ -160,10 +216,10 @@ sudo -u networkapp npm ci
 
 **Important Notes:**
 - The application uses `dotenv` to load environment variables from the `.env` file
-- The application uses `pg` (node-postgres) driver for standard PostgreSQL connections
-- On Replit, the app uses `@neondatabase/serverless`, but for Ubuntu deployments it uses `pg`
+- Make sure you've modified `server/db.ts` to use the `pg` driver (see step 1 above)
+- Both `pg` and `@neondatabase/serverless` are in package.json, but only `pg` is used in Ubuntu deployments
 
-### 3. Configure Environment Variables
+### 4. Configure Environment Variables
 
 Create production environment file:
 
