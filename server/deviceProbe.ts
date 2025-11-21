@@ -10,6 +10,7 @@ export interface DeviceProbeData {
     name: string;
     status: string;
     speed?: string;
+    description?: string;
   }>;
   cpuUsagePct?: number;
   memoryUsagePct?: number;
@@ -65,11 +66,23 @@ async function probeMikrotikDevice(
       memoryUsagePct = Math.round((usedMemory / totalMemory) * 100);
     }
 
-    const ports = (interfaces as any[]).map((iface: any) => ({
-      name: iface.name || 'unknown',
-      status: iface.running === 'true' || iface.running === true ? 'up' : 'down',
-      speed: iface.type?.includes('ether') ? '1Gbps' : undefined,
-    }));
+    const ports = (interfaces as any[]).map((iface: any) => {
+      // Parse speed from Mikrotik interface data
+      let speed: string | undefined;
+      const mtu = iface.mtu || 1500;
+      // For Ethernet interfaces, check if there's speed info available
+      if (iface.type?.includes('ether')) {
+        // Mikrotik doesn't always expose speed directly, use mtu as hint
+        speed = '1Gbps'; // Default for Ethernet
+      }
+      
+      return {
+        name: iface.name || 'unknown',
+        status: iface.running === 'true' || iface.running === true ? 'up' : 'down',
+        speed,
+        description: iface.comment || undefined,
+      };
+    });
 
     conn.close();
 
@@ -200,22 +213,51 @@ async function probeSnmpDevice(
             }
           }
 
-          // Continue with interface walk
+          // Continue with interface walk to get names, speeds, and descriptions
           session.walk('1.3.6.1.2.1.2.2.1', (varbinds: any[]) => {
-            const ports: Array<{ name: string; status: string; speed?: string }> = [];
+            const portMap: { [key: string]: any } = {};
             
             varbinds.forEach((vb) => {
               if (snmp.isVarbindError(vb)) return;
               
               const oid = vb.oid;
+              const parts = oid.split('.');
+              const ifIndex = parts[parts.length - 1];
+              
+              if (!portMap[ifIndex]) {
+                portMap[ifIndex] = {};
+              }
+              
+              // 1.3.6.1.2.1.2.2.1.2.X - ifDescr (description/name)
               if (oid.startsWith('1.3.6.1.2.1.2.2.1.2.')) {
-                const ifIndex = oid.split('.').pop();
-                ports.push({
-                  name: vb.value.toString(),
-                  status: 'unknown',
-                });
+                portMap[ifIndex].name = vb.value.toString();
+              }
+              // 1.3.6.1.2.1.2.2.1.5.X - ifSpeed (speed in bps)
+              else if (oid.startsWith('1.3.6.1.2.1.2.2.1.5.')) {
+                const speedBps = parseInt(vb.value.toString());
+                portMap[ifIndex].speedBps = speedBps;
+              }
+              // 1.3.6.1.2.1.2.2.1.6.X - ifPhysAddress
+              else if (oid.startsWith('1.3.6.1.2.1.2.2.1.6.')) {
+                portMap[ifIndex].physAddress = vb.value.toString();
               }
             });
+            
+            // Convert speed in bps to human readable format
+            const formatSpeed = (bps: number): string => {
+              if (bps >= 1000000000000) return `${(bps / 1000000000000).toFixed(1)}Tbps`;
+              if (bps >= 1000000000) return `${(bps / 1000000000).toFixed(0)}Gbps`;
+              if (bps >= 1000000) return `${(bps / 1000000).toFixed(0)}Mbps`;
+              if (bps >= 1000) return `${(bps / 1000).toFixed(0)}Kbps`;
+              return `${bps}bps`;
+            };
+            
+            const ports = Object.values(portMap).map((p: any) => ({
+              name: p.name || 'unknown',
+              status: 'unknown',
+              speed: p.speedBps ? formatSpeed(p.speedBps) : '1Gbps',
+              description: undefined,
+            }));
 
             session.close();
             

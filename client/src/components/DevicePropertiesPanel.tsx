@@ -153,19 +153,24 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
               <CardContent>
                 <div className="space-y-2">
                   {device.deviceData.ports.map((port, idx) => (
-                    <div key={idx} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`w-2 h-2 rounded-full ${
-                            port.status === 'up' ? 'bg-green-500' : 'bg-gray-400'
-                          }`}
-                        />
-                        <span className="font-medium text-foreground">{port.name}</span>
+                    <div key={idx} className="flex flex-col gap-1 text-sm">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={`w-2 h-2 rounded-full ${
+                              port.status === 'up' ? 'bg-green-500' : 'bg-gray-400'
+                            }`}
+                          />
+                          <span className="font-medium text-foreground">{port.name}</span>
+                        </div>
+                        {port.speed && (
+                          <Badge variant="outline" className="text-xs">
+                            {port.speed}
+                          </Badge>
+                        )}
                       </div>
-                      {port.speed && (
-                        <Badge variant="outline" className="text-xs">
-                          {port.speed}
-                        </Badge>
+                      {port.description && (
+                        <p className="text-xs text-muted-foreground ml-5">{port.description}</p>
                       )}
                     </div>
                   ))}
