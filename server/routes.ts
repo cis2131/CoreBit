@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { probeDevice, determineDeviceStatus } from "./deviceProbe";
-import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, type Device } from "@shared/schema";
+import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, type Device } from "@shared/schema";
 import { z } from "zod";
 
 // Helper function to resolve credentials from profile or custom

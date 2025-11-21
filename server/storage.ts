@@ -5,6 +5,9 @@ import {
   connections,
   credentialProfiles,
   settings,
+  notifications,
+  deviceNotifications,
+  notificationHistory,
   type Map, 
   type InsertMap,
   type Device,
@@ -14,7 +17,11 @@ import {
   type Connection,
   type InsertConnection,
   type CredentialProfile,
-  type InsertCredentialProfile
+  type InsertCredentialProfile,
+  type Notification,
+  type InsertNotification,
+  type DeviceNotification,
+  type InsertDeviceNotification
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
@@ -58,6 +65,18 @@ export interface IStorage {
   // Settings
   getSetting(key: string): Promise<any>;
   setSetting(key: string, value: any): Promise<void>;
+
+  // Notifications
+  getAllNotifications(): Promise<Notification[]>;
+  getNotification(id: string): Promise<Notification | undefined>;
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  updateNotification(id: string, notification: Partial<InsertNotification>): Promise<Notification | undefined>;
+  deleteNotification(id: string): Promise<void>;
+
+  // Device Notifications
+  getDeviceNotifications(deviceId: string): Promise<DeviceNotification[]>;
+  addDeviceNotification(deviceNotification: InsertDeviceNotification): Promise<DeviceNotification>;
+  removeDeviceNotification(deviceId: string, notificationId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -230,6 +249,55 @@ export class DatabaseStorage implements IStorage {
         target: settings.key,
         set: { value, updatedAt: new Date() },
       });
+  }
+
+  // Notifications
+  async getAllNotifications(): Promise<Notification[]> {
+    return await db.select().from(notifications).orderBy(notifications.name);
+  }
+
+  async getNotification(id: string): Promise<Notification | undefined> {
+    const [notif] = await db.select().from(notifications).where(eq(notifications.id, id));
+    return notif || undefined;
+  }
+
+  async createNotification(insertNotification: InsertNotification): Promise<Notification> {
+    const [notif] = await db
+      .insert(notifications)
+      .values(insertNotification)
+      .returning();
+    return notif;
+  }
+
+  async updateNotification(id: string, updateData: Partial<InsertNotification>): Promise<Notification | undefined> {
+    const [notif] = await db
+      .update(notifications)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(notifications.id, id))
+      .returning();
+    return notif || undefined;
+  }
+
+  async deleteNotification(id: string): Promise<void> {
+    await db.delete(notifications).where(eq(notifications.id, id));
+  }
+
+  async getDeviceNotifications(deviceId: string): Promise<DeviceNotification[]> {
+    return await db.select().from(deviceNotifications).where(eq(deviceNotifications.deviceId, deviceId));
+  }
+
+  async addDeviceNotification(insertDeviceNotification: InsertDeviceNotification): Promise<DeviceNotification> {
+    const [dn] = await db
+      .insert(deviceNotifications)
+      .values(insertDeviceNotification)
+      .returning();
+    return dn;
+  }
+
+  async removeDeviceNotification(deviceId: string, notificationId: string): Promise<void> {
+    await db
+      .delete(deviceNotifications)
+      .where(and(eq(deviceNotifications.deviceId, deviceId), eq(deviceNotifications.notificationId, notificationId)));
   }
 }
 
