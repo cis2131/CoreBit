@@ -14,6 +14,7 @@ export interface DeviceProbeData {
   }>;
   cpuUsagePct?: number;
   memoryUsagePct?: number;
+  diskUsagePct?: number;
 }
 
 async function probeMikrotikDevice(
@@ -197,28 +198,35 @@ async function probeSnmpDevice(
           ? Math.round(cpuLoads.reduce((a, b) => a + b, 0) / cpuLoads.length)
           : undefined;
 
-        // Fetch memory usage from hrStorageTable
+        // Fetch memory and disk usage from hrStorageTable
         session.table('1.3.6.1.2.1.25.2.3.1', { maxRepetitions: 20 }, (error: any, table: any) => {
           let memoryUsagePct: number | undefined;
+          let diskUsagePct: number | undefined;
           
           if (!error && table) {
-            // Find physical memory entry (type 1.3.6.1.2.1.25.2.1.2 = hrStorageRam)
+            // Iterate through storage entries to find memory and disk
             for (const [index, row] of Object.entries(table)) {
               const storageTypeVb = (row as any)['2'];
-              // Check if this is physical memory (RAM)
-              if (storageTypeVb && storageTypeVb.value && storageTypeVb.value.toString().includes('1.3.6.1.2.1.25.2.1.2')) {
-                const allocationUnitsVb = (row as any)['4'];
-                const totalUnitsVb = (row as any)['5'];
-                const usedUnitsVb = (row as any)['6'];
+              const allocationUnitsVb = (row as any)['4'];
+              const totalUnitsVb = (row as any)['5'];
+              const usedUnitsVb = (row as any)['6'];
+              
+              if (storageTypeVb && storageTypeVb.value && allocationUnitsVb && totalUnitsVb && usedUnitsVb) {
+                const storageType = storageTypeVb.value.toString();
+                const allocationUnits = parseInt(allocationUnitsVb.value?.toString() || '1');
+                const totalUnits = parseInt(totalUnitsVb.value?.toString() || '0');
+                const usedUnits = parseInt(usedUnitsVb.value?.toString() || '0');
                 
-                if (allocationUnitsVb && totalUnitsVb && usedUnitsVb) {
-                  const allocationUnits = parseInt(allocationUnitsVb.value?.toString() || '1');
-                  const totalUnits = parseInt(totalUnitsVb.value?.toString() || '0');
-                  const usedUnits = parseInt(usedUnitsVb.value?.toString() || '0');
+                if (totalUnits > 0 && allocationUnits > 0) {
+                  const usagePercent = Math.round((usedUnits / totalUnits) * 100);
                   
-                  if (totalUnits > 0 && allocationUnits > 0) {
-                    memoryUsagePct = Math.round((usedUnits / totalUnits) * 100);
-                    break;
+                  // Check if this is physical memory (RAM) - type 1.3.6.1.2.1.25.2.1.2
+                  if (storageType.includes('1.3.6.1.2.1.25.2.1.2') && !memoryUsagePct) {
+                    memoryUsagePct = usagePercent;
+                  }
+                  // Check if this is fixed disk - type 1.3.6.1.2.1.25.2.1.4
+                  else if (storageType.includes('1.3.6.1.2.1.25.2.1.4') && !diskUsagePct) {
+                    diskUsagePct = usagePercent;
                   }
                 }
               }
@@ -285,6 +293,7 @@ async function probeSnmpDevice(
               }],
               cpuUsagePct,
               memoryUsagePct,
+              diskUsagePct,
             });
           }, (error: any) => {
             closeSession();
@@ -305,6 +314,7 @@ async function probeSnmpDevice(
               }],
               cpuUsagePct,
               memoryUsagePct,
+              diskUsagePct,
             });
           });
         });

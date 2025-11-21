@@ -54,6 +54,7 @@ export const devices = pgTable("devices", {
     ports?: Array<{ name: string; status: string; speed?: string; description?: string }>;
     cpuUsagePct?: number;
     memoryUsagePct?: number;
+    diskUsagePct?: number;
   }>(),
   credentialProfileId: varchar("credential_profile_id").references(() => credentialProfiles.id, { onDelete: "set null" }),
   customCredentials: jsonb("custom_credentials").$type<{
