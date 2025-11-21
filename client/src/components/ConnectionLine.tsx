@@ -54,25 +54,60 @@ export function ConnectionLine({
       return { x: centerX, y: centerY };
     }
 
-    // Find which edge the line intersects
-    const ratio = Math.abs(dy) > 0 ? Math.abs(dx / dy) : Infinity;
+    // Calculate the slope - handle vertical and horizontal lines
+    const slope = dx !== 0 ? dy / dx : Infinity;
 
-    let intersectX = centerX;
-    let intersectY = centerY;
+    // Calculate intersections with all four edges
+    const candidates: Array<{ x: number; y: number }> = [];
 
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      // Hits left or right edge
-      intersectX = centerX + (dx > 0 ? HALF_WIDTH : -HALF_WIDTH);
-      const t = (intersectX - centerX) / dx;
-      intersectY = centerY + t * dy;
-    } else {
-      // Hits top or bottom edge
-      intersectY = centerY + (dy > 0 ? HALF_HEIGHT : -HALF_HEIGHT);
-      const t = (intersectY - centerY) / dy;
-      intersectX = centerX + t * dx;
+    // Right edge (x = centerX + HALF_WIDTH)
+    if (dx > 0) {
+      const x = centerX + HALF_WIDTH;
+      const y = centerY + slope * (x - centerX);
+      if (Math.abs(y - centerY) <= HALF_HEIGHT) {
+        candidates.push({ x, y });
+      }
     }
 
-    return { x: intersectX, y: intersectY };
+    // Left edge (x = centerX - HALF_WIDTH)
+    if (dx < 0) {
+      const x = centerX - HALF_WIDTH;
+      const y = centerY + slope * (x - centerX);
+      if (Math.abs(y - centerY) <= HALF_HEIGHT) {
+        candidates.push({ x, y });
+      }
+    }
+
+    // Bottom edge (y = centerY + HALF_HEIGHT)
+    if (dy > 0) {
+      const y = centerY + HALF_HEIGHT;
+      const x = dx !== 0 ? centerX + (y - centerY) / slope : centerX;
+      if (Math.abs(x - centerX) <= HALF_WIDTH) {
+        candidates.push({ x, y });
+      }
+    }
+
+    // Top edge (y = centerY - HALF_HEIGHT)
+    if (dy < 0) {
+      const y = centerY - HALF_HEIGHT;
+      const x = dx !== 0 ? centerX + (y - centerY) / slope : centerX;
+      if (Math.abs(x - centerX) <= HALF_WIDTH) {
+        candidates.push({ x, y });
+      }
+    }
+
+    // Return the closest candidate to the center
+    if (candidates.length === 0) {
+      return { x: centerX, y: centerY };
+    }
+
+    return candidates.reduce((closest, candidate) => {
+      const closestDist =
+        (closest.x - centerX) ** 2 + (closest.y - centerY) ** 2;
+      const candidateDist =
+        (candidate.x - centerX) ** 2 + (candidate.y - centerY) ** 2;
+      return candidateDist < closestDist ? candidate : closest;
+    });
   };
 
   const sourceIntersection = calculateRectangleIntersection(
