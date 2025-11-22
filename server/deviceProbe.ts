@@ -19,13 +19,15 @@ export interface DeviceProbeData {
 
 async function probeMikrotikDevice(
   ipAddress: string,
-  credentials?: any
+  credentials?: any,
+  detailedProbe: boolean = false,
+  previousPorts?: Array<{ name: string; status: string; speed?: string }>
 ): Promise<DeviceProbeData> {
   const username = credentials?.username || 'admin';
   const password = credentials?.password || '';
   const port = credentials?.apiPort || 8728;
 
-  console.log(`[Mikrotik] Connecting to ${ipAddress}:${port} as ${username}...`);
+  console.log(`[Mikrotik] Connecting to ${ipAddress}:${port} as ${username}${detailedProbe ? ' (detailed)' : ''}...`);
 
   const conn = new RouterOSAPI({
     host: ipAddress,
@@ -67,19 +69,60 @@ async function probeMikrotikDevice(
       memoryUsagePct = Math.round((usedMemory / totalMemory) * 100);
     }
 
+    // Get actual link speeds if doing detailed probe
+    let speedMap: { [name: string]: string } = {};
+    if (detailedProbe) {
+      try {
+        console.log(`[Mikrotik] Running detailed ethernet monitoring on ${ipAddress}...`);
+        // Get list of ethernet interfaces
+        const etherInterfaces = await conn.write('/interface/ethernet/print').catch(() => []);
+        
+        // Monitor each interface to get actual speed
+        for (const ethIface of etherInterfaces as any[]) {
+          try {
+            const monitorResult = await conn.write('/interface/ethernet/monitor', [
+              '=numbers=' + ethIface.name,
+              '=once='
+            ]).catch(() => []);
+            
+            if (monitorResult[0]?.rate) {
+              speedMap[ethIface.name] = monitorResult[0].rate;
+            }
+          } catch (err: any) {
+            console.warn(`[Mikrotik] Failed to monitor ${ethIface.name}:`, err.message);
+          }
+        }
+        console.log(`[Mikrotik] Detailed monitoring complete for ${ipAddress}, found ${Object.keys(speedMap).length} speeds`);
+      } catch (err: any) {
+        console.warn(`[Mikrotik] Detailed monitoring failed on ${ipAddress}:`, err.message);
+      }
+    }
+
     const ports = (interfaces as any[]).map((iface: any) => {
-      // Parse speed from Mikrotik interface data
+      const ifaceName = iface.name || 'unknown';
+      const currentStatus = iface.running === 'true' || iface.running === true ? 'up' : 'down';
+      
+      // Determine speed:
+      // 1. If we got actual speed from monitor, use it
+      // 2. Else if state changed from down to up, we need detailed probe (will be triggered next cycle)
+      // 3. Else use cached speed from previous probe
+      // 4. Else use undefined (will show as unknown in UI)
       let speed: string | undefined;
-      const mtu = iface.mtu || 1500;
-      // For Ethernet interfaces, check if there's speed info available
-      if (iface.type?.includes('ether')) {
-        // Mikrotik doesn't always expose speed directly, use mtu as hint
-        speed = '1Gbps'; // Default for Ethernet
+      
+      if (speedMap[ifaceName]) {
+        // We just probed it
+        speed = speedMap[ifaceName];
+      } else if (previousPorts) {
+        // Use cached speed from previous probe
+        const prevPort = previousPorts.find(p => p.name === ifaceName);
+        if (prevPort?.speed) {
+          speed = prevPort.speed;
+        }
       }
       
       return {
-        name: iface.name || 'unknown',
-        status: iface.running === 'true' || iface.running === true ? 'up' : 'down',
+        name: ifaceName,
+        status: currentStatus,
         speed,
         description: iface.comment || undefined,
       };
@@ -338,7 +381,9 @@ function formatUptime(seconds: number): string {
 export async function probeDevice(
   deviceType: string,
   ipAddress?: string,
-  credentials?: any
+  credentials?: any,
+  detailedProbe: boolean = false,
+  previousPorts?: Array<{ name: string; status: string; speed?: string }>
 ): Promise<{ data: DeviceProbeData; success: boolean }> {
   if (!ipAddress) {
     console.log(`[Probe] No IP address provided for ${deviceType}, returning empty data`);
@@ -348,7 +393,7 @@ export async function probeDevice(
   try {
     let data: DeviceProbeData;
     if (deviceType.startsWith('mikrotik_')) {
-      data = await probeMikrotikDevice(ipAddress, credentials);
+      data = await probeMikrotikDevice(ipAddress, credentials, detailedProbe, previousPorts);
     } else {
       data = await probeSnmpDevice(ipAddress, credentials);
     }

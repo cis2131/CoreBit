@@ -599,7 +599,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     error?: string;
   }
   
-  async function probeDeviceWithTimeout(device: any, credentials: any): Promise<ProbeResult> {
+  async function probeDeviceWithTimeout(device: any, credentials: any, isDetailedCycle: boolean = false): Promise<ProbeResult> {
     let timeoutId: NodeJS.Timeout;
     let timedOut = false;
     
@@ -611,10 +611,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
     
     const probePromise = (async () => {
+      // Detect link state changes for Mikrotik devices
+      const previousPorts = device.deviceData?.ports || [];
+      let needsDetailedProbe = isDetailedCycle;
+      
+      // For Mikrotik devices, check if any ports transitioned from down to up
+      if (device.type.startsWith('mikrotik_') && previousPorts.length > 0 && !isDetailedCycle) {
+        const quickProbe = await probeDevice(device.type, device.ipAddress, credentials, false, previousPorts);
+        
+        if (quickProbe.success && quickProbe.data.ports) {
+          // Check for down→up transitions
+          for (const currentPort of quickProbe.data.ports) {
+            const prevPort = previousPorts.find((p: any) => p.name === currentPort.name);
+            if (prevPort && prevPort.status === 'down' && currentPort.status === 'up') {
+              console.log(`[Probing] Link state change detected on ${device.name} port ${currentPort.name}: down → up, triggering detailed probe`);
+              needsDetailedProbe = true;
+              break;
+            }
+          }
+        }
+        
+        // If we don't need detailed probe, use the quick probe result and return early
+        if (!needsDetailedProbe && quickProbe.success) {
+          const status = determineDeviceStatus(quickProbe.data, quickProbe.success);
+          const oldStatus = device.status;
+          const statusChanged = status !== oldStatus;
+          
+          if (status !== device.status || quickProbe.success) {
+            await storage.updateDevice(device.id, {
+              status,
+              deviceData: quickProbe.data,
+            });
+            console.log(`[Probing] Updated ${device.name} (${device.ipAddress}): ${oldStatus} → ${status}`);
+          }
+          
+          if (statusChanged) {
+            try {
+              const deviceNotifications = await storage.getDeviceNotifications(device.id);
+              if (deviceNotifications.length > 0) {
+                console.log(`[Notification] Status changed for ${device.name}: ${oldStatus} → ${status}`);
+                
+                for (const dn of deviceNotifications) {
+                  const notification = await storage.getNotification(dn.notificationId);
+                  if (notification) {
+                    await sendNotification(notification, device, status, oldStatus);
+                  }
+                }
+              }
+            } catch (error: any) {
+              console.error(`[Notification] Error sending notifications for ${device.name}:`, error.message);
+            }
+          }
+          
+          if (timedOut) {
+            return { device, success: false, timeout: true };
+          }
+          
+          return { device, success: quickProbe.success, timeout: false };
+        }
+      }
+      
+      // Run detailed probe if needed
       const probeResult = await probeDevice(
         device.type,
         device.ipAddress,
-        credentials
+        credentials,
+        needsDetailedProbe,
+        previousPorts
       );
       
       if (timedOut) {
@@ -670,7 +733,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
   
-  async function processConcurrentQueue(devices: any[], concurrency: number): Promise<ProbeResult[]> {
+  async function processConcurrentQueue(devices: any[], concurrency: number, isDetailedCycle: boolean = false): Promise<ProbeResult[]> {
     const results: ProbeResult[] = [];
     const queue = [...devices];
     const active: Promise<void>[] = [];
@@ -683,7 +746,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const promise = (async () => {
           try {
             const credentials = await resolveCredentials(device);
-            const result = await probeDeviceWithTimeout(device, credentials);
+            const result = await probeDeviceWithTimeout(device, credentials, isDetailedCycle);
             results.push(result);
           } catch (error: any) {
             results.push({ device, success: false, timeout: false, error: error.message });
@@ -707,12 +770,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Start periodic device probing (configurable interval)
   let isProbing = false; // Guard against overlapping runs
+  let probeCycle = 0; // Track probe cycles for detailed probing
+  const DETAILED_PROBE_INTERVAL = 10; // Run detailed probe every 10 cycles
   
   async function startPeriodicProbing() {
     const pollingInterval = await storage.getSetting('polling_interval') || 30;
     const intervalMs = parseInt(pollingInterval) * 1000;
     
     console.log(`[Probing] Starting automatic device probing service (${pollingInterval}s interval, ${CONCURRENT_PROBES} concurrent)`);
+    console.log(`[Probing] Detailed link speed probing every ${DETAILED_PROBE_INTERVAL} cycles (~${DETAILED_PROBE_INTERVAL * parseInt(pollingInterval) / 60} minutes)`);
     
     setInterval(async () => {
       if (isProbing) {
@@ -721,16 +787,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       isProbing = true;
+      probeCycle++;
       const startTime = Date.now();
+      const isDetailedCycle = probeCycle % DETAILED_PROBE_INTERVAL === 0;
       
       try {
         const allDevices = await storage.getAllDevices();
         const devicesWithIp = allDevices.filter(d => d.ipAddress);
         
         const totalDevices = devicesWithIp.length;
-        console.log(`[Probing] Starting probe cycle for ${totalDevices} devices`);
+        console.log(`[Probing] Starting probe cycle #${probeCycle} for ${totalDevices} devices${isDetailedCycle ? ' (DETAILED)' : ''}`);
         
-        const results = await processConcurrentQueue(devicesWithIp, CONCURRENT_PROBES);
+        const results = await processConcurrentQueue(devicesWithIp, CONCURRENT_PROBES, isDetailedCycle);
         
         const successCount = results.filter(r => r.success).length;
         const timeoutCount = results.filter(r => r.timeout).length;
@@ -738,7 +806,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const successRate = totalDevices > 0 ? ((successCount / totalDevices) * 100).toFixed(1) : '0';
         const duration = ((Date.now() - startTime) / 1000).toFixed(1);
         
-        console.log(`[Probing] Completed cycle in ${duration}s: ${totalDevices} devices, ${successCount} success (${successRate}%), ${timeoutCount} timeout, ${errorCount} error`);
+        console.log(`[Probing] Completed cycle #${probeCycle} in ${duration}s: ${totalDevices} devices, ${successCount} success (${successRate}%), ${timeoutCount} timeout, ${errorCount} error`);
       } catch (error) {
         console.error('[Probing] Error in periodic probing:', error);
       } finally {
