@@ -168,16 +168,28 @@ The application uses a high-performance parallel probing system designed to hand
 
 **Performance:**
 - Worst-case: ceil(400/80) × 6s = 30 seconds for 400 offline devices
-- Typical case: Much faster for responsive devices
+- Typical case: Much faster for responsive devices (1-2s for online devices)
 - Scales linearly with device count up to the concurrency limit
 
 **Link Speed Detection (Mikrotik):**
-- Uses `/interface ethernet monitor` command to get actual link speeds from Mikrotik devices
-- Detailed monitoring takes ~3 seconds per device, so it runs selectively:
-  - Every 10 probe cycles (~5 minutes with 30s polling interval)
-  - When link state changes from down→up
-- Speeds are cached in device data between detailed probes
-- This optimization prevents detailed monitoring from blocking the 400+ device fleet
+The system uses optimized two-tier link speed detection to handle 400+ device fleets efficiently:
+
+**Implementation:**
+- Quick probes (every cycle): Fast device status check without detailed interface monitoring
+- Detailed probes (every 10 cycles): Runs `/interface ethernet monitor` command to get actual link speeds
+- Smart caching: Speeds stored in `deviceData.ports` and reused between detailed probes
+- State change detection: Down→up link transitions trigger immediate detailed probe for fresh speed data
+
+**Performance characteristics:**
+- Quick cycle: ~1.1s for responsive devices (status check only)
+- Detailed cycle: ~2.9s per device (includes 3s `/interface ethernet monitor` overhead)
+- Frequency: Detailed monitoring every 10 cycles (~5 minutes with 30s polling interval)
+- Scalability: Prevents detailed monitoring from blocking the 400+ device fleet by running it selectively
+
+**Speed parsing:**
+- Primary field: RouterOS `speed` property (e.g., "1Gbps", "100Mbps")
+- Fallback: Legacy `rate` property for older firmware
+- Caching ensures speeds persist between detailed monitoring cycles
 
 ## Future Enhancements (Next Phase)
 
