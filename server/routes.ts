@@ -323,7 +323,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const credentials = await resolveCredentials(device);
-      const probeResult = await probeDevice(device.type, device.ipAddress || undefined, credentials);
+      
+      // Manual probe should always be detailed and preserve cached speeds
+      const previousPorts = device.deviceData?.ports;
+      const probeResult = await probeDevice(
+        device.type, 
+        device.ipAddress || undefined, 
+        credentials,
+        true, // detailedProbe - user explicitly requested probe
+        previousPorts
+      );
       const status = determineDeviceStatus(probeResult.data, probeResult.success);
 
       const updatedDevice = await storage.updateDevice(req.params.id, {
