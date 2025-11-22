@@ -85,8 +85,14 @@ async function probeMikrotikDevice(
               '=once='
             ]).catch(() => []);
             
-            if (monitorResult[0]?.rate) {
+            // RouterOS returns speed under 'speed' property, not 'rate'
+            if (monitorResult[0]?.speed) {
+              speedMap[ethIface.name] = monitorResult[0].speed;
+              console.log(`[Mikrotik] Interface ${ethIface.name} speed: ${monitorResult[0].speed}`);
+            } else if (monitorResult[0]?.rate) {
+              // Fallback to 'rate' if 'speed' not found
               speedMap[ethIface.name] = monitorResult[0].rate;
+              console.log(`[Mikrotik] Interface ${ethIface.name} rate: ${monitorResult[0].rate}`);
             }
           } catch (err: any) {
             console.warn(`[Mikrotik] Failed to monitor ${ethIface.name}:`, err.message);

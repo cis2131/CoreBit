@@ -615,6 +615,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const previousPorts = device.deviceData?.ports || [];
       let needsDetailedProbe = isDetailedCycle;
       
+      if (isDetailedCycle) {
+        console.log(`[Probing] Detailed cycle for ${device.name}, will run full ethernet monitoring`);
+      }
+      
       // For Mikrotik devices, check if any ports transitioned from down to up
       if (device.type.startsWith('mikrotik_') && previousPorts.length > 0 && !isDetailedCycle) {
         const quickProbe = await probeDevice(device.type, device.ipAddress, credentials, false, previousPorts);
@@ -771,7 +775,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Start periodic device probing (configurable interval)
   let isProbing = false; // Guard against overlapping runs
   let probeCycle = 0; // Track probe cycles for detailed probing
-  const DETAILED_PROBE_INTERVAL = 10; // Run detailed probe every 10 cycles
+  const DETAILED_PROBE_INTERVAL = 10; // Run detailed probe every 10 cycles (~5 minutes with 30s polling)
   
   async function startPeriodicProbing() {
     const pollingInterval = await storage.getSetting('polling_interval') || 30;

@@ -171,6 +171,14 @@ The application uses a high-performance parallel probing system designed to hand
 - Typical case: Much faster for responsive devices
 - Scales linearly with device count up to the concurrency limit
 
+**Link Speed Detection (Mikrotik):**
+- Uses `/interface ethernet monitor` command to get actual link speeds from Mikrotik devices
+- Detailed monitoring takes ~3 seconds per device, so it runs selectively:
+  - Every 10 probe cycles (~5 minutes with 30s polling interval)
+  - When link state changes from down→up
+- Speeds are cached in device data between detailed probes
+- This optimization prevents detailed monitoring from blocking the 400+ device fleet
+
 ## Future Enhancements (Next Phase)
 
 - WebSocket for real-time device status updates (push vs. poll)
