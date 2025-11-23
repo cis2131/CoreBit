@@ -222,6 +222,47 @@ export function NetworkCanvas({
     );
   };
 
+  const zoomToPoint = useCallback((targetX: number, targetY: number, zoomFactor: number) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    setZoom(prevZoom => {
+      const newZoom = Math.max(0.1, Math.min(2, prevZoom * zoomFactor));
+      
+      setPan(prevPan => {
+        // Calculate the canvas point at the target screen position before zoom
+        const canvasPointX = (targetX - prevPan.x) / prevZoom;
+        const canvasPointY = (targetY - prevPan.y) / prevZoom;
+        
+        // Calculate new pan to keep the same canvas point at the target position
+        const newPanX = targetX - canvasPointX * newZoom;
+        const newPanY = targetY - canvasPointY * newZoom;
+        
+        return { x: newPanX, y: newPanY };
+      });
+      
+      return newZoom;
+    });
+  }, []);
+
+  const handleZoomIn = useCallback(() => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    zoomToPoint(centerX, centerY, 1.2);
+  }, [zoomToPoint]);
+
+  const handleZoomOut = useCallback(() => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    zoomToPoint(centerX, centerY, 0.8);
+  }, [zoomToPoint]);
+
   const fitToCanvas = useCallback(() => {
     if (devices.length === 0) {
       setZoom(1);
@@ -427,7 +468,7 @@ export function NetworkCanvas({
         <Button
           size="icon"
           variant="secondary"
-          onClick={() => setZoom(prev => Math.min(2, prev * 1.2))}
+          onClick={handleZoomIn}
           data-testid="button-zoom-in"
         >
           <Plus className="h-4 w-4" />
@@ -435,7 +476,7 @@ export function NetworkCanvas({
         <Button
           size="icon"
           variant="secondary"
-          onClick={() => setZoom(prev => Math.max(0.1, prev * 0.8))}
+          onClick={handleZoomOut}
           data-testid="button-zoom-out"
         >
           <Minus className="h-4 w-4" />
