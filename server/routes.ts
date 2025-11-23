@@ -659,6 +659,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           
           if (statusChanged) {
+            // Create log entry for status change
+            try {
+              await storage.createLog({
+                deviceId: device.id,
+                eventType: 'status_change',
+                severity: status === 'offline' ? 'error' : status === 'warning' ? 'warning' : 'info',
+                message: `Device ${device.name} status changed from ${oldStatus} to ${status}`,
+                oldStatus,
+                newStatus: status,
+              });
+            } catch (error: any) {
+              console.error(`[Logging] Error creating log for ${device.name}:`, error.message);
+            }
+
+            // Send notifications
             try {
               const deviceNotifications = await storage.getDeviceNotifications(device.id);
               if (deviceNotifications.length > 0) {
@@ -709,8 +724,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[Probing] Updated ${device.name} (${device.ipAddress}): ${oldStatus} → ${status}`);
       }
       
-      // Trigger notifications only on status change
+      // Trigger notifications and logging on status change
       if (statusChanged) {
+        // Create log entry for status change
+        try {
+          await storage.createLog({
+            deviceId: device.id,
+            eventType: 'status_change',
+            severity: status === 'offline' ? 'error' : status === 'warning' ? 'warning' : 'info',
+            message: `Device ${device.name} status changed from ${oldStatus} to ${status}`,
+            oldStatus,
+            newStatus: status,
+          });
+        } catch (error: any) {
+          console.error(`[Logging] Error creating log for ${device.name}:`, error.message);
+        }
+
+        // Send notifications
         try {
           const deviceNotifications = await storage.getDeviceNotifications(device.id);
           if (deviceNotifications.length > 0) {
