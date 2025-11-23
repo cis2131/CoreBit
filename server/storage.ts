@@ -27,7 +27,7 @@ import {
   type InsertLog
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 
 export interface IStorage {
   // Maps
@@ -313,7 +313,7 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(logs)
-      .orderBy(logs.timestamp)
+      .orderBy(desc(logs.timestamp))
       .limit(limit);
   }
 
@@ -322,7 +322,7 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(logs)
       .where(eq(logs.deviceId, deviceId))
-      .orderBy(logs.timestamp)
+      .orderBy(desc(logs.timestamp))
       .limit(limit);
   }
 
@@ -332,6 +332,14 @@ export class DatabaseStorage implements IStorage {
       .values(insertLog)
       .returning();
     return log;
+  }
+
+  async deleteAllLogs(): Promise<void> {
+    await db.delete(logs);
+  }
+
+  async deleteLogsByDeviceId(deviceId: string): Promise<void> {
+    await db.delete(logs).where(eq(logs.deviceId, deviceId));
   }
 }
 

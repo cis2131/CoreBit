@@ -1,16 +1,19 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { Log, Device } from '@shared/schema';
 import { useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowUpCircle, ArrowDownCircle, AlertCircle, Info, ArrowLeft } from 'lucide-react';
+import { ArrowUpCircle, ArrowDownCircle, AlertCircle, Info, ArrowLeft, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'wouter';
+import { apiRequest, queryClient } from '@/lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
 
 export default function Logs() {
   const [selectedDevice, setSelectedDevice] = useState<string>('all');
+  const { toast } = useToast();
 
   const { data: devices = [], isLoading: devicesLoading } = useQuery<Device[]>({
     queryKey: ['/api/devices'],
@@ -20,6 +23,32 @@ export default function Logs() {
     queryKey: selectedDevice === 'all' ? ['/api/logs'] : ['/api/logs/device', selectedDevice],
     enabled: selectedDevice !== '',
     refetchInterval: 5000,
+  });
+
+  const clearLogsMutation = useMutation({
+    mutationFn: async () => {
+      const endpoint = selectedDevice === 'all' 
+        ? '/api/logs' 
+        : `/api/logs/device/${selectedDevice}`;
+      await apiRequest(endpoint, 'DELETE');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/logs'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/logs/device'] });
+      toast({
+        title: 'Success',
+        description: selectedDevice === 'all' 
+          ? 'All logs cleared successfully' 
+          : 'Device logs cleared successfully',
+      });
+    },
+    onError: () => {
+      toast({
+        title: 'Error',
+        description: 'Failed to clear logs',
+        variant: 'destructive',
+      });
+    },
   });
 
   const getDeviceName = (deviceId: string | null) => {
@@ -95,6 +124,17 @@ export default function Logs() {
                     ))}
                   </SelectContent>
                 </Select>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => clearLogsMutation.mutate()}
+                  disabled={clearLogsMutation.isPending || logs.length === 0}
+                  data-testid="button-clear-logs"
+                  className="gap-2"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Clear All
+                </Button>
               </div>
             </div>
           </CardHeader>

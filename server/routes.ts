@@ -260,6 +260,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/logs", async (req, res) => {
+    try {
+      await storage.deleteAllLogs();
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting logs:', error);
+      res.status(500).json({ error: 'Failed to delete logs' });
+    }
+  });
+
+  app.delete("/api/logs/device/:deviceId", async (req, res) => {
+    try {
+      await storage.deleteLogsByDeviceId(req.params.deviceId);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting device logs:', error);
+      res.status(500).json({ error: 'Failed to delete device logs' });
+    }
+  });
+
   // Device Placement routes
   app.get("/api/placements/:mapId", async (req, res) => {
     try {
