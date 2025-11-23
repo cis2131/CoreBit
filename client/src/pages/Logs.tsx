@@ -30,7 +30,7 @@ export default function Logs() {
       const endpoint = selectedDevice === 'all' 
         ? '/api/logs' 
         : `/api/logs/device/${selectedDevice}`;
-      await apiRequest(endpoint, 'DELETE');
+      await apiRequest('DELETE', endpoint);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/logs'] });
