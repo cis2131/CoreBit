@@ -464,6 +464,7 @@ export default function NetworkTopology() {
         <div className="flex-1">
           {currentMapId ? (
             <NetworkCanvas
+              mapId={currentMapId}
               devices={devicesOnMap}
               connections={connections}
               selectedDeviceId={connectionMode ? connectionSource : selectedDeviceId}

@@ -6,6 +6,7 @@ import { Plus, Minus, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface NetworkCanvasProps {
+  mapId: string;
   devices: (Device & { placementId: string; position: { x: number; y: number } })[];
   connections: Connection[];
   selectedDeviceId: string | null;
@@ -21,6 +22,7 @@ interface NetworkCanvasProps {
 }
 
 export function NetworkCanvas({
+  mapId,
   devices,
   connections,
   selectedDeviceId,
@@ -45,6 +47,7 @@ export function NetworkCanvas({
   const [tempPosition, setTempPosition] = useState<{ x: number; y: number } | null>(null);
   const pendingPositionRef = useRef<{ x: number; y: number } | null>(null);
   const [deviceWasDragged, setDeviceWasDragged] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
@@ -191,7 +194,7 @@ export function NetworkCanvas({
     );
   };
 
-  const fitToCanvas = () => {
+  const fitToCanvas = useCallback(() => {
     if (devices.length === 0) {
       setZoom(1);
       setPan({ x: 0, y: 0 });
@@ -241,7 +244,47 @@ export function NetworkCanvas({
 
     setZoom(newZoom);
     setPan({ x: newPanX, y: newPanY });
-  };
+  }, [devices]);
+
+  // Restore zoom/pan from localStorage or fit to canvas on mount/map change
+  useEffect(() => {
+    const storageKey = `canvas-view-${mapId}`;
+    const savedView = localStorage.getItem(storageKey);
+    
+    if (savedView) {
+      try {
+        const { zoom: savedZoom, pan: savedPan } = JSON.parse(savedView);
+        setZoom(savedZoom);
+        setPan(savedPan);
+        setIsInitialized(true);
+      } catch (e) {
+        console.error('Failed to parse saved canvas view:', e);
+        setIsInitialized(false);
+      }
+    } else {
+      setIsInitialized(false);
+    }
+  }, [mapId]);
+
+  // Auto-fit to canvas when devices load if no saved view state
+  useEffect(() => {
+    if (!isInitialized && devices.length > 0 && canvasRef.current) {
+      // Small delay to ensure canvas is fully rendered
+      const timeout = setTimeout(() => {
+        fitToCanvas();
+        setIsInitialized(true);
+      }, 100);
+      return () => clearTimeout(timeout);
+    }
+  }, [isInitialized, devices.length, fitToCanvas]);
+
+  // Save zoom/pan to localStorage whenever they change
+  useEffect(() => {
+    if (isInitialized) {
+      const storageKey = `canvas-view-${mapId}`;
+      localStorage.setItem(storageKey, JSON.stringify({ zoom, pan }));
+    }
+  }, [zoom, pan, mapId, isInitialized]);
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-white dark:bg-gray-950">
