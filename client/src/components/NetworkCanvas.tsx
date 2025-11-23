@@ -108,8 +108,14 @@ export function NetworkCanvas({
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
 
-      const newX = (e.clientX - rect.left - pan.x - dragOffset.x) / zoom;
-      const newY = (e.clientY - rect.top - pan.y - dragOffset.y) / zoom;
+      let newX = (e.clientX - rect.left - pan.x - dragOffset.x) / zoom;
+      let newY = (e.clientY - rect.top - pan.y - dragOffset.y) / zoom;
+
+      // Snap to grid if Shift key is held
+      if (e.shiftKey) {
+        newX = snapToGrid(newX);
+        newY = snapToGrid(newY);
+      }
 
       const newPosition = { x: newX, y: newY };
       pendingPositionRef.current = newPosition;
@@ -151,8 +157,14 @@ export function NetworkCanvas({
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
 
-      const x = (e.clientX - rect.left - pan.x) / zoom;
-      const y = (e.clientY - rect.top - pan.y) / zoom;
+      let x = (e.clientX - rect.left - pan.x) / zoom;
+      let y = (e.clientY - rect.top - pan.y) / zoom;
+
+      // Snap to grid if Shift key is held
+      if (e.shiftKey) {
+        x = snapToGrid(x);
+        y = snapToGrid(y);
+      }
 
       onDeviceDropFromSidebar(draggingDeviceId, { x, y });
       onDraggingComplete();
@@ -163,6 +175,10 @@ export function NetworkCanvas({
     if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('canvas-grid')) {
       onCanvasClick();
     }
+  };
+
+  const snapToGrid = (value: number, gridSize: number = 20): number => {
+    return Math.round(value / gridSize) * gridSize;
   };
 
   const matchesSearch = (device: Device) => {
@@ -355,8 +371,13 @@ export function NetworkCanvas({
         </Button>
       </div>
 
-      <div className="absolute bottom-4 left-4 px-3 py-2 bg-card border border-card-border rounded-md text-sm text-muted-foreground">
-        Zoom: {Math.round(zoom * 100)}%
+      <div className="absolute bottom-4 left-4 space-y-2">
+        <div className="px-3 py-2 bg-card border border-card-border rounded-md text-sm text-muted-foreground">
+          Zoom: {Math.round(zoom * 100)}%
+        </div>
+        <div className="px-3 py-2 bg-card border border-card-border rounded-md text-xs text-muted-foreground">
+          Hold <kbd className="px-1.5 py-0.5 bg-muted rounded text-foreground font-mono">Shift</kbd> to snap to grid
+        </div>
       </div>
     </div>
   );

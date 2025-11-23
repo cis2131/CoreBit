@@ -92,10 +92,13 @@ The application runs on port 5000 with:
 - Duplicate placement prevention (same device can't be placed twice on same map)
 
 ### Canvas
-- Pan and zoom controls
+- Pan and zoom controls with mouse wheel zoom
+- Fit-to-canvas button (calculates bounding box of all devices including negative coordinates)
 - Grid background with auto-expanding workspace
+- **Flexible positioning**: Supports negative coordinates, allowing devices to be placed outside top/left boundaries
+- **Snap to grid**: Hold Shift while dragging to snap devices to 20px grid alignment
 - Device nodes with status indicators
-- Connection lines between devices
+- Connection lines between devices with interface descriptions
 - Search highlighting with pulse animation
 
 ### UI/UX
