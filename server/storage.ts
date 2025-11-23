@@ -8,6 +8,7 @@ import {
   notifications,
   deviceNotifications,
   notificationHistory,
+  logs,
   type Map, 
   type InsertMap,
   type Device,
@@ -21,7 +22,9 @@ import {
   type Notification,
   type InsertNotification,
   type DeviceNotification,
-  type InsertDeviceNotification
+  type InsertDeviceNotification,
+  type Log,
+  type InsertLog
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
@@ -77,6 +80,11 @@ export interface IStorage {
   getDeviceNotifications(deviceId: string): Promise<DeviceNotification[]>;
   addDeviceNotification(deviceNotification: InsertDeviceNotification): Promise<DeviceNotification>;
   removeDeviceNotification(deviceId: string, notificationId: string): Promise<void>;
+
+  // Logs
+  getAllLogs(limit?: number): Promise<Log[]>;
+  getLogsByDeviceId(deviceId: string, limit?: number): Promise<Log[]>;
+  createLog(log: InsertLog): Promise<Log>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -298,6 +306,32 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(deviceNotifications)
       .where(and(eq(deviceNotifications.deviceId, deviceId), eq(deviceNotifications.notificationId, notificationId)));
+  }
+
+  // Logs
+  async getAllLogs(limit: number = 1000): Promise<Log[]> {
+    return await db
+      .select()
+      .from(logs)
+      .orderBy(logs.timestamp)
+      .limit(limit);
+  }
+
+  async getLogsByDeviceId(deviceId: string, limit: number = 1000): Promise<Log[]> {
+    return await db
+      .select()
+      .from(logs)
+      .where(eq(logs.deviceId, deviceId))
+      .orderBy(logs.timestamp)
+      .limit(limit);
+  }
+
+  async createLog(insertLog: InsertLog): Promise<Log> {
+    const [log] = await db
+      .insert(logs)
+      .values(insertLog)
+      .returning();
+    return log;
   }
 }
 
