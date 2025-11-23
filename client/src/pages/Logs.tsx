@@ -14,11 +14,13 @@ export default function Logs() {
 
   const { data: devices = [], isLoading: devicesLoading } = useQuery<Device[]>({
     queryKey: ['/api/devices'],
+    refetchInterval: 5000,
   });
 
   const { data: logs = [], isLoading: logsLoading } = useQuery<Log[]>({
     queryKey: selectedDevice === 'all' ? ['/api/logs'] : ['/api/logs/device', selectedDevice],
     enabled: selectedDevice !== '',
+    refetchInterval: 5000,
   });
 
   const getDeviceName = (deviceId: string | null) => {
