@@ -203,9 +203,8 @@ export function NetworkCanvas({
 
     // Device size is 80x80 (from DeviceNode)
     const deviceSize = 80;
-    // Dynamic padding: ensure it never exceeds half the viewport dimensions
-    const maxPadding = 100;
-    const padding = Math.min(maxPadding, rect.width / 4, rect.height / 4);
+    // Fixed padding in pixels
+    const padding = 50;
 
     // Find bounding box of all devices
     const minX = Math.min(...devices.map(d => d.position.x));
@@ -225,11 +224,10 @@ export function NetworkCanvas({
     const zoomY = (rect.height - padding * 2) / effectiveHeight;
     const newZoom = Math.max(0.1, Math.min(2, Math.min(zoomX, zoomY)));
 
-    // Calculate pan to center the content
-    const contentCenterX = (minX + maxX) / 2;
-    const contentCenterY = (minY + maxY) / 2;
-    const newPanX = rect.width / 2 - contentCenterX * newZoom;
-    const newPanY = rect.height / 2 - contentCenterY * newZoom;
+    // Calculate pan so that minX appears at 'padding' pixels from left edge
+    // and the content is centered vertically
+    const newPanX = padding - minX * newZoom;
+    const newPanY = rect.height / 2 - ((minY + maxY) / 2) * newZoom;
 
     setZoom(newZoom);
     setPan({ x: newPanX, y: newPanY });
