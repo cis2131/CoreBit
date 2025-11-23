@@ -175,6 +175,50 @@ export function NetworkCanvas({
     );
   };
 
+  const fitToCanvas = () => {
+    if (devices.length === 0) {
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+      return;
+    }
+
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    // Device size is 80x80 (from DeviceNode)
+    const deviceSize = 80;
+    // Dynamic padding: ensure it never exceeds half the viewport dimensions
+    const maxPadding = 100;
+    const padding = Math.min(maxPadding, rect.width / 4, rect.height / 4);
+
+    // Find bounding box of all devices
+    const minX = Math.min(...devices.map(d => d.position.x));
+    const maxX = Math.max(...devices.map(d => d.position.x + deviceSize));
+    const minY = Math.min(...devices.map(d => d.position.y));
+    const maxY = Math.max(...devices.map(d => d.position.y + deviceSize));
+
+    const contentWidth = maxX - minX;
+    const contentHeight = maxY - minY;
+
+    // Guard against zero-size bounds (overlapping devices)
+    const effectiveWidth = Math.max(contentWidth, deviceSize);
+    const effectiveHeight = Math.max(contentHeight, deviceSize);
+
+    // Calculate zoom to fit all devices with padding
+    const zoomX = (rect.width - padding * 2) / effectiveWidth;
+    const zoomY = (rect.height - padding * 2) / effectiveHeight;
+    const newZoom = Math.max(0.1, Math.min(2, Math.min(zoomX, zoomY)));
+
+    // Calculate pan to center the content
+    const contentCenterX = (minX + maxX) / 2;
+    const contentCenterY = (minY + maxY) / 2;
+    const newPanX = rect.width / 2 - contentCenterX * newZoom;
+    const newPanY = rect.height / 2 - contentCenterY * newZoom;
+
+    setZoom(newZoom);
+    setPan({ x: newPanX, y: newPanY });
+  };
+
   return (
     <div className="relative w-full h-full overflow-hidden bg-white dark:bg-gray-950">
       <div
@@ -304,7 +348,7 @@ export function NetworkCanvas({
         <Button
           size="icon"
           variant="secondary"
-          onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
+          onClick={fitToCanvas}
           data-testid="button-zoom-reset"
         >
           <Maximize2 className="h-4 w-4" />
