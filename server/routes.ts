@@ -237,6 +237,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Log routes
+  app.get("/api/logs", async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 1000;
+      const logs = await storage.getAllLogs(limit);
+      res.json(logs);
+    } catch (error) {
+      console.error('Error fetching logs:', error);
+      res.status(500).json({ error: 'Failed to fetch logs' });
+    }
+  });
+
+  app.get("/api/logs/device/:deviceId", async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 1000;
+      const logs = await storage.getLogsByDeviceId(req.params.deviceId, limit);
+      res.json(logs);
+    } catch (error) {
+      console.error('Error fetching device logs:', error);
+      res.status(500).json({ error: 'Failed to fetch device logs' });
+    }
+  });
+
   // Device Placement routes
   app.get("/api/placements/:mapId", async (req, res) => {
     try {
