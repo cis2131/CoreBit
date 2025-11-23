@@ -67,6 +67,18 @@ export const notificationHistory = pgTable("notification_history", {
   sentAt: timestamp("sent_at").defaultNow().notNull(),
 });
 
+export const logs = pgTable("logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  deviceId: varchar("device_id").references(() => devices.id, { onDelete: "cascade" }),
+  eventType: text("event_type").notNull(),
+  severity: text("severity").notNull().default("info"),
+  message: text("message").notNull(),
+  oldStatus: text("old_status"),
+  newStatus: text("new_status"),
+  metadata: jsonb("metadata").$type<Record<string, any>>(),
+});
+
 export const devices = pgTable("devices", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
@@ -250,6 +262,14 @@ export const insertDeviceNotificationSchema = createInsertSchema(deviceNotificat
   createdAt: true,
 });
 
+export const insertLogSchema = createInsertSchema(logs).omit({
+  id: true,
+  timestamp: true,
+}).extend({
+  severity: z.enum(['info', 'warning', 'error']).optional(),
+  metadata: z.record(z.any()).optional(),
+});
+
 export type Map = typeof maps.$inferSelect;
 export type InsertMap = z.infer<typeof insertMapSchema>;
 export type Device = typeof devices.$inferSelect;
@@ -264,3 +284,5 @@ export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 export type DeviceNotification = typeof deviceNotifications.$inferSelect;
 export type InsertDeviceNotification = z.infer<typeof insertDeviceNotificationSchema>;
+export type Log = typeof logs.$inferSelect;
+export type InsertLog = z.infer<typeof insertLogSchema>;
