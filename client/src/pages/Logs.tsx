@@ -4,8 +4,10 @@ import { useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ArrowUpCircle, ArrowDownCircle, AlertCircle, Info } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ArrowUpCircle, ArrowDownCircle, AlertCircle, Info, ArrowLeft } from 'lucide-react';
 import { format } from 'date-fns';
+import { Link } from 'wouter';
 
 export default function Logs() {
   const [selectedDevice, setSelectedDevice] = useState<string>('all');
@@ -53,13 +55,20 @@ export default function Logs() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="border-b bg-card">
-        <div className="px-6 py-4">
-          <h1 className="text-2xl font-semibold" data-testid="text-page-title">Event Logs</h1>
-          <p className="text-sm text-muted-foreground">Monitor device status changes and system events</p>
+    <div className="h-screen flex flex-col bg-background">
+      <header className="border-b bg-card">
+        <div className="flex items-center gap-4 px-6 py-4">
+          <Link href="/">
+            <Button variant="ghost" size="icon" data-testid="button-back">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-2xl font-semibold" data-testid="text-page-title">Event Logs</h1>
+            <p className="text-sm text-muted-foreground">Monitor device status changes and system events</p>
+          </div>
         </div>
-      </div>
+      </header>
 
       <div className="flex-1 overflow-auto p-6">
         <Card>

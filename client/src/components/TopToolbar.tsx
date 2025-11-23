@@ -25,7 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
-import { Search, Plus, Network, Moon, Sun, Link2, Settings, MoreVertical, Pencil, Trash2 } from 'lucide-react';
+import { Search, Plus, Network, Moon, Sun, Link2, Settings, MoreVertical, Pencil, Trash2, FileText } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { Link } from 'wouter';
 import { DeviceStatusInfo } from '@/components/DeviceStatusInfo';
@@ -220,6 +220,16 @@ export function TopToolbar({
             data-testid="input-search-devices"
           />
         </div>
+
+        <Link href="/logs">
+          <Button
+            size="icon"
+            variant="ghost"
+            data-testid="button-logs"
+          >
+            <FileText className="h-5 w-5" />
+          </Button>
+        </Link>
 
         <Link href="/settings">
           <Button

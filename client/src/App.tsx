@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import NetworkTopology from "@/pages/NetworkTopology";
 import Settings from "@/pages/Settings";
+import Logs from "@/pages/Logs";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -13,6 +14,7 @@ function Router() {
     <Switch>
       <Route path="/" component={NetworkTopology} />
       <Route path="/settings" component={Settings} />
+      <Route path="/logs" component={Logs} />
       <Route component={NotFound} />
     </Switch>
   );
