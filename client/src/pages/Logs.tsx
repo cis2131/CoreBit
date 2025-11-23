@@ -14,7 +14,6 @@ export default function Logs() {
 
   const { data: devices = [], isLoading: devicesLoading } = useQuery<Device[]>({
     queryKey: ['/api/devices'],
-    refetchInterval: 5000,
   });
 
   const { data: logs = [], isLoading: logsLoading } = useQuery<Log[]>({
