@@ -75,7 +75,7 @@ export function CreateConnectionDialog({
                 {sourcePorts.length > 0 ? (
                   sourcePorts.map((port: any) => (
                     <SelectItem key={port.name} value={port.name}>
-                      {port.name} - {port.status} ({port.speed})
+                      {port.name} - {port.status}{port.speed ? ` (${port.speed})` : ''}{port.description ? ` — ${port.description}` : ''}
                     </SelectItem>
                   ))
                 ) : (
@@ -102,7 +102,7 @@ export function CreateConnectionDialog({
                 {targetPorts.length > 0 ? (
                   targetPorts.map((port: any) => (
                     <SelectItem key={port.name} value={port.name}>
-                      {port.name} - {port.status} ({port.speed})
+                      {port.name} - {port.status}{port.speed ? ` (${port.speed})` : ''}{port.description ? ` — ${port.description}` : ''}
                     </SelectItem>
                   ))
                 ) : (

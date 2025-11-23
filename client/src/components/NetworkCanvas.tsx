@@ -111,7 +111,7 @@ export function NetworkCanvas({
       const newX = (e.clientX - rect.left - pan.x - dragOffset.x) / zoom;
       const newY = (e.clientY - rect.top - pan.y - dragOffset.y) / zoom;
 
-      const newPosition = { x: Math.max(0, newX), y: Math.max(0, newY) };
+      const newPosition = { x: newX, y: newY };
       pendingPositionRef.current = newPosition;
 
       // Use requestAnimationFrame for smooth updates
@@ -154,7 +154,7 @@ export function NetworkCanvas({
       const x = (e.clientX - rect.left - pan.x) / zoom;
       const y = (e.clientY - rect.top - pan.y) / zoom;
 
-      onDeviceDropFromSidebar(draggingDeviceId, { x: Math.max(0, x), y: Math.max(0, y) });
+      onDeviceDropFromSidebar(draggingDeviceId, { x, y });
       onDraggingComplete();
     }
   };
