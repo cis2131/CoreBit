@@ -51,8 +51,36 @@ export function NetworkCanvas({
 
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
+    
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    // Calculate zoom delta
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom(prev => Math.max(0.1, Math.min(2, prev * delta)));
+    
+    // Get mouse position relative to canvas
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    // Use functional setState to avoid dependency on zoom/pan state
+    setZoom(prevZoom => {
+      const newZoom = Math.max(0.1, Math.min(2, prevZoom * delta));
+      
+      // Update pan in the same render cycle
+      setPan(prevPan => {
+        // Calculate the canvas point under the mouse before zoom
+        const canvasPointX = (mouseX - prevPan.x) / prevZoom;
+        const canvasPointY = (mouseY - prevPan.y) / prevZoom;
+        
+        // Calculate new pan to keep the same canvas point under the mouse
+        const newPanX = mouseX - canvasPointX * newZoom;
+        const newPanY = mouseY - canvasPointY * newZoom;
+        
+        return { x: newPanX, y: newPanY };
+      });
+      
+      return newZoom;
+    });
   }, []);
 
   useEffect(() => {
