@@ -20,6 +20,7 @@ interface DevicePropertiesPanelProps {
   onDelete: (deviceId: string) => void;
   onEdit: (device: Device) => void;
   onNavigateToDevice?: (deviceId: string) => void;
+  onStartConnectionFromPort?: (deviceId: string, portName: string) => void;
 }
 
 const statusLabels = {
@@ -36,7 +37,8 @@ export function DevicePropertiesPanel({
   onClose, 
   onDelete, 
   onEdit, 
-  onNavigateToDevice 
+  onNavigateToDevice,
+  onStartConnectionFromPort
 }: DevicePropertiesPanelProps) {
   const { toast } = useToast();
   const [probing, setProbing] = useState(false);
@@ -240,7 +242,7 @@ export function DevicePropertiesPanel({
                               }`}
                             />
                             <span className="font-medium text-foreground">{port.name}</span>
-                            {connection && connectedDevice && onNavigateToDevice && (
+                            {connection && connectedDevice && onNavigateToDevice ? (
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -251,6 +253,19 @@ export function DevicePropertiesPanel({
                               >
                                 <LinkIcon className="h-3 w-3 text-primary" />
                               </Button>
+                            ) : (
+                              onStartConnectionFromPort && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-5 w-5 flex-shrink-0"
+                                  onClick={() => onStartConnectionFromPort(device.id, port.name)}
+                                  title="Create connection from this port"
+                                  data-testid={`button-start-connection-${port.name}`}
+                                >
+                                  <LinkIcon className="h-3 w-3 text-muted-foreground" />
+                                </Button>
+                              )
                             )}
                           </div>
                           {port.speed && (
