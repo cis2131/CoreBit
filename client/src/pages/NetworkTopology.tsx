@@ -29,6 +29,7 @@ export default function NetworkTopology() {
   const [connectionSource, setConnectionSource] = useState<string | null>(null);
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [connectionTarget, setConnectionTarget] = useState<string | null>(null);
+  const [initialSourcePort, setInitialSourcePort] = useState<string | undefined>(undefined);
   const [editMapName, setEditMapName] = useState('');
   const [editMapDescription, setEditMapDescription] = useState('');
   const [editMapIsDefault, setEditMapIsDefault] = useState(false);
@@ -335,6 +336,18 @@ export default function NetworkTopology() {
     setConnectionMode(!connectionMode);
     setConnectionSource(null);
     setConnectionTarget(null);
+    setInitialSourcePort(undefined);
+  };
+
+  const handleStartConnectionFromPort = (deviceId: string, portName: string) => {
+    // Set connection mode and prefill source device and port
+    setConnectionMode(true);
+    setConnectionSource(deviceId);
+    setInitialSourcePort(portName);
+    toast({ 
+      title: 'Connection started', 
+      description: `Source: ${portName}. Click another device to complete the connection.` 
+    });
   };
 
   const handleDeviceClickForConnection = (deviceId: string) => {
@@ -369,6 +382,7 @@ export default function NetworkTopology() {
     setConnectionSource(null);
     setConnectionTarget(null);
     setConnectionMode(false);
+    setInitialSourcePort(undefined);
   };
 
   const handleConnectionDelete = () => {
@@ -612,6 +626,7 @@ export default function NetworkTopology() {
         sourceDevice={sourceDevice || null}
         targetDevice={targetDevice || null}
         onConfirm={handleConnectionCreate}
+        initialSourcePort={initialSourcePort}
       />
     </div>
   );
