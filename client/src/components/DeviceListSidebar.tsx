@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { Device } from '@shared/schema';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Server, Router, Wifi, HardDrive, Settings } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { ChevronLeft, ChevronRight, Server, Router, Wifi, HardDrive, Settings, Eye, EyeOff } from 'lucide-react';
 
 interface DeviceListSidebarProps {
   devices: Device[];
+  placedDeviceIds?: string[];
   onDeviceDragStart?: (deviceId: string) => void;
   onEditDevice?: (device: Device) => void;
   onDeviceClick?: (deviceId: string) => void;
@@ -32,8 +34,23 @@ function getStatusColor(status: string): string {
   }
 }
 
-export function DeviceListSidebar({ devices, onDeviceDragStart, onEditDevice, onDeviceClick }: DeviceListSidebarProps) {
+export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragStart, onEditDevice, onDeviceClick }: DeviceListSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [hideUnplaced, setHideUnplaced] = useState(false);
+
+  // Filter devices based on search query and placement status
+  const filteredDevices = devices.filter(device => {
+    const matchesSearch = searchQuery === '' || 
+      device.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      device.ipAddress?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      device.type.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const isPlaced = placedDeviceIds.includes(device.id);
+    const shouldShow = hideUnplaced ? isPlaced : true;
+    
+    return matchesSearch && shouldShow;
+  });
 
   return (
     <div className={`h-full bg-background border-r border-border transition-all duration-300 ${isCollapsed ? 'w-12' : 'w-64'} flex flex-col`}>
@@ -52,56 +69,78 @@ export function DeviceListSidebar({ devices, onDeviceDragStart, onEditDevice, on
       </div>
 
       {!isCollapsed && (
-        <ScrollArea className="flex-1">
-          <div className="p-2 space-y-1">
-            {devices.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                No devices yet
-              </p>
-            ) : (
-              devices.map((device) => {
-                const Icon = deviceTypeIcons[device.type] || Server;
-                return (
-                  <div
-                    key={device.id}
-                    className="p-2 rounded-md cursor-grab active:cursor-grabbing hover-elevate border border-border"
-                    draggable
-                    onDragStart={() => onDeviceDragStart?.(device.id)}
-                    onClick={() => onDeviceClick?.(device.id)}
-                    data-testid={`device-list-item-${device.id}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className={`h-2 w-2 rounded-full ${getStatusColor(device.status)}`} />
-                      <Icon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">
-                          {device.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {device.ipAddress || 'No IP'}
-                        </p>
-                      </div>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 flex-shrink-0"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEditDevice?.(device);
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        draggable={false}
-                        data-testid={`button-edit-device-${device.id}`}
-                      >
-                        <Settings className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
+        <>
+          <div className="px-2 pt-2 space-y-2 border-b border-border pb-2">
+            <Input
+              placeholder="Search devices..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-8"
+              data-testid="input-device-search"
+            />
+            <Button
+              variant={hideUnplaced ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setHideUnplaced(!hideUnplaced)}
+              className="w-full gap-2 text-xs"
+              data-testid="button-filter-placed"
+            >
+              {hideUnplaced ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+              {hideUnplaced ? 'Show placed' : 'Hide placed'}
+            </Button>
           </div>
-        </ScrollArea>
+          <ScrollArea className="flex-1">
+            <div className="p-2 space-y-1">
+              {filteredDevices.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  {devices.length === 0 ? 'No devices yet' : 'No matching devices'}
+                </p>
+              ) : (
+                filteredDevices.map((device) => {
+                  const Icon = deviceTypeIcons[device.type] || Server;
+                  const isPlaced = placedDeviceIds.includes(device.id);
+                  return (
+                    <div
+                      key={device.id}
+                      className={`p-2 rounded-md cursor-grab active:cursor-grabbing hover-elevate border border-border ${isPlaced ? 'opacity-60' : ''}`}
+                      draggable={!isPlaced}
+                      onDragStart={() => onDeviceDragStart?.(device.id)}
+                      onClick={() => onDeviceClick?.(device.id)}
+                      data-testid={`device-list-item-${device.id}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className={`h-2 w-2 rounded-full ${getStatusColor(device.status)}`} />
+                        <Icon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">
+                            {device.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {device.ipAddress || 'No IP'} {isPlaced && '(placed)'}
+                          </p>
+                        </div>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 flex-shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditDevice?.(device);
+                          }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          draggable={false}
+                          data-testid={`button-edit-device-${device.id}`}
+                        >
+                          <Settings className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </ScrollArea>
+        </>
       )}
     </div>
   );
