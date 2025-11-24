@@ -135,7 +135,8 @@ export default function NetworkTopology() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/devices'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/placements', currentMapId] });
+      // Invalidate all placements queries to update sidebar for all maps
+      queryClient.invalidateQueries({ queryKey: ['/api/placements'] });
       queryClient.invalidateQueries({ queryKey: ['/api/connections', currentMapId] });
       setSelectedDeviceId(null);
       toast({ title: 'Device deleted', description: 'Device has been removed globally.' });
@@ -185,7 +186,8 @@ export default function NetworkTopology() {
       return await apiRequest('DELETE', `/api/placements/${placementId}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/placements', currentMapId] });
+      // Invalidate all placement queries to update sidebar
+      queryClient.invalidateQueries({ queryKey: ['/api/placements'] });
       queryClient.invalidateQueries({ queryKey: ['/api/connections', currentMapId] });
       setSelectedPlacementId(null);
       setSelectedDeviceId(null);
