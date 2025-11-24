@@ -223,13 +223,16 @@ export function DevicePropertiesPanel({
                         (conn.targetDeviceId === device.id && conn.targetPort === port.name)
                     );
                     
-                    // Find connected device
+                    // Find connected device and port
                     let connectedDevice: Device | undefined;
+                    let connectedPortName: string | undefined;
                     if (connection) {
-                      const connectedDeviceId = connection.sourceDeviceId === device.id 
+                      const isSourcePort = connection.sourceDeviceId === device.id;
+                      const connectedDeviceId = isSourcePort 
                         ? connection.targetDeviceId 
                         : connection.sourceDeviceId;
                       connectedDevice = allDevices.find(d => d.id === connectedDeviceId);
+                      connectedPortName = isSourcePort ? connection.targetPort : connection.sourcePort;
                     }
                     
                     return (
@@ -277,9 +280,9 @@ export function DevicePropertiesPanel({
                         {port.description && (
                           <p className="text-xs text-muted-foreground ml-5">{port.description}</p>
                         )}
-                        {connection && connectedDevice && (
+                        {connection && connectedDevice && connectedPortName && (
                           <p className="text-xs text-primary ml-5">
-                            → {connectedDevice.name}
+                            → {connectedDevice.name} ({connectedPortName})
                           </p>
                         )}
                       </div>
