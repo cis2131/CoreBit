@@ -450,6 +450,7 @@ export default function NetworkTopology() {
       <div className="flex-1 flex overflow-hidden">
         <DeviceListSidebar
           devices={allDevices}
+          placedDeviceIds={placements.map(p => p.deviceId)}
           onDeviceDragStart={setDraggingDeviceId}
           onEditDevice={handleDeviceEdit}
           onDeviceClick={(deviceId) => {
