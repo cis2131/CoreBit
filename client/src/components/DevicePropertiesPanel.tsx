@@ -13,7 +13,7 @@ import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 
 interface DevicePropertiesPanelProps {
-  device: Device;
+  device: Device & { placementId?: string; position?: { x: number; y: number } };
   connections?: Connection[];
   allDevices?: Device[];
   onClose: () => void;
@@ -29,7 +29,15 @@ const statusLabels = {
   unknown: { label: 'Unknown', color: 'bg-gray-400' },
 };
 
-export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: DevicePropertiesPanelProps) {
+export function DevicePropertiesPanel({ 
+  device, 
+  connections = [], 
+  allDevices = [], 
+  onClose, 
+  onDelete, 
+  onEdit, 
+  onNavigateToDevice 
+}: DevicePropertiesPanelProps) {
   const { toast } = useToast();
   const [probing, setProbing] = useState(false);
   const status = statusLabels[device.status as keyof typeof statusLabels] || statusLabels.unknown;
@@ -98,7 +106,7 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
     setProbing(true);
     try {
       await apiRequest('POST', `/api/devices/${device.id}/probe`, {});
-      queryClient.invalidateQueries({ queryKey: [`/api/devices?mapId=${device.mapId}`] });
+      queryClient.invalidateQueries({ queryKey: ['/api/devices'] });
       toast({ title: 'Device probed', description: 'Device information has been updated.' });
     } catch (error) {
       toast({
@@ -205,28 +213,63 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {device.deviceData.ports.map((port, idx) => (
-                    <div key={idx} className="flex flex-col gap-1 text-sm">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div
-                            className={`w-2 h-2 rounded-full ${
-                              device.status === 'online' && port.status === 'up' ? 'bg-green-500' : 'bg-gray-400'
-                            }`}
-                          />
-                          <span className="font-medium text-foreground">{port.name}</span>
+                  {device.deviceData.ports.map((port, idx) => {
+                    // Find connection for this port
+                    const connection = connections.find(
+                      conn => 
+                        (conn.sourceDeviceId === device.id && conn.sourcePort === port.name) ||
+                        (conn.targetDeviceId === device.id && conn.targetPort === port.name)
+                    );
+                    
+                    // Find connected device
+                    let connectedDevice: Device | undefined;
+                    if (connection) {
+                      const connectedDeviceId = connection.sourceDeviceId === device.id 
+                        ? connection.targetDeviceId 
+                        : connection.sourceDeviceId;
+                      connectedDevice = allDevices.find(d => d.id === connectedDeviceId);
+                    }
+                    
+                    return (
+                      <div key={idx} className="flex flex-col gap-1 text-sm">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <div
+                              className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                                device.status === 'online' && port.status === 'up' ? 'bg-green-500' : 'bg-gray-400'
+                              }`}
+                            />
+                            <span className="font-medium text-foreground">{port.name}</span>
+                            {connection && connectedDevice && onNavigateToDevice && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-5 w-5 flex-shrink-0"
+                                onClick={() => onNavigateToDevice(connectedDevice.id)}
+                                title={`Connected to ${connectedDevice.name}`}
+                                data-testid={`button-navigate-connection-${port.name}`}
+                              >
+                                <LinkIcon className="h-3 w-3 text-primary" />
+                              </Button>
+                            )}
+                          </div>
+                          {port.speed && (
+                            <Badge variant="outline" className="text-xs flex-shrink-0">
+                              {port.speed}
+                            </Badge>
+                          )}
                         </div>
-                        {port.speed && (
-                          <Badge variant="outline" className="text-xs">
-                            {port.speed}
-                          </Badge>
+                        {port.description && (
+                          <p className="text-xs text-muted-foreground ml-5">{port.description}</p>
+                        )}
+                        {connection && connectedDevice && (
+                          <p className="text-xs text-primary ml-5">
+                            → {connectedDevice.name}
+                          </p>
                         )}
                       </div>
-                      {port.description && (
-                        <p className="text-xs text-muted-foreground ml-5">{port.description}</p>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -347,23 +390,25 @@ export function DevicePropertiesPanel({ device, onClose, onDelete, onEdit }: Dev
             </CardContent>
           </Card>
 
-          <div>
-            <p className="text-xs text-muted-foreground mb-2">Position</p>
-            <div className="flex gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">X:</span>{' '}
-                <span className="font-mono font-medium text-foreground">
-                  {Math.round(device.position.x)}
-                </span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Y:</span>{' '}
-                <span className="font-mono font-medium text-foreground">
-                  {Math.round(device.position.y)}
-                </span>
+          {device.position && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Position</p>
+              <div className="flex gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">X:</span>{' '}
+                  <span className="font-mono font-medium text-foreground">
+                    {Math.round(device.position.x)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Y:</span>{' '}
+                  <span className="font-mono font-medium text-foreground">
+                    {Math.round(device.position.y)}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </ScrollArea>
 

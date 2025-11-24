@@ -498,9 +498,18 @@ export default function NetworkTopology() {
         {selectedDevice && !connectionMode && (
           <DevicePropertiesPanel
             device={selectedDevice}
+            connections={connections}
+            allDevices={allDevices}
             onClose={() => setSelectedDeviceId(null)}
             onDelete={handleDeviceDelete}
             onEdit={handleDeviceEdit}
+            onNavigateToDevice={(deviceId) => {
+              const device = devicesOnMap.find(d => d.id === deviceId);
+              if (device) {
+                setSelectedDeviceId(deviceId);
+                setSelectedPlacementId(device.placementId);
+              }
+            }}
           />
         )}
 
