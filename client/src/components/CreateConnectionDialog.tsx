@@ -38,10 +38,10 @@ export function CreateConnectionDialog({
   const [sourcePort, setSourcePort] = useState('');
   const [targetPort, setTargetPort] = useState('');
 
-  // Prefill source port when dialog opens with initialSourcePort
+  // Prefill source port when dialog opens with initialSourcePort, or reset if none provided
   useEffect(() => {
-    if (open && initialSourcePort) {
-      setSourcePort(initialSourcePort);
+    if (open) {
+      setSourcePort(initialSourcePort ?? '');
     }
   }, [open, initialSourcePort]);
 

@@ -30,6 +30,7 @@ export default function NetworkTopology() {
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [connectionTarget, setConnectionTarget] = useState<string | null>(null);
   const [initialSourcePort, setInitialSourcePort] = useState<string | undefined>(undefined);
+  const [wasConnectionModeAutoStarted, setWasConnectionModeAutoStarted] = useState(false);
   const [editMapName, setEditMapName] = useState('');
   const [editMapDescription, setEditMapDescription] = useState('');
   const [editMapIsDefault, setEditMapIsDefault] = useState(false);
@@ -337,6 +338,7 @@ export default function NetworkTopology() {
     setConnectionSource(null);
     setConnectionTarget(null);
     setInitialSourcePort(undefined);
+    setWasConnectionModeAutoStarted(false);
   };
 
   const handleStartConnectionFromPort = (deviceId: string, portName: string) => {
@@ -344,10 +346,24 @@ export default function NetworkTopology() {
     setConnectionMode(true);
     setConnectionSource(deviceId);
     setInitialSourcePort(portName);
+    setWasConnectionModeAutoStarted(true);
     toast({ 
       title: 'Connection started', 
       description: `Source: ${portName}. Click another device to complete the connection.` 
     });
+  };
+
+  const handleConnectionDialogClose = (open: boolean) => {
+    setConnectionDialogOpen(open);
+    
+    // If dialog is being closed and connection mode was auto-started, reset everything
+    if (!open && wasConnectionModeAutoStarted) {
+      setConnectionMode(false);
+      setConnectionSource(null);
+      setConnectionTarget(null);
+      setInitialSourcePort(undefined);
+      setWasConnectionModeAutoStarted(false);
+    }
   };
 
   const handleDeviceClickForConnection = (deviceId: string) => {
@@ -383,6 +399,7 @@ export default function NetworkTopology() {
     setConnectionTarget(null);
     setConnectionMode(false);
     setInitialSourcePort(undefined);
+    setWasConnectionModeAutoStarted(false);
   };
 
   const handleConnectionDelete = () => {
@@ -524,6 +541,7 @@ export default function NetworkTopology() {
                 setSelectedPlacementId(device.placementId);
               }
             }}
+            onStartConnectionFromPort={handleStartConnectionFromPort}
           />
         )}
 
@@ -622,7 +640,7 @@ export default function NetworkTopology() {
 
       <CreateConnectionDialog
         open={connectionDialogOpen}
-        onOpenChange={setConnectionDialogOpen}
+        onOpenChange={handleConnectionDialogClose}
         sourceDevice={sourceDevice || null}
         targetDevice={targetDevice || null}
         onConfirm={handleConnectionCreate}
