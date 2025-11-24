@@ -47,7 +47,7 @@ export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragS
       device.type.toLowerCase().includes(searchQuery.toLowerCase());
     
     const isPlaced = placedDeviceIds.includes(device.id);
-    const shouldShow = hideUnplaced ? isPlaced : true;
+    const shouldShow = hideUnplaced ? !isPlaced : true;
     
     return matchesSearch && shouldShow;
   });
