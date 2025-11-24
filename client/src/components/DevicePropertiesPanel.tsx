@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Device, type CredentialProfile, type Notification, type DeviceNotification } from '@shared/schema';
+import { Device, Connection, type CredentialProfile, type Notification, type DeviceNotification } from '@shared/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -8,15 +8,18 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { Checkbox } from '@/components/ui/checkbox';
-import { X, Trash2, Edit, RefreshCw, Key, Cpu, MemoryStick, Bell } from 'lucide-react';
+import { X, Trash2, Edit, RefreshCw, Key, Cpu, MemoryStick, Bell, Link as LinkIcon } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 
 interface DevicePropertiesPanelProps {
   device: Device;
+  connections?: Connection[];
+  allDevices?: Device[];
   onClose: () => void;
   onDelete: (deviceId: string) => void;
   onEdit: (device: Device) => void;
+  onNavigateToDevice?: (deviceId: string) => void;
 }
 
 const statusLabels = {
