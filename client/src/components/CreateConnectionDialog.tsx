@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Device } from '@shared/schema';
 import {
   Dialog,
@@ -24,6 +24,7 @@ interface CreateConnectionDialogProps {
   sourceDevice: Device | null;
   targetDevice: Device | null;
   onConfirm: (sourcePort: string, targetPort: string) => void;
+  initialSourcePort?: string;
 }
 
 export function CreateConnectionDialog({
@@ -32,9 +33,17 @@ export function CreateConnectionDialog({
   sourceDevice,
   targetDevice,
   onConfirm,
+  initialSourcePort,
 }: CreateConnectionDialogProps) {
   const [sourcePort, setSourcePort] = useState('');
   const [targetPort, setTargetPort] = useState('');
+
+  // Prefill source port when dialog opens with initialSourcePort
+  useEffect(() => {
+    if (open && initialSourcePort) {
+      setSourcePort(initialSourcePort);
+    }
+  }, [open, initialSourcePort]);
 
   const handleConfirm = () => {
     if (sourcePort && targetPort) {
