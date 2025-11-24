@@ -55,8 +55,8 @@ export function NetworkCanvas({
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     
-    // Calculate zoom delta
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    // Calculate zoom delta - smaller multiplier for smoother, more controlled zoom
+    const delta = e.deltaY > 0 ? 0.95 : 1.05;
     
     // Get mouse position relative to canvas
     const mouseX = e.clientX - rect.left;
