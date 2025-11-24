@@ -90,7 +90,13 @@ export const devices = pgTable("devices", {
     model?: string;
     version?: string;
     systemIdentity?: string;
-    ports?: Array<{ name: string; status: string; speed?: string; description?: string }>;
+    ports?: Array<{ 
+      name: string; 
+      defaultName?: string;
+      status: string; 
+      speed?: string; 
+      description?: string 
+    }>;
     cpuUsagePct?: number;
     memoryUsagePct?: number;
     diskUsagePct?: number;

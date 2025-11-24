@@ -106,6 +106,7 @@ async function probeMikrotikDevice(
 
     const ports = (interfaces as any[]).map((iface: any) => {
       const ifaceName = iface.name || 'unknown';
+      const defaultName = iface['default-name'] || undefined;
       const currentStatus = iface.running === 'true' || iface.running === true ? 'up' : 'down';
       
       // Determine speed:
@@ -128,6 +129,7 @@ async function probeMikrotikDevice(
       
       return {
         name: ifaceName,
+        defaultName,
         status: currentStatus,
         speed,
         description: iface.comment || undefined,

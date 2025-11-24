@@ -216,15 +216,35 @@ export function DevicePropertiesPanel({
               <CardContent>
                 <div className="space-y-2">
                   {device.deviceData.ports.map((port, idx) => {
-                    // Find connection for this port
+                    // Use defaultName (or name as fallback) for new connections
+                    const portIdentifier = port.defaultName || port.name;
+                    
+                    // Find connection for this port with backward compatibility
+                    // Match against BOTH defaultName and name to handle:
+                    // 1. New connections (use defaultName)
+                    // 2. Legacy connections (use old name that might have been renamed)
+                    // 3. Mikrotik renames (connection stored with defaultName still works)
                     const connection = connections.find(
-                      conn => 
-                        (conn.sourceDeviceId === device.id && conn.sourcePort === port.name) ||
-                        (conn.targetDeviceId === device.id && conn.targetPort === port.name)
+                      conn => {
+                        // Check if this port is the source
+                        if (conn.sourceDeviceId === device.id) {
+                          // Match if connection identifier matches either defaultName OR current name
+                          return conn.sourcePort === port.defaultName || 
+                                 conn.sourcePort === port.name;
+                        }
+                        // Check if this port is the target
+                        if (conn.targetDeviceId === device.id) {
+                          // Match if connection identifier matches either defaultName OR current name
+                          return conn.targetPort === port.defaultName || 
+                                 conn.targetPort === port.name;
+                        }
+                        return false;
+                      }
                     );
                     
                     // Find connected device and port
                     let connectedDevice: Device | undefined;
+                    let connectedPortIdentifier: string | undefined;
                     let connectedPortName: string | undefined;
                     if (connection) {
                       const isSourcePort = connection.sourceDeviceId === device.id;
@@ -232,7 +252,16 @@ export function DevicePropertiesPanel({
                         ? connection.targetDeviceId 
                         : connection.sourceDeviceId;
                       connectedDevice = allDevices.find(d => d.id === connectedDeviceId);
-                      connectedPortName = isSourcePort ? connection.targetPort : connection.sourcePort;
+                      connectedPortIdentifier = (isSourcePort ? connection.targetPort : connection.sourcePort) || undefined;
+                      
+                      // Find the user-friendly name of the connected port with backward compatibility
+                      if (connectedDevice && connectedPortIdentifier) {
+                        // Try to find port by defaultName first, then fall back to name
+                        const connectedPort = connectedDevice.deviceData?.ports?.find(
+                          p => (p.defaultName || p.name) === connectedPortIdentifier || p.name === connectedPortIdentifier
+                        );
+                        connectedPortName = connectedPort?.name || connectedPortIdentifier;
+                      }
                     }
                     
                     return (
@@ -262,7 +291,7 @@ export function DevicePropertiesPanel({
                                   size="icon"
                                   variant="ghost"
                                   className="h-5 w-5 flex-shrink-0"
-                                  onClick={() => onStartConnectionFromPort(device.id, port.name)}
+                                  onClick={() => onStartConnectionFromPort(device.id, portIdentifier)}
                                   title="Create connection from this port"
                                   data-testid={`button-start-connection-${port.name}`}
                                 >
@@ -281,7 +310,7 @@ export function DevicePropertiesPanel({
                           <p className="text-xs text-muted-foreground ml-5">{port.description}</p>
                         )}
                         {connection && connectedDevice && connectedPortName && (
-                          <p className="text-xs text-primary ml-5">
+                          <p className="text-xs text-primary ml-5" data-testid={`text-connected-to-${port.name}`}>
                             → {connectedDevice.name} ({connectedPortName})
                           </p>
                         )}

@@ -128,7 +128,7 @@ export function ConnectionPropertiesPanel({
                     <SelectContent>
                       <SelectItem value="none">None</SelectItem>
                       {sourcePorts.map((port, idx) => (
-                        <SelectItem key={idx} value={port.name}>
+                        <SelectItem key={idx} value={port.defaultName || port.name}>
                           <div className="flex items-start gap-2">
                             <div
                               className={`w-2 h-2 rounded-full flex-shrink-0 mt-1 ${
@@ -162,7 +162,7 @@ export function ConnectionPropertiesPanel({
                     <SelectContent>
                       <SelectItem value="none">None</SelectItem>
                       {targetPorts.map((port, idx) => (
-                        <SelectItem key={idx} value={port.name}>
+                        <SelectItem key={idx} value={port.defaultName || port.name}>
                           <div className="flex items-start gap-2">
                             <div
                               className={`w-2 h-2 rounded-full flex-shrink-0 mt-1 ${
