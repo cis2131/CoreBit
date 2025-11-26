@@ -95,7 +95,8 @@ export const devices = pgTable("devices", {
       defaultName?: string;
       status: string; 
       speed?: string; 
-      description?: string 
+      description?: string;
+      snmpIndex?: number;
     }>;
     cpuUsagePct?: number;
     memoryUsagePct?: number;

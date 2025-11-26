@@ -1259,8 +1259,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Get credentials for the device
           const credentials = await resolveCredentials(device);
           
+          // Look up the SNMP index from the device's ports (fetched via /interface/print oid)
+          const port = device.deviceData?.ports?.find(p => p.name === portName);
+          const snmpIndex = port?.snmpIndex;
+          
           // Probe interface traffic
-          const result = await probeInterfaceTraffic(device.ipAddress, portName, credentials);
+          const result = await probeInterfaceTraffic(device.ipAddress, portName, credentials, snmpIndex);
           
           if (result.success && result.data) {
             const counters = result.data;

@@ -12,6 +12,7 @@ export interface DeviceProbeData {
     status: string;
     speed?: string;
     description?: string;
+    snmpIndex?: number;
   }>;
   cpuUsagePct?: number;
   memoryUsagePct?: number;
@@ -42,16 +43,39 @@ async function probeMikrotikDevice(
     await conn.connect();
     console.log(`[Mikrotik] Connected to ${ipAddress}`);
 
-    const [identity, resources, interfaces] = await Promise.all([
+    const [identity, resources, interfaces, interfaceOids] = await Promise.all([
       conn.write('/system/identity/print').catch(() => []),
       conn.write('/system/resource/print').catch(() => []),
       conn.write('/interface/print').catch(() => []),
+      conn.write('/interface/print', ['=.proplist=name', '=oid=']).catch(() => []),
     ]);
 
     const identityName = identity[0]?.name || 'Unknown';
     const board = resources[0]?.['board-name'] || 'Unknown Model';
     const version = resources[0]?.version || 'Unknown';
     const uptime = resources[0]?.uptime || '0s';
+    
+    // Build SNMP index map from /interface/print oid response
+    // Each interface has OID properties like name=.1.3.6.1.2.1.2.2.1.2.X where X is the ifIndex
+    const snmpIndexMap: { [name: string]: number } = {};
+    for (const ifaceOid of interfaceOids as any[]) {
+      const ifaceName = ifaceOid.name;
+      // The 'name' property in oid output is actually the OID for ifDescr
+      // We need to look for any OID field and extract the index from it
+      // Common patterns: bytes-in, bytes-out, admin-status, oper-status all end with the same index
+      const oidField = ifaceOid['bytes-in'] || ifaceOid['admin-status'] || ifaceOid['oper-status'] || ifaceOid['name'];
+      if (ifaceName && oidField) {
+        // OID format: .1.3.6.1.2.1.31.1.1.1.6.X where X is the ifIndex
+        const oidParts = oidField.split('.');
+        const ifIndex = parseInt(oidParts[oidParts.length - 1]);
+        if (!isNaN(ifIndex)) {
+          snmpIndexMap[ifaceName] = ifIndex;
+        }
+      }
+    }
+    if (Object.keys(snmpIndexMap).length > 0) {
+      console.log(`[Mikrotik] Found SNMP indices for ${Object.keys(snmpIndexMap).length} interfaces on ${ipAddress}`);
+    }
     
     // Extract real CPU and memory usage from Mikrotik resources
     const cpuLoad = resources[0]?.['cpu-load'];
@@ -137,6 +161,7 @@ async function probeMikrotikDevice(
         status: currentStatus,
         speed,
         description: iface.comment || undefined,
+        snmpIndex: snmpIndexMap[ifaceName],
       };
     });
 
@@ -432,7 +457,8 @@ export interface TrafficCounters {
 export async function probeInterfaceTraffic(
   ipAddress: string,
   interfaceName: string,
-  credentials?: any
+  credentials?: any,
+  knownSnmpIndex?: number
 ): Promise<{ data: TrafficCounters | null; success: boolean }> {
   const snmpVersion = credentials?.snmpVersion || '2c';
   const community = credentials?.snmpCommunity || 'public';
@@ -455,6 +481,70 @@ export async function probeInterfaceTraffic(
     const cleanup = (result: { data: TrafficCounters | null; success: boolean }) => {
       closeSession();
       resolve(result);
+    };
+
+    const fetchCounters = (targetIfIndex: number) => {
+      // Get the counters using the known interface index
+      // Use 64-bit counters (ifHCInOctets/ifHCOutOctets) if available, fall back to 32-bit
+      const ifHCInOctets = `1.3.6.1.2.1.31.1.1.1.6.${targetIfIndex}`;  // 64-bit in
+      const ifHCOutOctets = `1.3.6.1.2.1.31.1.1.1.10.${targetIfIndex}`; // 64-bit out
+      const ifInOctets = `1.3.6.1.2.1.2.2.1.10.${targetIfIndex}`;      // 32-bit in
+      const ifOutOctets = `1.3.6.1.2.1.2.2.1.16.${targetIfIndex}`;     // 32-bit out
+
+      // Try 64-bit counters first
+      session.get([ifHCInOctets, ifHCOutOctets], (error: any, varbinds: any[]) => {
+        if (!error && varbinds && varbinds.length === 2 && 
+            !snmp.isVarbindError(varbinds[0]) && !snmp.isVarbindError(varbinds[1])) {
+          const inOctets = parseCounter(varbinds[0].value);
+          const outOctets = parseCounter(varbinds[1].value);
+          
+          if (inOctets !== null && outOctets !== null) {
+            cleanup({
+              data: {
+                inOctets,
+                outOctets,
+                ifIndex: targetIfIndex,
+                timestamp: Date.now(),
+              },
+              success: true,
+            });
+            return;
+          }
+        }
+
+        // Fall back to 32-bit counters
+        session.get([ifInOctets, ifOutOctets], (error: any, varbinds: any[]) => {
+          if (error || !varbinds || varbinds.length !== 2) {
+            console.warn(`[Traffic] Failed to get counters for ${interfaceName} on ${ipAddress}`);
+            cleanup({ data: null, success: false });
+            return;
+          }
+
+          if (snmp.isVarbindError(varbinds[0]) || snmp.isVarbindError(varbinds[1])) {
+            console.warn(`[Traffic] Counter error for ${interfaceName} on ${ipAddress}`);
+            cleanup({ data: null, success: false });
+            return;
+          }
+
+          const inOctets = parseCounter(varbinds[0].value);
+          const outOctets = parseCounter(varbinds[1].value);
+
+          if (inOctets === null || outOctets === null) {
+            cleanup({ data: null, success: false });
+            return;
+          }
+
+          cleanup({
+            data: {
+              inOctets,
+              outOctets,
+              ifIndex: targetIfIndex,
+              timestamp: Date.now(),
+            },
+            success: true,
+          });
+        });
+      });
     };
 
     try {
@@ -483,7 +573,14 @@ export async function probeInterfaceTraffic(
         });
       }
 
-      // First, walk ifDescr to find the interface index
+      // If we have a known SNMP index from Mikrotik, use it directly (skip ifDescr walk)
+      if (knownSnmpIndex !== undefined) {
+        console.log(`[Traffic] Using known SNMP index ${knownSnmpIndex} for ${interfaceName} on ${ipAddress}`);
+        fetchCounters(knownSnmpIndex);
+        return;
+      }
+
+      // Otherwise, walk ifDescr to find the interface index
       const ifDescrOid = '1.3.6.1.2.1.2.2.1.2'; // ifDescr
       let targetIfIndex: number | null = null;
 
@@ -512,66 +609,7 @@ export async function probeInterfaceTraffic(
         }
 
         // Found the interface, now get the counters
-        // Use 64-bit counters (ifHCInOctets/ifHCOutOctets) if available, fall back to 32-bit
-        const ifHCInOctets = `1.3.6.1.2.1.31.1.1.1.6.${targetIfIndex}`;  // 64-bit in
-        const ifHCOutOctets = `1.3.6.1.2.1.31.1.1.1.10.${targetIfIndex}`; // 64-bit out
-        const ifInOctets = `1.3.6.1.2.1.2.2.1.10.${targetIfIndex}`;      // 32-bit in
-        const ifOutOctets = `1.3.6.1.2.1.2.2.1.16.${targetIfIndex}`;     // 32-bit out
-
-        // Try 64-bit counters first
-        session.get([ifHCInOctets, ifHCOutOctets], (error: any, varbinds: any[]) => {
-          if (!error && varbinds && varbinds.length === 2 && 
-              !snmp.isVarbindError(varbinds[0]) && !snmp.isVarbindError(varbinds[1])) {
-            const inOctets = parseCounter(varbinds[0].value);
-            const outOctets = parseCounter(varbinds[1].value);
-            
-            if (inOctets !== null && outOctets !== null) {
-              cleanup({
-                data: {
-                  inOctets,
-                  outOctets,
-                  ifIndex: targetIfIndex!,
-                  timestamp: Date.now(),
-                },
-                success: true,
-              });
-              return;
-            }
-          }
-
-          // Fall back to 32-bit counters
-          session.get([ifInOctets, ifOutOctets], (error: any, varbinds: any[]) => {
-            if (error || !varbinds || varbinds.length !== 2) {
-              console.warn(`[Traffic] Failed to get counters for ${interfaceName} on ${ipAddress}`);
-              cleanup({ data: null, success: false });
-              return;
-            }
-
-            if (snmp.isVarbindError(varbinds[0]) || snmp.isVarbindError(varbinds[1])) {
-              console.warn(`[Traffic] Counter error for ${interfaceName} on ${ipAddress}`);
-              cleanup({ data: null, success: false });
-              return;
-            }
-
-            const inOctets = parseCounter(varbinds[0].value);
-            const outOctets = parseCounter(varbinds[1].value);
-
-            if (inOctets === null || outOctets === null) {
-              cleanup({ data: null, success: false });
-              return;
-            }
-
-            cleanup({
-              data: {
-                inOctets,
-                outOctets,
-                ifIndex: targetIfIndex!,
-                timestamp: Date.now(),
-              },
-              success: true,
-            });
-          });
-        });
+        fetchCounters(targetIfIndex);
       });
     } catch (error: any) {
       console.error(`[Traffic] Error probing ${interfaceName} on ${ipAddress}:`, error.message);
