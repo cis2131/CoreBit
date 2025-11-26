@@ -775,7 +775,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const SCAN_TIMEOUT = 3000; // 3 second timeout per probe
       
       // Probe function with timeout
-      async function scanIP(ip: string): Promise<ScanResult> {
+      const scanIP = async (ip: string): Promise<ScanResult> => {
         // Try each credential profile in order
         for (const profile of validCredProfiles) {
           const credentials = profile.credentials;
@@ -822,7 +822,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         return { ip, status: 'failed' };
-      }
+      };
       
       // Process in batches with concurrency control
       const queue = [...ips];

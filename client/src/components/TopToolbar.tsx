@@ -25,10 +25,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
-import { Search, Plus, Network, Moon, Sun, Link2, Settings, MoreVertical, Pencil, Trash2, FileText } from 'lucide-react';
+import { Search, Plus, Network, Moon, Sun, Link2, Settings, MoreVertical, Pencil, Trash2, FileText, Radar } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { Link } from 'wouter';
 import { DeviceStatusInfo } from '@/components/DeviceStatusInfo';
+import { NetworkScanner } from '@/components/NetworkScanner';
 
 interface TopToolbarProps {
   maps: Map[];
@@ -64,6 +65,7 @@ export function TopToolbar({
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newMapName, setNewMapName] = useState('');
   const [newMapDescription, setNewMapDescription] = useState('');
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   
   const currentMap = maps.find(m => m.id === currentMapId);
@@ -185,6 +187,17 @@ export function TopToolbar({
           onDeviceSelect={onDeviceStatusSelect || (() => {})}
         />
 
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setIsScannerOpen(true)}
+          data-testid="button-network-scanner"
+          className="gap-2"
+        >
+          <Radar className="h-4 w-4" />
+          Scan
+        </Button>
+
         {onAddDevice && (
           <Button
             size="sm"
@@ -250,6 +263,11 @@ export function TopToolbar({
           {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </Button>
       </div>
+
+      <NetworkScanner
+        open={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+      />
     </div>
   );
 }
