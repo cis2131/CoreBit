@@ -1276,18 +1276,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const prevTimestamp = new Date(previousStats.previousSampleAt).getTime();
               const timeDeltaSec = (counters.timestamp - prevTimestamp) / 1000;
               
-              if (timeDeltaSec > 0) {
+              if (timeDeltaSec > 0 && timeDeltaSec < 300) { // Ignore stale samples > 5 minutes
                 // Handle counter wrap (32-bit counters can wrap around)
                 const MAX_32BIT = 4294967295;
                 let inDelta = counters.inOctets - previousStats.previousInOctets;
                 let outDelta = counters.outOctets - previousStats.previousOutOctets;
                 
-                // Handle wrap-around
+                // Handle wrap-around for 32-bit counters
                 if (inDelta < 0) inDelta += MAX_32BIT;
                 if (outDelta < 0) outDelta += MAX_32BIT;
                 
-                inBytesPerSec = Math.round(inDelta / timeDeltaSec);
-                outBytesPerSec = Math.round(outDelta / timeDeltaSec);
+                // Calculate rates
+                const rawInRate = inDelta / timeDeltaSec;
+                const rawOutRate = outDelta / timeDeltaSec;
+                
+                // Sanity check: clamp rates to reasonable max (100Gbps = 12.5GB/s)
+                const MAX_RATE = 12500000000; // 100Gbps in bytes/sec
+                if (rawInRate <= MAX_RATE && rawOutRate <= MAX_RATE) {
+                  inBytesPerSec = Math.round(rawInRate);
+                  outBytesPerSec = Math.round(rawOutRate);
+                } else {
+                  // Counter reset or wrap issue - skip this sample
+                  console.warn(`[Traffic] Rate sanity check failed for connection ${conn.id}: in=${rawInRate}, out=${rawOutRate}`);
+                }
               }
             }
             

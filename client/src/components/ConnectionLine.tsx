@@ -1,4 +1,5 @@
 import { Connection, Device } from '@shared/schema';
+import { ArrowDown, ArrowUp } from 'lucide-react';
 
 interface ConnectionLineProps {
   connection: Connection;
@@ -9,6 +10,16 @@ interface ConnectionLineProps {
   sourceDevice?: Device;
   targetDevice?: Device;
 }
+
+// Format bytes per second to human readable
+const formatTrafficRate = (bytesPerSec: number): string => {
+  if (bytesPerSec === 0) return '0 B/s';
+  const k = 1024;
+  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
+  const value = bytesPerSec / Math.pow(k, i);
+  return value >= 10 ? Math.round(value) + ' ' + sizes[i] : value.toFixed(1) + ' ' + sizes[i];
+};
 
 const linkSpeedStyles = {
   '1G': { width: 2, color: 'hsl(var(--muted-foreground))', dashArray: '' },
@@ -229,6 +240,44 @@ export function ConnectionLine({
           stroke="white"
           strokeWidth="2"
         />
+      )}
+
+      {/* Traffic stats display when monitoring is enabled */}
+      {connection.monitorInterface && connection.linkStats && (
+        <g>
+          {/* Background box for traffic stats */}
+          <rect
+            x={midX - 50}
+            y={midY - 28}
+            width="100"
+            height="36"
+            rx="4"
+            fill="hsl(var(--background))"
+            stroke="hsl(var(--border))"
+            strokeWidth="1"
+            opacity="0.95"
+          />
+          {/* Inbound traffic */}
+          <text
+            x={midX}
+            y={midY - 14}
+            textAnchor="middle"
+            className="text-[10px] font-mono fill-blue-500"
+            data-testid="text-connection-inbound"
+          >
+            {formatTrafficRate(connection.linkStats.inBytesPerSec || 0)}
+          </text>
+          {/* Outbound traffic */}
+          <text
+            x={midX}
+            y={midY + 2}
+            textAnchor="middle"
+            className="text-[10px] font-mono fill-green-500"
+            data-testid="text-connection-outbound"
+          >
+            {formatTrafficRate(connection.linkStats.outBytesPerSec || 0)}
+          </text>
+        </g>
       )}
     </g>
   );
