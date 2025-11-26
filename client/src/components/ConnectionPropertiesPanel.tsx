@@ -51,6 +51,15 @@ export function ConnectionPropertiesPanel({
   const sourcePorts = sourceDevice.deviceData?.ports || [];
   const targetPorts = targetDevice.deviceData?.ports || [];
 
+  // Helper to find port by defaultName or name (for display in trigger)
+  const findPort = (ports: typeof sourcePorts, portValue: string) => {
+    if (!portValue || portValue === 'none') return null;
+    return ports.find(p => p.defaultName === portValue || p.name === portValue);
+  };
+
+  const selectedSourcePort = findPort(sourcePorts, sourcePort);
+  const selectedTargetPort = findPort(targetPorts, targetPort);
+
   const hasChanges = 
     linkSpeed !== (connection.linkSpeed || '1G') ||
     sourcePort !== (connection.sourcePort || 'none') ||
@@ -124,15 +133,31 @@ export function ConnectionPropertiesPanel({
 
               {sourcePorts.length > 0 && (
                 <div className="space-y-2">
-                  <div className="flex items-baseline justify-between">
+                  <div className="flex items-baseline justify-between gap-2">
                     <Label htmlFor="source-port" className="text-xs text-muted-foreground">Source</Label>
-                    <span className="text-xs font-medium text-foreground">{sourceDevice.name}</span>
+                    <span className="text-xs font-medium text-foreground truncate">{sourceDevice.name}</span>
                   </div>
                   <Select value={sourcePort} onValueChange={setSourcePort}>
-                    <SelectTrigger id="source-port" data-testid="select-source-port">
-                      <SelectValue placeholder="Select port" />
+                    <SelectTrigger id="source-port" data-testid="select-source-port" className="h-auto min-h-9">
+                      {selectedSourcePort ? (
+                        <div className="flex items-start gap-2 py-1 text-left w-full">
+                          <div
+                            className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${
+                              sourceDevice.status === 'online' && selectedSourcePort.status === 'up' ? 'bg-green-500' : sourceDevice.status === 'online' && selectedSourcePort.status === 'down' ? 'bg-red-500' : 'bg-gray-400'
+                            }`}
+                          />
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="break-words">{selectedSourcePort.name} {selectedSourcePort.speed && `(${selectedSourcePort.speed})`}</span>
+                            {selectedSourcePort.description && (
+                              <span className="text-xs text-muted-foreground break-words">{selectedSourcePort.description}</span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <SelectValue placeholder="Select port" />
+                      )}
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-w-[280px]">
                       <SelectItem value="none">None</SelectItem>
                       {sourcePorts.map((port, idx) => (
                         <SelectItem key={idx} value={port.defaultName || port.name}>
@@ -143,9 +168,9 @@ export function ConnectionPropertiesPanel({
                               }`}
                             />
                             <div className="flex flex-col">
-                              <span>{port.name} {port.speed && `(${port.speed})`}</span>
+                              <span className="break-words">{port.name} {port.speed && `(${port.speed})`}</span>
                               {port.description && (
-                                <span className="text-xs text-muted-foreground">{port.description}</span>
+                                <span className="text-xs text-muted-foreground break-words">{port.description}</span>
                               )}
                             </div>
                           </div>
@@ -158,15 +183,31 @@ export function ConnectionPropertiesPanel({
 
               {targetPorts.length > 0 && (
                 <div className="space-y-2">
-                  <div className="flex items-baseline justify-between">
+                  <div className="flex items-baseline justify-between gap-2">
                     <Label htmlFor="target-port" className="text-xs text-muted-foreground">Target</Label>
-                    <span className="text-xs font-medium text-foreground">{targetDevice.name}</span>
+                    <span className="text-xs font-medium text-foreground truncate">{targetDevice.name}</span>
                   </div>
                   <Select value={targetPort} onValueChange={setTargetPort}>
-                    <SelectTrigger id="target-port" data-testid="select-target-port">
-                      <SelectValue placeholder="Select port" />
+                    <SelectTrigger id="target-port" data-testid="select-target-port" className="h-auto min-h-9">
+                      {selectedTargetPort ? (
+                        <div className="flex items-start gap-2 py-1 text-left w-full">
+                          <div
+                            className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${
+                              targetDevice.status === 'online' && selectedTargetPort.status === 'up' ? 'bg-green-500' : targetDevice.status === 'online' && selectedTargetPort.status === 'down' ? 'bg-red-500' : 'bg-gray-400'
+                            }`}
+                          />
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="break-words">{selectedTargetPort.name} {selectedTargetPort.speed && `(${selectedTargetPort.speed})`}</span>
+                            {selectedTargetPort.description && (
+                              <span className="text-xs text-muted-foreground break-words">{selectedTargetPort.description}</span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <SelectValue placeholder="Select port" />
+                      )}
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-w-[280px]">
                       <SelectItem value="none">None</SelectItem>
                       {targetPorts.map((port, idx) => (
                         <SelectItem key={idx} value={port.defaultName || port.name}>
@@ -177,9 +218,9 @@ export function ConnectionPropertiesPanel({
                               }`}
                             />
                             <div className="flex flex-col">
-                              <span>{port.name} {port.speed && `(${port.speed})`}</span>
+                              <span className="break-words">{port.name} {port.speed && `(${port.speed})`}</span>
                               {port.description && (
-                                <span className="text-xs text-muted-foreground">{port.description}</span>
+                                <span className="text-xs text-muted-foreground break-words">{port.description}</span>
                               )}
                             </div>
                           </div>

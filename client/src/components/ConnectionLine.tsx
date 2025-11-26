@@ -134,13 +134,16 @@ export function ConnectionLine({
     if (!device || !portName || portName === 'none') return 'hsl(var(--muted-foreground))';
     // If device is down, show grey regardless of port status
     if (device.status !== 'online') return 'hsl(var(--muted-foreground))';
-    const port = device.deviceData?.ports?.find(p => p.name === portName);
+    // Match by defaultName first (stable identifier used in connections), then fall back to name
+    const port = device.deviceData?.ports?.find(p => 
+      p.defaultName === portName || p.name === portName
+    );
     if (!port) return 'hsl(var(--muted-foreground))';
     return port.status === 'up' ? '#22c55e' : '#ef4444'; // green for up, red for down
   };
 
-  const sourcePortStatus = getPortStatusColor(sourceDevice, connection.sourcePort);
-  const targetPortStatus = getPortStatusColor(targetDevice, connection.targetPort);
+  const sourcePortStatus = getPortStatusColor(sourceDevice, connection.sourcePort || undefined);
+  const targetPortStatus = getPortStatusColor(targetDevice, connection.targetPort || undefined);
 
   return (
     <g
