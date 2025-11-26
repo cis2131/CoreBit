@@ -1,6 +1,50 @@
 import { RouterOSAPI } from 'node-routeros';
 import * as snmp from 'net-snmp';
 
+// Helper function to walk an SNMP table and return OID → value mapping
+async function walkSnmpTable(
+  ipAddress: string, 
+  community: string, 
+  oid: string
+): Promise<{ success: boolean; data?: { [oid: string]: string } }> {
+  return new Promise((resolve) => {
+    let resolved = false;
+    let sessionClosed = false;
+    
+    const session = snmp.createSession(ipAddress, community, {
+      version: snmp.Version2c,
+      timeout: 4000,
+      retries: 0,
+    });
+    
+    const results: { [oid: string]: string } = {};
+    
+    const cleanup = (success: boolean) => {
+      if (resolved) return;
+      resolved = true;
+      if (!sessionClosed) {
+        sessionClosed = true;
+        try { session.close(); } catch (e) { /* ignore */ }
+      }
+      resolve(success ? { success: true, data: results } : { success: false });
+    };
+    
+    session.walk(oid, (varbinds: any[]) => {
+      for (const vb of varbinds) {
+        if (snmp.isVarbindError(vb)) continue;
+        results[vb.oid] = vb.value.toString();
+      }
+    }, (error: any) => {
+      cleanup(!error);
+    });
+    
+    // Timeout protection
+    setTimeout(() => {
+      cleanup(false);
+    }, 5000);
+  });
+}
+
 export interface DeviceProbeData {
   uptime?: string;
   model?: string;
@@ -43,11 +87,10 @@ async function probeMikrotikDevice(
     await conn.connect();
     console.log(`[Mikrotik] Connected to ${ipAddress}`);
 
-    const [identity, resources, interfaces, interfaceOids] = await Promise.all([
+    const [identity, resources, interfaces] = await Promise.all([
       conn.write('/system/identity/print').catch(() => []),
       conn.write('/system/resource/print').catch(() => []),
       conn.write('/interface/print').catch(() => []),
-      conn.write('/interface/print', ['=oid=', '=.proplist=.id,name']).catch(() => []),
     ]);
 
     const identityName = identity[0]?.name || 'Unknown';
@@ -55,13 +98,10 @@ async function probeMikrotikDevice(
     const version = resources[0]?.version || 'Unknown';
     const uptime = resources[0]?.uptime || '0s';
     
-    // Build SNMP index map from /interface/print oid response
-    // When called with =oid= flag, Mikrotik returns OIDs instead of values
-    // The 'name' field contains OID like .1.3.6.1.2.1.2.2.1.2.X where X is the ifIndex
-    // We correlate by .id property (stable internal ID) instead of array index
+    // Build SNMP index map from /interface/print with oid flag
+    // The oid flag returns OIDs instead of values, where 'name' contains ifDescr OID like .1.3.6.1.2.1.2.2.1.2.X
     const snmpIndexMap: { [name: string]: number } = {};
     const interfacesList = interfaces as any[];
-    const oidsList = interfaceOids as any[];
     
     // Build a map from .id to interface name from the regular print
     const idToName: { [id: string]: string } = {};
@@ -71,23 +111,42 @@ async function probeMikrotikDevice(
       }
     }
     
-    // Parse OIDs and correlate by .id
-    for (const oidData of oidsList) {
-      const id = oidData['.id'];
-      const oidField = oidData['name']; // In oid mode, 'name' contains the OID for ifDescr
-      
-      if (id && oidField && typeof oidField === 'string' && idToName[id]) {
-        // OID format: .1.3.6.1.2.1.2.2.1.2.X where X is the ifIndex
-        const oidParts = oidField.split('.');
-        const ifIndex = parseInt(oidParts[oidParts.length - 1]);
-        if (!isNaN(ifIndex) && ifIndex > 0) {
-          snmpIndexMap[idToName[id]] = ifIndex;
+    // Try to fetch OIDs - RouterOS /interface/print oid returns OIDs instead of values
+    // We need to correlate by .id to map interface names to SNMP ifIndex values
+    let snmpIndices: { [name: string]: number } = {};
+    
+    // Since the RouterOS API oid flag behavior varies by version/library, 
+    // use SNMP to reliably get ifName → ifIndex mapping during probing
+    // This is done once per device probe and cached in deviceData.ports
+    if (credentials?.snmpCommunity) {
+      try {
+        // Walk ifName (1.3.6.1.2.1.31.1.1.1.1) to get interface name → index mapping
+        console.log(`[Mikrotik] Walking SNMP ifName on ${ipAddress} with community "${credentials.snmpCommunity}"...`);
+        const snmpResult = await walkSnmpTable(ipAddress, credentials.snmpCommunity, '1.3.6.1.2.1.31.1.1.1.1');
+        console.log(`[Mikrotik] SNMP walk result on ${ipAddress}: success=${snmpResult.success}, entries=${snmpResult.data ? Object.keys(snmpResult.data).length : 0}`);
+        if (snmpResult.success && snmpResult.data) {
+          for (const [oid, name] of Object.entries(snmpResult.data)) {
+            // OID format: 1.3.6.1.2.1.31.1.1.1.1.X where X is ifIndex
+            const parts = oid.split('.');
+            const ifIndex = parseInt(parts[parts.length - 1]);
+            if (!isNaN(ifIndex) && typeof name === 'string') {
+              snmpIndices[name] = ifIndex;
+            }
+          }
+          if (Object.keys(snmpIndices).length > 0) {
+            console.log(`[Mikrotik] Found ${Object.keys(snmpIndices).length} SNMP indices via ifName on ${ipAddress}: ${Object.keys(snmpIndices).slice(0, 5).join(', ')}...`);
+          }
         }
+      } catch (e) {
+        console.log(`[Mikrotik] SNMP ifName walk failed on ${ipAddress}: ${e}`);
       }
+    } else {
+      console.log(`[Mikrotik] No SNMP community configured for ${ipAddress}, skipping ifName walk`);
     }
     
-    if (Object.keys(snmpIndexMap).length > 0) {
-      console.log(`[Mikrotik] Found SNMP indices for ${Object.keys(snmpIndexMap).length} interfaces on ${ipAddress}`);
+    // Copy SNMP indices to main map
+    for (const [name, idx] of Object.entries(snmpIndices)) {
+      snmpIndexMap[name] = idx;
     }
     
     // Extract real CPU and memory usage from Mikrotik resources
