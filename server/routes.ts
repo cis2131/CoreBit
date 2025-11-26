@@ -677,8 +677,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         if (quickProbe.success && quickProbe.data.ports) {
           // Check for down→up transitions
-          for (const currentPort of quickProbe.data.ports) {
-            const prevPort = previousPorts.find((p: any) => p.name === currentPort.name);
+          // Match by defaultName first (stable identifier), then fall back to name
+          for (const currentPort of quickProbe.data.ports as any[]) {
+            const prevPort = previousPorts.find((p: any) => 
+              (currentPort.defaultName && p.defaultName === currentPort.defaultName) || p.name === currentPort.name
+            );
             if (prevPort && prevPort.status === 'down' && currentPort.status === 'up') {
               console.log(`[Probing] Link state change detected on ${device.name} port ${currentPort.name}: down → up, triggering detailed probe`);
               needsDetailedProbe = true;

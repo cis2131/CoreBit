@@ -8,6 +8,7 @@ export interface DeviceProbeData {
   systemIdentity?: string;
   ports?: Array<{
     name: string;
+    defaultName?: string;
     status: string;
     speed?: string;
     description?: string;
@@ -21,7 +22,7 @@ async function probeMikrotikDevice(
   ipAddress: string,
   credentials?: any,
   detailedProbe: boolean = false,
-  previousPorts?: Array<{ name: string; status: string; speed?: string }>
+  previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>
 ): Promise<DeviceProbeData> {
   const username = credentials?.username || 'admin';
   const password = credentials?.password || '';
@@ -121,7 +122,10 @@ async function probeMikrotikDevice(
         speed = speedMap[ifaceName];
       } else if (previousPorts) {
         // Use cached speed from previous probe
-        const prevPort = previousPorts.find(p => p.name === ifaceName);
+        // Match by defaultName first (stable identifier), then fall back to name
+        const prevPort = previousPorts.find(p => 
+          (defaultName && p.defaultName === defaultName) || p.name === ifaceName
+        );
         if (prevPort?.speed) {
           speed = prevPort.speed;
         }
@@ -391,7 +395,7 @@ export async function probeDevice(
   ipAddress?: string,
   credentials?: any,
   detailedProbe: boolean = false,
-  previousPorts?: Array<{ name: string; status: string; speed?: string }>
+  previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>
 ): Promise<{ data: DeviceProbeData; success: boolean }> {
   if (!ipAddress) {
     console.log(`[Probe] No IP address provided for ${deviceType}, returning empty data`);
