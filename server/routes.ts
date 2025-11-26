@@ -2,8 +2,60 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { probeDevice, determineDeviceStatus } from "./deviceProbe";
-import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, type Device } from "@shared/schema";
+import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, type Device } from "@shared/schema";
 import { z } from "zod";
+
+// CIDR IP range expansion utilities
+function ipToLong(ip: string): number {
+  const parts = ip.split('.').map(Number);
+  return ((parts[0] << 24) + (parts[1] << 16) + (parts[2] << 8) + parts[3]) >>> 0;
+}
+
+function longToIp(num: number): string {
+  return [(num >>> 24) & 255, (num >>> 16) & 255, (num >>> 8) & 255, num & 255].join('.');
+}
+
+function expandCidr(cidr: string): string[] {
+  const ips: string[] = [];
+  
+  // Handle single IP
+  if (!cidr.includes('/') && !cidr.includes('-')) {
+    return [cidr];
+  }
+  
+  // Handle CIDR notation (e.g., 192.168.1.0/24)
+  if (cidr.includes('/')) {
+    const [baseIp, prefixStr] = cidr.split('/');
+    const prefix = parseInt(prefixStr);
+    const baseNum = ipToLong(baseIp);
+    const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+    const network = baseNum & mask;
+    const broadcast = network | (~mask >>> 0);
+    
+    // Skip network and broadcast for standard subnets, include all for /31 and /32
+    const start = prefix >= 31 ? network : network + 1;
+    const end = prefix >= 31 ? broadcast : broadcast - 1;
+    
+    for (let i = start; i <= end && ips.length < 65536; i++) {
+      ips.push(longToIp(i));
+    }
+    return ips;
+  }
+  
+  // Handle range notation (e.g., 192.168.1.1-192.168.1.254)
+  if (cidr.includes('-')) {
+    const [startIp, endIp] = cidr.split('-').map(s => s.trim());
+    const startNum = ipToLong(startIp);
+    const endNum = ipToLong(endIp);
+    
+    for (let i = startNum; i <= endNum && ips.length < 65536; i++) {
+      ips.push(longToIp(i));
+    }
+    return ips;
+  }
+  
+  return ips;
+}
 
 // Helper function to resolve credentials from profile or custom
 async function resolveCredentials(device: Pick<Device, 'credentialProfileId' | 'customCredentials'>) {
@@ -608,6 +660,272 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error removing device notification:', error);
       res.status(500).json({ error: 'Failed to remove device notification' });
+    }
+  });
+
+  // Scan Profile routes
+  app.get("/api/scan-profiles", async (_req, res) => {
+    try {
+      const profiles = await storage.getAllScanProfiles();
+      res.json(profiles);
+    } catch (error) {
+      console.error('Error fetching scan profiles:', error);
+      res.status(500).json({ error: 'Failed to fetch scan profiles' });
+    }
+  });
+
+  app.get("/api/scan-profiles/:id", async (req, res) => {
+    try {
+      const profile = await storage.getScanProfile(req.params.id);
+      if (!profile) {
+        return res.status(404).json({ error: 'Scan profile not found' });
+      }
+      res.json(profile);
+    } catch (error) {
+      console.error('Error fetching scan profile:', error);
+      res.status(500).json({ error: 'Failed to fetch scan profile' });
+    }
+  });
+
+  app.post("/api/scan-profiles", async (req, res) => {
+    try {
+      const data = insertScanProfileSchema.parse(req.body);
+      const profile = await storage.createScanProfile(data);
+      res.status(201).json(profile);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid scan profile data', details: error.errors });
+      }
+      console.error('Error creating scan profile:', error);
+      res.status(500).json({ error: 'Failed to create scan profile' });
+    }
+  });
+
+  app.patch("/api/scan-profiles/:id", async (req, res) => {
+    try {
+      const data = insertScanProfileSchema.partial().parse(req.body);
+      const profile = await storage.updateScanProfile(req.params.id, data);
+      if (!profile) {
+        return res.status(404).json({ error: 'Scan profile not found' });
+      }
+      res.json(profile);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid scan profile data', details: error.errors });
+      }
+      console.error('Error updating scan profile:', error);
+      res.status(500).json({ error: 'Failed to update scan profile' });
+    }
+  });
+
+  app.delete("/api/scan-profiles/:id", async (req, res) => {
+    try {
+      await storage.deleteScanProfile(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting scan profile:', error);
+      res.status(500).json({ error: 'Failed to delete scan profile' });
+    }
+  });
+
+  // Network Scanner endpoint
+  const scanRequestSchema = z.object({
+    ipRange: z.string(),
+    credentialProfileIds: z.array(z.string()),
+    probeTypes: z.array(z.enum(['mikrotik', 'snmp', 'server'])),
+  });
+
+  interface ScanResult {
+    ip: string;
+    status: 'success' | 'failed' | 'timeout';
+    deviceType?: string;
+    deviceData?: any;
+    credentialProfileId?: string;
+    error?: string;
+  }
+
+  app.post("/api/network-scan", async (req, res) => {
+    try {
+      const { ipRange, credentialProfileIds, probeTypes } = scanRequestSchema.parse(req.body);
+      
+      // Expand IP range
+      const ips = expandCidr(ipRange);
+      if (ips.length === 0) {
+        return res.status(400).json({ error: 'Invalid IP range' });
+      }
+      
+      console.log(`[Network Scan] Starting scan of ${ips.length} IPs with ${credentialProfileIds.length} credential profiles`);
+      
+      // Fetch credential profiles
+      const credProfiles = await Promise.all(
+        credentialProfileIds.map(id => storage.getCredentialProfile(id))
+      );
+      const validCredProfiles = credProfiles.filter(p => p !== undefined);
+      
+      if (validCredProfiles.length === 0) {
+        return res.status(400).json({ error: 'No valid credential profiles provided' });
+      }
+      
+      // Check which IPs already exist as devices
+      const existingDevices = await storage.getAllDevices();
+      const existingIPs = new Set(existingDevices.map(d => d.ipAddress).filter(Boolean));
+      
+      const results: ScanResult[] = [];
+      const SCAN_CONCURRENCY = 40; // Concurrent probes for scanning
+      const SCAN_TIMEOUT = 3000; // 3 second timeout per probe
+      
+      // Probe function with timeout
+      async function scanIP(ip: string): Promise<ScanResult> {
+        // Try each credential profile in order
+        for (const profile of validCredProfiles) {
+          const credentials = profile.credentials;
+          
+          // Map probe types to device types and try in order
+          for (const probeType of probeTypes) {
+            let deviceType: string;
+            switch (probeType) {
+              case 'mikrotik':
+                deviceType = 'mikrotik_router';
+                break;
+              case 'snmp':
+                deviceType = 'generic_snmp';
+                break;
+              case 'server':
+                deviceType = 'server';
+                break;
+            }
+            
+            try {
+              const timeoutPromise = new Promise<never>((_, reject) => {
+                setTimeout(() => reject(new Error('Timeout')), SCAN_TIMEOUT);
+              });
+              
+              const probePromise = probeDevice(deviceType, ip, credentials);
+              const probeResult = await Promise.race([probePromise, timeoutPromise]);
+              
+              if (probeResult.success) {
+                return {
+                  ip,
+                  status: 'success',
+                  deviceType,
+                  deviceData: probeResult.data,
+                  credentialProfileId: profile.id,
+                };
+              }
+            } catch (error: any) {
+              if (error.message === 'Timeout') {
+                continue; // Try next probe type
+              }
+              // Continue to next probe type on error
+            }
+          }
+        }
+        
+        return { ip, status: 'failed' };
+      }
+      
+      // Process in batches with concurrency control
+      const queue = [...ips];
+      const active: Promise<void>[] = [];
+      
+      while (queue.length > 0 || active.length > 0) {
+        while (active.length < SCAN_CONCURRENCY && queue.length > 0) {
+          const ip = queue.shift()!;
+          
+          const promise = (async () => {
+            const result = await scanIP(ip);
+            results.push(result);
+          })();
+          
+          active.push(promise);
+          promise.finally(() => {
+            const index = active.indexOf(promise);
+            if (index > -1) active.splice(index, 1);
+          });
+        }
+        
+        if (active.length > 0) {
+          await Promise.race(active);
+        }
+      }
+      
+      const successCount = results.filter(r => r.status === 'success').length;
+      console.log(`[Network Scan] Completed: ${successCount}/${ips.length} devices discovered`);
+      
+      // Return results with existing device info
+      const enrichedResults = results.map(r => ({
+        ...r,
+        alreadyExists: existingIPs.has(r.ip),
+      }));
+      
+      res.json({
+        totalScanned: ips.length,
+        discovered: successCount,
+        results: enrichedResults.filter(r => r.status === 'success'),
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid scan request', details: error.errors });
+      }
+      console.error('Error during network scan:', error);
+      res.status(500).json({ error: 'Network scan failed' });
+    }
+  });
+
+  // Batch device creation from scan results
+  const batchDeviceSchema = z.object({
+    devices: z.array(z.object({
+      name: z.string(),
+      type: z.string(),
+      ipAddress: z.string(),
+      credentialProfileId: z.string().optional(),
+      deviceData: z.any().optional(),
+    })),
+  });
+
+  app.post("/api/devices/batch", async (req, res) => {
+    try {
+      const { devices } = batchDeviceSchema.parse(req.body);
+      
+      const createdDevices = [];
+      const errors = [];
+      
+      for (const deviceData of devices) {
+        try {
+          // Check if device already exists
+          const existingDevices = await storage.getAllDevices();
+          const exists = existingDevices.find(d => d.ipAddress === deviceData.ipAddress);
+          if (exists) {
+            errors.push({ ip: deviceData.ipAddress, error: 'Device already exists' });
+            continue;
+          }
+          
+          const device = await storage.createDevice({
+            name: deviceData.name,
+            type: deviceData.type,
+            ipAddress: deviceData.ipAddress,
+            status: 'online',
+            credentialProfileId: deviceData.credentialProfileId || null,
+            deviceData: deviceData.deviceData || undefined,
+          });
+          createdDevices.push(device);
+        } catch (error: any) {
+          errors.push({ ip: deviceData.ipAddress, error: error.message });
+        }
+      }
+      
+      res.status(201).json({
+        created: createdDevices.length,
+        failed: errors.length,
+        devices: createdDevices,
+        errors,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid batch device data', details: error.errors });
+      }
+      console.error('Error creating batch devices:', error);
+      res.status(500).json({ error: 'Failed to create batch devices' });
     }
   });
 
