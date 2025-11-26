@@ -300,16 +300,30 @@ function CredentialProfileDialog({
 
   const form = useForm<CredentialFormData>({
     resolver: zodResolver(credentialFormSchema),
-    defaultValues: profile ? {
-      name: profile.name,
-      type: profile.type as "mikrotik" | "snmp",
-      credentials: profile.credentials,
-    } : {
+    defaultValues: {
       name: "",
       type: "mikrotik",
       credentials: {},
     },
   });
+
+  useEffect(() => {
+    if (open) {
+      if (profile) {
+        form.reset({
+          name: profile.name,
+          type: profile.type as "mikrotik" | "snmp",
+          credentials: profile.credentials || {},
+        });
+      } else {
+        form.reset({
+          name: "",
+          type: "mikrotik",
+          credentials: {},
+        });
+      }
+    }
+  }, [open, profile, form]);
 
   const credentialType = form.watch("type");
 
