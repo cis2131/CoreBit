@@ -144,6 +144,17 @@ export const connections = pgTable("connections", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const scanProfiles = pgTable("scan_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  ipRange: text("ip_range").notNull(),
+  credentialProfileIds: text("credential_profile_ids").array().notNull(),
+  probeTypes: text("probe_types").array().notNull().$type<Array<'mikrotik' | 'snmp' | 'server'>>(),
+  isDefault: boolean("is_default").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const mapsRelations = relations(maps, ({ many }) => ({
   devicePlacements: many(devicePlacements),
   connections: many(connections),
@@ -276,6 +287,16 @@ export const insertLogSchema = createInsertSchema(logs).omit({
   metadata: z.record(z.any()).optional(),
 });
 
+export const insertScanProfileSchema = createInsertSchema(scanProfiles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  credentialProfileIds: z.array(z.string()),
+  probeTypes: z.array(z.enum(['mikrotik', 'snmp', 'server'])),
+  isDefault: z.boolean().optional(),
+});
+
 export type Map = typeof maps.$inferSelect;
 export type InsertMap = z.infer<typeof insertMapSchema>;
 export type Device = typeof devices.$inferSelect;
@@ -292,3 +313,5 @@ export type DeviceNotification = typeof deviceNotifications.$inferSelect;
 export type InsertDeviceNotification = z.infer<typeof insertDeviceNotificationSchema>;
 export type Log = typeof logs.$inferSelect;
 export type InsertLog = z.infer<typeof insertLogSchema>;
+export type ScanProfile = typeof scanProfiles.$inferSelect;
+export type InsertScanProfile = z.infer<typeof insertScanProfileSchema>;

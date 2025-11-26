@@ -9,6 +9,7 @@ import {
   deviceNotifications,
   notificationHistory,
   logs,
+  scanProfiles,
   type Map, 
   type InsertMap,
   type Device,
@@ -24,7 +25,9 @@ import {
   type DeviceNotification,
   type InsertDeviceNotification,
   type Log,
-  type InsertLog
+  type InsertLog,
+  type ScanProfile,
+  type InsertScanProfile
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc } from "drizzle-orm";
@@ -85,6 +88,13 @@ export interface IStorage {
   getAllLogs(limit?: number): Promise<Log[]>;
   getLogsByDeviceId(deviceId: string, limit?: number): Promise<Log[]>;
   createLog(log: InsertLog): Promise<Log>;
+
+  // Scan Profiles
+  getAllScanProfiles(): Promise<ScanProfile[]>;
+  getScanProfile(id: string): Promise<ScanProfile | undefined>;
+  createScanProfile(profile: InsertScanProfile): Promise<ScanProfile>;
+  updateScanProfile(id: string, profile: Partial<InsertScanProfile>): Promise<ScanProfile | undefined>;
+  deleteScanProfile(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -340,6 +350,37 @@ export class DatabaseStorage implements IStorage {
 
   async deleteLogsByDeviceId(deviceId: string): Promise<void> {
     await db.delete(logs).where(eq(logs.deviceId, deviceId));
+  }
+
+  // Scan Profiles
+  async getAllScanProfiles(): Promise<ScanProfile[]> {
+    return await db.select().from(scanProfiles).orderBy(scanProfiles.name);
+  }
+
+  async getScanProfile(id: string): Promise<ScanProfile | undefined> {
+    const [profile] = await db.select().from(scanProfiles).where(eq(scanProfiles.id, id));
+    return profile || undefined;
+  }
+
+  async createScanProfile(insertProfile: InsertScanProfile): Promise<ScanProfile> {
+    const [profile] = await db
+      .insert(scanProfiles)
+      .values(insertProfile)
+      .returning();
+    return profile;
+  }
+
+  async updateScanProfile(id: string, updateData: Partial<InsertScanProfile>): Promise<ScanProfile | undefined> {
+    const [profile] = await db
+      .update(scanProfiles)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(scanProfiles.id, id))
+      .returning();
+    return profile || undefined;
+  }
+
+  async deleteScanProfile(id: string): Promise<void> {
+    await db.delete(scanProfiles).where(eq(scanProfiles.id, id));
   }
 }
 
