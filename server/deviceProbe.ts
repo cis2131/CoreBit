@@ -47,7 +47,7 @@ async function probeMikrotikDevice(
       conn.write('/system/identity/print').catch(() => []),
       conn.write('/system/resource/print').catch(() => []),
       conn.write('/interface/print').catch(() => []),
-      conn.write('/interface/print', ['=.proplist=name', '=oid=']).catch(() => []),
+      conn.write('/interface/print', ['=oid=', '=.proplist=.id,name']).catch(() => []),
     ]);
 
     const identityName = identity[0]?.name || 'Unknown';
@@ -56,23 +56,36 @@ async function probeMikrotikDevice(
     const uptime = resources[0]?.uptime || '0s';
     
     // Build SNMP index map from /interface/print oid response
-    // Each interface has OID properties like name=.1.3.6.1.2.1.2.2.1.2.X where X is the ifIndex
+    // When called with =oid= flag, Mikrotik returns OIDs instead of values
+    // The 'name' field contains OID like .1.3.6.1.2.1.2.2.1.2.X where X is the ifIndex
+    // We correlate by .id property (stable internal ID) instead of array index
     const snmpIndexMap: { [name: string]: number } = {};
-    for (const ifaceOid of interfaceOids as any[]) {
-      const ifaceName = ifaceOid.name;
-      // The 'name' property in oid output is actually the OID for ifDescr
-      // We need to look for any OID field and extract the index from it
-      // Common patterns: bytes-in, bytes-out, admin-status, oper-status all end with the same index
-      const oidField = ifaceOid['bytes-in'] || ifaceOid['admin-status'] || ifaceOid['oper-status'] || ifaceOid['name'];
-      if (ifaceName && oidField) {
-        // OID format: .1.3.6.1.2.1.31.1.1.1.6.X where X is the ifIndex
+    const interfacesList = interfaces as any[];
+    const oidsList = interfaceOids as any[];
+    
+    // Build a map from .id to interface name from the regular print
+    const idToName: { [id: string]: string } = {};
+    for (const iface of interfacesList) {
+      if (iface['.id'] && iface.name) {
+        idToName[iface['.id']] = iface.name;
+      }
+    }
+    
+    // Parse OIDs and correlate by .id
+    for (const oidData of oidsList) {
+      const id = oidData['.id'];
+      const oidField = oidData['name']; // In oid mode, 'name' contains the OID for ifDescr
+      
+      if (id && oidField && typeof oidField === 'string' && idToName[id]) {
+        // OID format: .1.3.6.1.2.1.2.2.1.2.X where X is the ifIndex
         const oidParts = oidField.split('.');
         const ifIndex = parseInt(oidParts[oidParts.length - 1]);
-        if (!isNaN(ifIndex)) {
-          snmpIndexMap[ifaceName] = ifIndex;
+        if (!isNaN(ifIndex) && ifIndex > 0) {
+          snmpIndexMap[idToName[id]] = ifIndex;
         }
       }
     }
+    
     if (Object.keys(snmpIndexMap).length > 0) {
       console.log(`[Mikrotik] Found SNMP indices for ${Object.keys(snmpIndexMap).length} interfaces on ${ipAddress}`);
     }
