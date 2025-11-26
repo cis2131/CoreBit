@@ -1,8 +1,8 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { probeDevice, determineDeviceStatus } from "./deviceProbe";
-import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, type Device } from "@shared/schema";
+import { probeDevice, determineDeviceStatus, probeInterfaceTraffic } from "./deviceProbe";
+import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, type Device, type Connection } from "@shared/schema";
 import { z } from "zod";
 
 // CIDR IP range expansion utilities
@@ -1216,12 +1216,126 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const duration = ((Date.now() - startTime) / 1000).toFixed(1);
         
         console.log(`[Probing] Completed cycle #${probeCycle} in ${duration}s: ${totalDevices} devices, ${successCount} success (${successRate}%), ${timeoutCount} timeout, ${errorCount} error`);
+        
+        // Traffic monitoring for connections
+        await probeConnectionTraffic(allDevices);
       } catch (error) {
         console.error('[Probing] Error in periodic probing:', error);
       } finally {
         isProbing = false;
       }
     }, intervalMs);
+  }
+  
+  // Traffic monitoring for connections with monitorInterface set
+  async function probeConnectionTraffic(allDevices: Device[]) {
+    try {
+      const monitoredConnections = await storage.getMonitoredConnections();
+      if (monitoredConnections.length === 0) return;
+      
+      console.log(`[Traffic] Probing ${monitoredConnections.length} monitored connections`);
+      
+      // Build device lookup map
+      const deviceMap = new Map(allDevices.map(d => [d.id, d]));
+      
+      for (const conn of monitoredConnections) {
+        try {
+          // Determine which device and port to monitor
+          const isSource = conn.monitorInterface === 'source';
+          const deviceId = isSource ? conn.sourceDeviceId : conn.targetDeviceId;
+          const portName = isSource ? conn.sourcePort : conn.targetPort;
+          
+          if (!portName) {
+            console.warn(`[Traffic] No port specified for ${isSource ? 'source' : 'target'} on connection ${conn.id}`);
+            continue;
+          }
+          
+          const device = deviceMap.get(deviceId);
+          if (!device || !device.ipAddress) {
+            console.warn(`[Traffic] Device ${deviceId} not found or has no IP`);
+            continue;
+          }
+          
+          // Get credentials for the device
+          const credentials = await resolveCredentials(device);
+          
+          // Probe interface traffic
+          const result = await probeInterfaceTraffic(device.ipAddress, portName, credentials);
+          
+          if (result.success && result.data) {
+            const counters = result.data;
+            const previousStats = conn.linkStats;
+            
+            // Calculate rates if we have previous data
+            let inBytesPerSec = 0;
+            let outBytesPerSec = 0;
+            
+            if (previousStats?.previousInOctets !== undefined && 
+                previousStats?.previousOutOctets !== undefined &&
+                previousStats?.previousSampleAt) {
+              const prevTimestamp = new Date(previousStats.previousSampleAt).getTime();
+              const timeDeltaSec = (counters.timestamp - prevTimestamp) / 1000;
+              
+              if (timeDeltaSec > 0) {
+                // Handle counter wrap (32-bit counters can wrap around)
+                const MAX_32BIT = 4294967295;
+                let inDelta = counters.inOctets - previousStats.previousInOctets;
+                let outDelta = counters.outOctets - previousStats.previousOutOctets;
+                
+                // Handle wrap-around
+                if (inDelta < 0) inDelta += MAX_32BIT;
+                if (outDelta < 0) outDelta += MAX_32BIT;
+                
+                inBytesPerSec = Math.round(inDelta / timeDeltaSec);
+                outBytesPerSec = Math.round(outDelta / timeDeltaSec);
+              }
+            }
+            
+            // Calculate utilization based on link speed
+            const linkSpeedBps = parseLinkSpeed(conn.linkSpeed || '1G');
+            const maxBytesPerSec = linkSpeedBps / 8;
+            const utilizationPct = maxBytesPerSec > 0 
+              ? Math.min(100, Math.round(((inBytesPerSec + outBytesPerSec) / (2 * maxBytesPerSec)) * 100))
+              : 0;
+            
+            // Update connection with traffic stats
+            await storage.updateConnection(conn.id, {
+              linkStats: {
+                inBytesPerSec,
+                outBytesPerSec,
+                inBitsPerSec: inBytesPerSec * 8,
+                outBitsPerSec: outBytesPerSec * 8,
+                utilizationPct,
+                lastSampleAt: new Date().toISOString(),
+                previousInOctets: counters.inOctets,
+                previousOutOctets: counters.outOctets,
+                previousSampleAt: new Date(counters.timestamp).toISOString(),
+              },
+            });
+          }
+        } catch (error: any) {
+          console.warn(`[Traffic] Error probing connection ${conn.id}:`, error.message);
+        }
+      }
+    } catch (error: any) {
+      console.error('[Traffic] Error in traffic monitoring:', error.message);
+    }
+  }
+  
+  // Parse link speed string to bits per second
+  function parseLinkSpeed(speed: string): number {
+    const match = speed.match(/^(\d+)(G|M|K)?$/i);
+    if (!match) return 1000000000; // Default 1Gbps
+    
+    const value = parseInt(match[1]);
+    const unit = (match[2] || 'G').toUpperCase();
+    
+    switch (unit) {
+      case 'G': return value * 1000000000;
+      case 'M': return value * 1000000;
+      case 'K': return value * 1000;
+      default: return value * 1000000000;
+    }
   }
   
   startPeriodicProbing();

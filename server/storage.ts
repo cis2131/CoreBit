@@ -30,7 +30,7 @@ import {
   type InsertScanProfile
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, isNotNull } from "drizzle-orm";
 
 export interface IStorage {
   // Maps
@@ -57,6 +57,7 @@ export interface IStorage {
   // Connections
   getConnectionsByMapId(mapId: string): Promise<Connection[]>;
   getConnection(id: string): Promise<Connection | undefined>;
+  getMonitoredConnections(): Promise<Connection[]>;
   createConnection(connection: InsertConnection): Promise<Connection>;
   updateConnection(id: string, connection: Partial<InsertConnection>): Promise<Connection | undefined>;
   deleteConnection(id: string): Promise<void>;
@@ -199,6 +200,10 @@ export class DatabaseStorage implements IStorage {
   async getConnection(id: string): Promise<Connection | undefined> {
     const [connection] = await db.select().from(connections).where(eq(connections.id, id));
     return connection || undefined;
+  }
+
+  async getMonitoredConnections(): Promise<Connection[]> {
+    return await db.select().from(connections).where(isNotNull(connections.monitorInterface));
   }
 
   async createConnection(insertConnection: InsertConnection): Promise<Connection> {
