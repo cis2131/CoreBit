@@ -412,54 +412,197 @@ function CredentialProfileDialog({
 
             {credentialType === "mikrotik" && (
               <>
-                <FormField
-                  control={form.control}
-                  name="credentials.username"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Username</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="admin" data-testid="input-username" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <div className="space-y-3 p-4 border rounded-md">
+                  <h4 className="text-sm font-medium">Mikrotik API Credentials</h4>
+                  <p className="text-xs text-muted-foreground">Used for device probing and management</p>
+                  
+                  <FormField
+                    control={form.control}
+                    name="credentials.username"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Username</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="admin" data-testid="input-username" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                <FormField
-                  control={form.control}
-                  name="credentials.password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <Input {...field} type="password" placeholder="••••••••" data-testid="input-password" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                  <FormField
+                    control={form.control}
+                    name="credentials.password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Password</FormLabel>
+                        <FormControl>
+                          <Input {...field} type="password" placeholder="••••••••" data-testid="input-password" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                <FormField
-                  control={form.control}
-                  name="credentials.apiPort"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>API Port</FormLabel>
-                      <FormControl>
-                        <Input 
-                          {...field} 
-                          type="number" 
-                          placeholder="8728"
-                          value={field.value || ""}
-                          onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
-                          data-testid="input-api-port"
+                  <FormField
+                    control={form.control}
+                    name="credentials.apiPort"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>API Port</FormLabel>
+                        <FormControl>
+                          <Input 
+                            {...field} 
+                            type="number" 
+                            placeholder="8728"
+                            value={field.value || ""}
+                            onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
+                            data-testid="input-api-port"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="space-y-3 p-4 border rounded-md">
+                  <h4 className="text-sm font-medium">SNMP Credentials (Optional)</h4>
+                  <p className="text-xs text-muted-foreground">Required for connection traffic monitoring</p>
+                  
+                  <FormField
+                    control={form.control}
+                    name="credentials.snmpVersion"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>SNMP Version</FormLabel>
+                        <Select value={field.value || ""} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-mikrotik-snmp-version">
+                              <SelectValue placeholder="Select version (optional)" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="1">SNMP v1</SelectItem>
+                            <SelectItem value="2c">SNMP v2c</SelectItem>
+                            <SelectItem value="3">SNMP v3</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {(form.watch("credentials.snmpVersion") === "1" || form.watch("credentials.snmpVersion") === "2c") && (
+                    <FormField
+                      control={form.control}
+                      name="credentials.snmpCommunity"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Community String</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="public" data-testid="input-mikrotik-snmp-community" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+
+                  {form.watch("credentials.snmpVersion") === "3" && (
+                    <>
+                      <FormField
+                        control={form.control}
+                        name="credentials.snmpUsername"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>SNMPv3 Username</FormLabel>
+                            <FormControl>
+                              <Input {...field} placeholder="snmpuser" data-testid="input-mikrotik-snmp-username" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="credentials.snmpAuthProtocol"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Auth Protocol</FormLabel>
+                              <Select value={field.value} onValueChange={field.onChange}>
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-mikrotik-snmp-auth-protocol">
+                                    <SelectValue placeholder="Select protocol" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="MD5">MD5</SelectItem>
+                                  <SelectItem value="SHA">SHA</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
                         />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+
+                        <FormField
+                          control={form.control}
+                          name="credentials.snmpAuthKey"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Auth Key</FormLabel>
+                              <FormControl>
+                                <Input {...field} type="password" placeholder="••••••••" data-testid="input-mikrotik-snmp-auth-key" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="credentials.snmpPrivProtocol"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Privacy Protocol</FormLabel>
+                              <Select value={field.value} onValueChange={field.onChange}>
+                                <FormControl>
+                                  <SelectTrigger data-testid="select-mikrotik-snmp-priv-protocol">
+                                    <SelectValue placeholder="Select protocol" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="DES">DES</SelectItem>
+                                  <SelectItem value="AES">AES</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="credentials.snmpPrivKey"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Privacy Key</FormLabel>
+                              <FormControl>
+                                <Input {...field} type="password" placeholder="••••••••" data-testid="input-mikrotik-snmp-priv-key" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </>
                   )}
-                />
+                </div>
               </>
             )}
 
