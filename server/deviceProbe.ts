@@ -83,6 +83,12 @@ async function probeMikrotikDevice(
     timeout: 5,
   });
 
+  // Attach error handler to prevent unhandled 'error' event crashes
+  // This handles timeout errors and connection failures that emit events
+  (conn as any).on('error', (err: any) => {
+    console.log(`[Mikrotik] Connection error on ${ipAddress}: ${err.message || err}`);
+  });
+
   try {
     await conn.connect();
     console.log(`[Mikrotik] Connected to ${ipAddress}`);
