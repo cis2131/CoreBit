@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Connection, Device } from '@shared/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -40,6 +40,13 @@ export function ConnectionPropertiesPanel({
   const [sourcePort, setSourcePort] = useState(connection.sourcePort || 'none');
   const [targetPort, setTargetPort] = useState(connection.targetPort || 'none');
   const [saving, setSaving] = useState(false);
+
+  // Sync state when connection prop changes (e.g., clicking between different connections)
+  useEffect(() => {
+    setLinkSpeed(connection.linkSpeed || '1G');
+    setSourcePort(connection.sourcePort || 'none');
+    setTargetPort(connection.targetPort || 'none');
+  }, [connection.id, connection.linkSpeed, connection.sourcePort, connection.targetPort]);
 
   const sourcePorts = sourceDevice.deviceData?.ports || [];
   const targetPorts = targetDevice.deviceData?.ports || [];
