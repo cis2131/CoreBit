@@ -793,6 +793,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               case 'server':
                 deviceType = 'server';
                 break;
+              default:
+                continue; // Skip unknown probe types (validated by zod, so shouldn't happen)
             }
             
             try {

@@ -27,12 +27,13 @@ This application provides:
 
 ## Database Setup
 
-The application uses PostgreSQL with six main tables:
+The application uses PostgreSQL with seven main tables:
 - `maps` - Network topology maps
 - `devices` - Global network devices (independent of maps)
 - `device_placements` - Junction table linking devices to maps with positions
 - `connections` - Device-to-device connections (map-specific)
 - `credential_profiles` - Reusable credential profiles for device authentication
+- `scan_profiles` - Saved network scanner configurations
 - `settings` - Application settings (polling interval, etc.)
 
 **Global Device Model**: Devices are stored globally and can be placed on multiple maps via the `device_placements` junction table. This allows the same physical device to appear on different network topology maps.
@@ -193,6 +194,30 @@ The system uses optimized two-tier link speed detection to handle 400+ device fl
 - Primary field: RouterOS `speed` property (e.g., "1Gbps", "100Mbps")
 - Fallback: Legacy `rate` property for older firmware
 - Caching ensures speeds persist between detailed monitoring cycles
+
+## Network Scanner
+
+The network scanner allows automated discovery of devices on IP ranges:
+
+**Features:**
+- **CIDR/Range Support**: Scan using CIDR notation (192.168.1.0/24) or IP ranges (10.0.0.1-10.0.0.254)
+- **Multi-Credential**: Try multiple credential profiles in order until one succeeds
+- **Device Type Detection**: Auto-detect Mikrotik routers, SNMP devices, and servers
+- **Scan Profiles**: Save scan configurations for quick reuse
+- **Bulk Creation**: Select discovered devices and create them in batch
+
+**API Endpoints:**
+- `GET /api/scan-profiles` - List saved scan profiles
+- `POST /api/scan-profiles` - Create scan profile
+- `DELETE /api/scan-profiles/:id` - Delete scan profile
+- `POST /api/network-scan` - Execute network scan
+- `POST /api/devices/batch` - Batch create devices
+
+**Implementation:**
+- 40 concurrent IP scans with 3-second timeout per probe attempt
+- Sequential credential/probe-type iteration per IP (try all combinations)
+- Existing device detection to prevent duplicates
+- Results include device data (model, version, identity) from successful probes
 
 ## Future Enhancements (Next Phase)
 
