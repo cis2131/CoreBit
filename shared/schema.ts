@@ -135,11 +135,17 @@ export const connections = pgTable("connections", {
   targetPort: text("target_port"),
   connectionType: text("connection_type").default("ethernet"),
   linkSpeed: text("link_speed").default("1G"),
+  monitorInterface: text("monitor_interface").$type<'source' | 'target' | null>(),
   linkStats: jsonb("link_stats").$type<{
     inBytesPerSec?: number;
     outBytesPerSec?: number;
+    inBitsPerSec?: number;
+    outBitsPerSec?: number;
     utilizationPct?: number;
     lastSampleAt?: string;
+    previousInOctets?: number;
+    previousOutOctets?: number;
+    previousSampleAt?: string;
   }>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -258,11 +264,17 @@ export const insertConnectionSchema = createInsertSchema(connections).omit({
   createdAt: true,
 }).extend({
   linkSpeed: z.enum(['1G', '10G', '25G', '40G', '100G']).optional(),
+  monitorInterface: z.enum(['source', 'target']).nullable().optional(),
   linkStats: z.object({
     inBytesPerSec: z.number().optional(),
     outBytesPerSec: z.number().optional(),
+    inBitsPerSec: z.number().optional(),
+    outBitsPerSec: z.number().optional(),
     utilizationPct: z.number().optional(),
     lastSampleAt: z.string().optional(),
+    previousInOctets: z.number().optional(),
+    previousOutOctets: z.number().optional(),
+    previousSampleAt: z.string().optional(),
   }).optional(),
 });
 

@@ -421,3 +421,187 @@ export function determineDeviceStatus(probeData: DeviceProbeData, probeSucceeded
   if (probeData.model || probeData.uptime || probeData.version) return 'online';
   return 'unknown';
 }
+
+export interface TrafficCounters {
+  inOctets: number;
+  outOctets: number;
+  ifIndex: number;
+  timestamp: number;
+}
+
+export async function probeInterfaceTraffic(
+  ipAddress: string,
+  interfaceName: string,
+  credentials?: any
+): Promise<{ data: TrafficCounters | null; success: boolean }> {
+  const snmpVersion = credentials?.snmpVersion || '2c';
+  const community = credentials?.snmpCommunity || 'public';
+
+  return new Promise((resolve) => {
+    let session: any;
+    let sessionClosed = false;
+
+    const closeSession = () => {
+      if (!sessionClosed && session) {
+        sessionClosed = true;
+        try {
+          session.close();
+        } catch (err: any) {
+          // Ignore close errors
+        }
+      }
+    };
+
+    const cleanup = (result: { data: TrafficCounters | null; success: boolean }) => {
+      closeSession();
+      resolve(result);
+    };
+
+    try {
+      if (snmpVersion === '3') {
+        const user = {
+          name: credentials?.snmpUsername || 'snmpuser',
+          level: snmp.SecurityLevel.authPriv,
+          authProtocol: credentials?.snmpAuthProtocol === 'MD5' ? snmp.AuthProtocols.md5 : snmp.AuthProtocols.sha,
+          authKey: credentials?.snmpAuthKey || '',
+          privProtocol: credentials?.snmpPrivProtocol === 'DES' ? snmp.PrivProtocols.des : snmp.PrivProtocols.aes,
+          privKey: credentials?.snmpPrivKey || '',
+        };
+
+        session = snmp.createV3Session(ipAddress, user, {
+          port: 161,
+          retries: 0,
+          timeout: 3000,
+        });
+      } else {
+        const version = snmpVersion === '1' ? snmp.Version1 : snmp.Version2c;
+        session = snmp.createSession(ipAddress, community, {
+          port: 161,
+          retries: 0,
+          timeout: 3000,
+          version,
+        });
+      }
+
+      // First, walk ifDescr to find the interface index
+      const ifDescrOid = '1.3.6.1.2.1.2.2.1.2'; // ifDescr
+      let targetIfIndex: number | null = null;
+
+      session.walk(ifDescrOid, (varbinds: any[]) => {
+        for (const vb of varbinds) {
+          if (snmp.isVarbindError(vb)) continue;
+          
+          const name = vb.value.toString();
+          const oid = vb.oid;
+          const parts = oid.split('.');
+          const ifIndex = parseInt(parts[parts.length - 1]);
+          
+          // Match interface name (case-insensitive, also check for partial match)
+          if (name.toLowerCase() === interfaceName.toLowerCase() ||
+              name.toLowerCase().includes(interfaceName.toLowerCase()) ||
+              interfaceName.toLowerCase().includes(name.toLowerCase())) {
+            targetIfIndex = ifIndex;
+            break;
+          }
+        }
+      }, (error: any) => {
+        if (error || targetIfIndex === null) {
+          console.warn(`[Traffic] Could not find interface ${interfaceName} on ${ipAddress}`);
+          cleanup({ data: null, success: false });
+          return;
+        }
+
+        // Found the interface, now get the counters
+        // Use 64-bit counters (ifHCInOctets/ifHCOutOctets) if available, fall back to 32-bit
+        const ifHCInOctets = `1.3.6.1.2.1.31.1.1.1.6.${targetIfIndex}`;  // 64-bit in
+        const ifHCOutOctets = `1.3.6.1.2.1.31.1.1.1.10.${targetIfIndex}`; // 64-bit out
+        const ifInOctets = `1.3.6.1.2.1.2.2.1.10.${targetIfIndex}`;      // 32-bit in
+        const ifOutOctets = `1.3.6.1.2.1.2.2.1.16.${targetIfIndex}`;     // 32-bit out
+
+        // Try 64-bit counters first
+        session.get([ifHCInOctets, ifHCOutOctets], (error: any, varbinds: any[]) => {
+          if (!error && varbinds && varbinds.length === 2 && 
+              !snmp.isVarbindError(varbinds[0]) && !snmp.isVarbindError(varbinds[1])) {
+            const inOctets = parseCounter(varbinds[0].value);
+            const outOctets = parseCounter(varbinds[1].value);
+            
+            if (inOctets !== null && outOctets !== null) {
+              cleanup({
+                data: {
+                  inOctets,
+                  outOctets,
+                  ifIndex: targetIfIndex!,
+                  timestamp: Date.now(),
+                },
+                success: true,
+              });
+              return;
+            }
+          }
+
+          // Fall back to 32-bit counters
+          session.get([ifInOctets, ifOutOctets], (error: any, varbinds: any[]) => {
+            if (error || !varbinds || varbinds.length !== 2) {
+              console.warn(`[Traffic] Failed to get counters for ${interfaceName} on ${ipAddress}`);
+              cleanup({ data: null, success: false });
+              return;
+            }
+
+            if (snmp.isVarbindError(varbinds[0]) || snmp.isVarbindError(varbinds[1])) {
+              console.warn(`[Traffic] Counter error for ${interfaceName} on ${ipAddress}`);
+              cleanup({ data: null, success: false });
+              return;
+            }
+
+            const inOctets = parseCounter(varbinds[0].value);
+            const outOctets = parseCounter(varbinds[1].value);
+
+            if (inOctets === null || outOctets === null) {
+              cleanup({ data: null, success: false });
+              return;
+            }
+
+            cleanup({
+              data: {
+                inOctets,
+                outOctets,
+                ifIndex: targetIfIndex!,
+                timestamp: Date.now(),
+              },
+              success: true,
+            });
+          });
+        });
+      });
+    } catch (error: any) {
+      console.error(`[Traffic] Error probing ${interfaceName} on ${ipAddress}:`, error.message);
+      cleanup({ data: null, success: false });
+    }
+  });
+}
+
+function parseCounter(value: any): number | null {
+  if (value === undefined || value === null) return null;
+  
+  // Handle Buffer for 64-bit counters
+  if (Buffer.isBuffer(value)) {
+    if (value.length === 8) {
+      // 64-bit counter
+      const high = value.readUInt32BE(0);
+      const low = value.readUInt32BE(4);
+      return high * 0x100000000 + low;
+    } else if (value.length === 4) {
+      return value.readUInt32BE(0);
+    }
+    return parseInt(value.toString(), 10);
+  }
+  
+  // Handle BigInt
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+  
+  // Handle number or string
+  const num = parseInt(value.toString(), 10);
+  return isNaN(num) ? null : num;
+}
