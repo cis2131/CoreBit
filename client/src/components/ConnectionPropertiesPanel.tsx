@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { X, Trash2, Save, Activity, ArrowDown, ArrowUp } from 'lucide-react';
+import { X, Trash2, Save, Activity, ArrowDown, ArrowUp, Radio } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 
@@ -39,6 +39,7 @@ export function ConnectionPropertiesPanel({
   const [linkSpeed, setLinkSpeed] = useState(connection.linkSpeed || '1G');
   const [sourcePort, setSourcePort] = useState(connection.sourcePort || 'none');
   const [targetPort, setTargetPort] = useState(connection.targetPort || 'none');
+  const [monitorInterface, setMonitorInterface] = useState<string>(connection.monitorInterface || 'none');
   const [saving, setSaving] = useState(false);
 
   // Sync state when connection prop changes (e.g., clicking between different connections)
@@ -46,7 +47,8 @@ export function ConnectionPropertiesPanel({
     setLinkSpeed(connection.linkSpeed || '1G');
     setSourcePort(connection.sourcePort || 'none');
     setTargetPort(connection.targetPort || 'none');
-  }, [connection.id, connection.linkSpeed, connection.sourcePort, connection.targetPort]);
+    setMonitorInterface(connection.monitorInterface || 'none');
+  }, [connection.id, connection.linkSpeed, connection.sourcePort, connection.targetPort, connection.monitorInterface]);
 
   const sourcePorts = sourceDevice.deviceData?.ports || [];
   const targetPorts = targetDevice.deviceData?.ports || [];
@@ -63,7 +65,8 @@ export function ConnectionPropertiesPanel({
   const hasChanges = 
     linkSpeed !== (connection.linkSpeed || '1G') ||
     sourcePort !== (connection.sourcePort || 'none') ||
-    targetPort !== (connection.targetPort || 'none');
+    targetPort !== (connection.targetPort || 'none') ||
+    monitorInterface !== (connection.monitorInterface || 'none');
 
   const handleSave = async () => {
     setSaving(true);
@@ -72,6 +75,7 @@ export function ConnectionPropertiesPanel({
         linkSpeed,
         sourcePort: sourcePort === 'none' ? '' : sourcePort,
         targetPort: targetPort === 'none' ? '' : targetPort,
+        monitorInterface: monitorInterface === 'none' ? null : monitorInterface,
       });
       queryClient.invalidateQueries({ queryKey: ['/api/connections', connection.mapId] });
       toast({ title: 'Connection updated', description: 'Connection properties have been saved.' });
@@ -229,6 +233,52 @@ export function ConnectionPropertiesPanel({
                     </SelectContent>
                   </Select>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Radio className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm">Traffic Monitoring</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="text-xs text-muted-foreground">
+                Select an interface to monitor traffic via SNMP. Traffic stats will be displayed on the canvas and updated during each polling cycle.
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="monitor-interface">Monitor Interface</Label>
+                <Select value={monitorInterface} onValueChange={setMonitorInterface}>
+                  <SelectTrigger id="monitor-interface" data-testid="select-monitor-interface">
+                    <SelectValue placeholder="Select interface to monitor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None (disabled)</SelectItem>
+                    {sourcePort && sourcePort !== 'none' && (
+                      <SelectItem value="source">
+                        <div className="flex flex-col">
+                          <span>Source: {selectedSourcePort?.name || sourcePort}</span>
+                          <span className="text-xs text-muted-foreground">{sourceDevice.name}</span>
+                        </div>
+                      </SelectItem>
+                    )}
+                    {targetPort && targetPort !== 'none' && (
+                      <SelectItem value="target">
+                        <div className="flex flex-col">
+                          <span>Target: {selectedTargetPort?.name || targetPort}</span>
+                          <span className="text-xs text-muted-foreground">{targetDevice.name}</span>
+                        </div>
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              {monitorInterface !== 'none' && (
+                <Badge variant="secondary" className="text-xs">
+                  Monitoring: {monitorInterface === 'source' ? sourceDevice.name : targetDevice.name}
+                </Badge>
               )}
             </CardContent>
           </Card>
