@@ -249,7 +249,7 @@ export function ConnectionPropertiesPanel({
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="text-xs text-muted-foreground">
-                Select an interface to monitor traffic via SNMP. Traffic stats will be displayed on the canvas and updated during each polling cycle.
+                Select an interface to monitor traffic via SNMP. Traffic stats will appear on the canvas after saving and the next polling cycle (~30s).
               </div>
               <div className="space-y-2">
                 <Label htmlFor="monitor-interface">Monitor Interface</Label>
