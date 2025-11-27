@@ -477,6 +477,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/connections", async (req, res) => {
     try {
       const data = insertConnectionSchema.parse(req.body);
+      
+      // If monitorInterface is set, look up and cache the SNMP index
+      if (data.monitorInterface) {
+        const isSource = data.monitorInterface === 'source';
+        const deviceId = isSource ? data.sourceDeviceId : data.targetDeviceId;
+        const portName = isSource ? data.sourcePort : data.targetPort;
+        
+        if (portName) {
+          const device = await storage.getDevice(deviceId);
+          if (device?.deviceData?.ports) {
+            const port = device.deviceData.ports.find(p => p.name === portName);
+            if (port?.snmpIndex) {
+              data.monitorSnmpIndex = port.snmpIndex;
+              console.log(`[Connection] Caching SNMP index ${port.snmpIndex} for ${portName} on new connection`);
+            }
+          }
+        }
+      }
+      
       const connection = await storage.createConnection(data);
       res.status(201).json(connection);
     } catch (error) {
@@ -1394,11 +1413,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Probe interface traffic (fast if we have cached index)
-    const result = await probeInterfaceTraffic(device.ipAddress, portName, credentials, snmpIndex);
+    let result = await probeInterfaceTraffic(device.ipAddress, portName, credentials, snmpIndex);
+    
+    // Handle stale SNMP index - if we got noSuchName/noSuchInstance error with a cached index,
+    // the index is stale. Clear it and retry with a walk to get fresh index.
+    if (!result.success && snmpIndex !== undefined && result.error?.includes('noSuch')) {
+      console.log(`[Traffic] Stale SNMP index ${snmpIndex} for ${portName}, clearing and retrying with walk`);
+      await storage.updateConnection(conn.id, { monitorSnmpIndex: null });
+      
+      // Retry without cached index (will do SNMP walk)
+      result = await probeInterfaceTraffic(device.ipAddress, portName, credentials, undefined);
+    }
     
     // If probe returned a new index (from SNMP walk), cache it
     if (result.success && result.data?.ifIndex && result.data.ifIndex !== snmpIndex) {
-      console.log(`[Traffic] Updating cached SNMP index ${snmpIndex} -> ${result.data.ifIndex} for connection ${conn.id}`);
+      console.log(`[Traffic] Caching SNMP index ${result.data.ifIndex} for ${portName} on connection ${conn.id}`);
       await storage.updateConnection(conn.id, { monitorSnmpIndex: result.data.ifIndex });
     }
     

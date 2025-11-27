@@ -642,7 +642,7 @@ export async function probeInterfaceTraffic(
   interfaceName: string,
   credentials?: any,
   knownSnmpIndex?: number
-): Promise<{ data: TrafficCounters | null; success: boolean }> {
+): Promise<{ data: TrafficCounters | null; success: boolean; error?: string }> {
   const snmpVersion = credentials?.snmpVersion || '2c';
   const community = credentials?.snmpCommunity || 'public';
 
@@ -661,7 +661,7 @@ export async function probeInterfaceTraffic(
       }
     };
 
-    const cleanup = (result: { data: TrafficCounters | null; success: boolean }) => {
+    const cleanup = (result: { data: TrafficCounters | null; success: boolean; error?: string }) => {
       closeSession();
       resolve(result);
     };
@@ -713,14 +713,17 @@ export async function probeInterfaceTraffic(
         // Fall back to 32-bit counters
         session.get([ifInOctets, ifOutOctets], (error: any, varbinds: any[]) => {
           if (error || !varbinds || varbinds.length !== 2) {
-            console.warn(`[Traffic] Failed to get counters for ${interfaceName} on ${ipAddress}`);
-            cleanup({ data: null, success: false });
+            const errorMsg = error?.message || error?.toString() || 'Unknown error';
+            console.warn(`[Traffic] Failed to get counters for ${interfaceName} on ${ipAddress}: ${errorMsg}`);
+            cleanup({ data: null, success: false, error: errorMsg });
             return;
           }
 
           if (snmp.isVarbindError(varbinds[0]) || snmp.isVarbindError(varbinds[1])) {
-            console.warn(`[Traffic] Counter error for ${interfaceName} on ${ipAddress}`);
-            cleanup({ data: null, success: false });
+            const errorType = varbinds[0]?.type || varbinds[1]?.type;
+            const errorMsg = `noSuchName (type=${errorType})`;
+            console.warn(`[Traffic] Counter error for ${interfaceName} on ${ipAddress}: ${errorMsg}`);
+            cleanup({ data: null, success: false, error: errorMsg });
             return;
           }
 
@@ -807,8 +810,9 @@ export async function probeInterfaceTraffic(
           }
         }, (error: any) => {
           if (error || targetIfIndex === null) {
-            console.warn(`[Traffic] Could not find interface ${interfaceName} on ${ipAddress}`);
-            cleanup({ data: null, success: false });
+            const errorMsg = error ? (error.message || 'Walk failed') : `Interface ${interfaceName} not found`;
+            console.warn(`[Traffic] Could not find interface ${interfaceName} on ${ipAddress}: ${errorMsg}`);
+            cleanup({ data: null, success: false, error: errorMsg });
             return;
           }
 
@@ -818,7 +822,7 @@ export async function probeInterfaceTraffic(
       }
     } catch (error: any) {
       console.error(`[Traffic] Error probing ${interfaceName} on ${ipAddress}:`, error.message);
-      cleanup({ data: null, success: false });
+      cleanup({ data: null, success: false, error: error.message });
     }
   });
 }
