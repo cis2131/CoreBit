@@ -147,6 +147,7 @@ export const connections = pgTable("connections", {
     previousInOctets?: number;
     previousOutOctets?: number;
     previousSampleAt?: string;
+    isStale?: boolean;
   }>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -276,6 +277,7 @@ export const insertConnectionSchema = createInsertSchema(connections).omit({
     previousInOctets: z.number().optional(),
     previousOutOctets: z.number().optional(),
     previousSampleAt: z.string().optional(),
+    isStale: z.boolean().optional(),
   }).optional(),
 });
 

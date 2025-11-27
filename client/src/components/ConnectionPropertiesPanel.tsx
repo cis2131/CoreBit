@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { X, Trash2, Save, Activity, ArrowDown, ArrowUp, Radio } from 'lucide-react';
+import { X, Trash2, Save, Activity, ArrowDown, ArrowUp, Radio, AlertTriangle } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 
@@ -284,11 +284,19 @@ export function ConnectionPropertiesPanel({
           </Card>
 
           {connection.linkStats && (
-            <Card>
+            <Card className={connection.linkStats.isStale ? 'opacity-60' : ''}>
               <CardHeader className="pb-3">
-                <div className="flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-muted-foreground" />
-                  <CardTitle className="text-sm">Traffic Statistics</CardTitle>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Activity className="h-4 w-4 text-muted-foreground" />
+                    <CardTitle className="text-sm">Traffic Statistics</CardTitle>
+                  </div>
+                  {connection.linkStats.isStale && (
+                    <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-600">
+                      <AlertTriangle className="h-3 w-3 mr-1" />
+                      Stale
+                    </Badge>
+                  )}
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -300,7 +308,7 @@ export function ConnectionPropertiesPanel({
                         <span className="text-foreground font-medium">Inbound</span>
                       </div>
                       <span className="font-mono font-semibold text-foreground" data-testid="text-inbound-traffic">
-                        {formatBytes(connection.linkStats.inBytesPerSec)}/s
+                        {connection.linkStats.isStale ? '—' : `${formatBytes(connection.linkStats.inBytesPerSec)}/s`}
                       </span>
                     </div>
                   </div>
@@ -313,7 +321,7 @@ export function ConnectionPropertiesPanel({
                         <span className="text-foreground font-medium">Outbound</span>
                       </div>
                       <span className="font-mono font-semibold text-foreground" data-testid="text-outbound-traffic">
-                        {formatBytes(connection.linkStats.outBytesPerSec)}/s
+                        {connection.linkStats.isStale ? '—' : `${formatBytes(connection.linkStats.outBytesPerSec)}/s`}
                       </span>
                     </div>
                   </div>
@@ -323,11 +331,11 @@ export function ConnectionPropertiesPanel({
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-foreground font-medium">Utilization</span>
                       <span className="font-mono font-semibold text-foreground" data-testid="text-utilization">
-                        {connection.linkStats.utilizationPct}%
+                        {connection.linkStats.isStale ? '—' : `${connection.linkStats.utilizationPct}%`}
                       </span>
                     </div>
                     <Progress 
-                      value={connection.linkStats.utilizationPct} 
+                      value={connection.linkStats.isStale ? 0 : connection.linkStats.utilizationPct} 
                       className="h-2"
                       data-testid="progress-utilization"
                     />
@@ -336,6 +344,7 @@ export function ConnectionPropertiesPanel({
                 {connection.linkStats.lastSampleAt && (
                   <div className="text-xs text-muted-foreground">
                     Last updated: {new Date(connection.linkStats.lastSampleAt).toLocaleString()}
+                    {connection.linkStats.isStale && ' (no response)'}
                   </div>
                 )}
               </CardContent>

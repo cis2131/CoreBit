@@ -746,6 +746,10 @@ export async function probeInterfaceTraffic(
     };
 
     try {
+      // Use longer timeout for walks (when snmpIndex is unknown), shorter for direct GETs
+      const needsWalk = knownSnmpIndex === undefined;
+      const sessionTimeout = needsWalk ? 25000 : 4000; // 25s for walks on large routers, 4s for GETs
+      
       if (snmpVersion === '3') {
         const user = {
           name: credentials?.snmpUsername || 'snmpuser',
@@ -759,16 +763,20 @@ export async function probeInterfaceTraffic(
         session = snmp.createV3Session(ipAddress, user, {
           port: 161,
           retries: 0,
-          timeout: 3000,
+          timeout: sessionTimeout,
         });
       } else {
         const version = snmpVersion === '1' ? snmp.Version1 : snmp.Version2c;
         session = snmp.createSession(ipAddress, community, {
           port: 161,
           retries: 0,
-          timeout: 3000,
+          timeout: sessionTimeout,
           version,
         });
+      }
+      
+      if (needsWalk) {
+        console.log(`[Traffic] Using 25s timeout for ifDescr walk on ${ipAddress}`);
       }
 
       // If we have a known SNMP index from Mikrotik, use it directly (skip ifDescr walk)

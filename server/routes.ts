@@ -1281,6 +1281,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Probe interface traffic
           const result = await probeInterfaceTraffic(device.ipAddress, portName, credentials, snmpIndex);
           
+          // Check for stale data - if last sample is more than 2 minutes old, reset rates
+          const STALE_THRESHOLD_MS = 120000; // 2 minutes
+          const previousStats = conn.linkStats;
+          if (previousStats?.lastSampleAt) {
+            const lastSampleTime = new Date(previousStats.lastSampleAt).getTime();
+            const isStale = Date.now() - lastSampleTime > STALE_THRESHOLD_MS;
+            
+            if (isStale && !result.success) {
+              // Data is stale and we can't get fresh data - reset rates to zero
+              console.log(`[Traffic] Resetting stale stats for connection ${conn.id} (last sample: ${previousStats.lastSampleAt})`);
+              await storage.updateConnection(conn.id, {
+                linkStats: {
+                  ...previousStats,
+                  inBytesPerSec: 0,
+                  outBytesPerSec: 0,
+                  inBitsPerSec: 0,
+                  outBitsPerSec: 0,
+                  utilizationPct: 0,
+                  isStale: true,
+                },
+              });
+              continue;
+            }
+          }
+          
           if (result.success && result.data) {
             const counters = result.data;
             const previousStats = conn.linkStats;
@@ -1356,6 +1381,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               previousInOctets: counters.inOctets,
               previousOutOctets: counters.outOctets,
               previousSampleAt: new Date(counters.timestamp).toISOString(),
+              isStale: false, // Clear stale flag on successful update
             };
             await storage.updateConnection(conn.id, { linkStats: updatedStats });
             console.log(`[Traffic] Updated connection ${conn.id} linkStats: ${JSON.stringify(updatedStats)}`);
