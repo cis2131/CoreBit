@@ -2,46 +2,140 @@ import { RouterOSAPI } from 'node-routeros';
 import * as snmp from 'net-snmp';
 
 // Helper function to walk an SNMP table and return OID → value mapping
+// Uses subtree() with maxRepetitions=1 for compatibility with various devices
 async function walkSnmpTable(
   ipAddress: string, 
   community: string, 
   oid: string
-): Promise<{ success: boolean; data?: { [oid: string]: string } }> {
+): Promise<{ success: boolean; data?: { [oid: string]: string }; error?: string }> {
   return new Promise((resolve) => {
     let resolved = false;
     let sessionClosed = false;
     
     const session = snmp.createSession(ipAddress, community, {
       version: snmp.Version2c,
-      timeout: 4000,
-      retries: 0,
+      timeout: 5000,
+      retries: 1,
+      port: 161,
+      transport: 'udp4',
+    });
+    
+    // Handle session errors to prevent crashes
+    session.on('error', (err: any) => {
+      if (!resolved) {
+        console.log(`[SNMP] Session error on ${ipAddress}: ${err.message || err}`);
+        cleanup(false, `Session error: ${err.message || err}`);
+      }
     });
     
     const results: { [oid: string]: string } = {};
     
-    const cleanup = (success: boolean) => {
+    const cleanup = (success: boolean, errorMsg?: string) => {
       if (resolved) return;
       resolved = true;
       if (!sessionClosed) {
         sessionClosed = true;
         try { session.close(); } catch (e) { /* ignore */ }
       }
-      resolve(success ? { success: true, data: results } : { success: false });
+      if (success) {
+        resolve({ success: true, data: results });
+      } else {
+        resolve({ success: false, error: errorMsg });
+      }
     };
     
-    session.walk(oid, (varbinds: any[]) => {
+    // Use subtree() with maxRepetitions=1 for maximum compatibility
+    // Some devices don't handle GETBULK well
+    session.subtree(oid, 1, (varbinds: any[]) => {
       for (const vb of varbinds) {
-        if (snmp.isVarbindError(vb)) continue;
+        if (snmp.isVarbindError(vb)) {
+          console.log(`[SNMP] Varbind error on ${ipAddress}: ${snmp.varbindError(vb)}`);
+          continue;
+        }
         results[vb.oid] = vb.value.toString();
       }
     }, (error: any) => {
-      cleanup(!error);
+      if (error) {
+        // "End of MIB" is not really an error, it just means we've walked the whole subtree
+        const errMsg = error.message || String(error);
+        if (errMsg.includes('End of MIB') || errMsg.includes('endOfMibView')) {
+          cleanup(true);
+        } else {
+          console.log(`[SNMP] Subtree error on ${ipAddress}: ${errMsg}`);
+          cleanup(false, `Subtree error: ${errMsg}`);
+        }
+      } else {
+        cleanup(true);
+      }
     });
     
     // Timeout protection
     setTimeout(() => {
-      cleanup(false);
-    }, 5000);
+      if (!resolved) {
+        console.log(`[SNMP] Subtree timeout on ${ipAddress} after 10s`);
+        cleanup(false, 'Timeout after 10s');
+      }
+    }, 10000);
+  });
+}
+
+// Simple SNMP test function - tries a basic sysDescr GET to verify SNMP connectivity
+async function testSnmpConnectivity(
+  ipAddress: string,
+  community: string
+): Promise<{ success: boolean; sysDescr?: string; error?: string }> {
+  return new Promise((resolve) => {
+    let resolved = false;
+    
+    const session = snmp.createSession(ipAddress, community, {
+      version: snmp.Version2c,
+      timeout: 3000,
+      retries: 1,
+      port: 161,
+      transport: 'udp4',
+    });
+    
+    session.on('error', (err: any) => {
+      if (!resolved) {
+        resolved = true;
+        try { session.close(); } catch (e) { /* ignore */ }
+        resolve({ success: false, error: `Session error: ${err.message || err}` });
+      }
+    });
+    
+    // Try to get sysDescr.0 (1.3.6.1.2.1.1.1.0) - most basic SNMP test
+    session.get(['1.3.6.1.2.1.1.1.0'], (error: any, varbinds?: any[]) => {
+      if (resolved) return;
+      resolved = true;
+      
+      try { session.close(); } catch (e) { /* ignore */ }
+      
+      if (error) {
+        resolve({ success: false, error: `GET error: ${error.message || error}` });
+        return;
+      }
+      
+      if (!varbinds || varbinds.length === 0) {
+        resolve({ success: false, error: 'No varbinds returned' });
+        return;
+      }
+      
+      if (snmp.isVarbindError(varbinds[0])) {
+        resolve({ success: false, error: `Varbind error: ${snmp.varbindError(varbinds[0])}` });
+        return;
+      }
+      
+      resolve({ success: true, sysDescr: varbinds[0].value.toString() });
+    });
+    
+    // Timeout protection
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        try { session.close(); } catch (e) { /* ignore */ }
+        resolve({ success: false, error: 'Timeout after 4s' });
+      }
+    }, 4000);
   });
 }
 
@@ -126,21 +220,31 @@ async function probeMikrotikDevice(
     // This is done once per device probe and cached in deviceData.ports
     if (credentials?.snmpCommunity) {
       try {
-        // Walk ifName (1.3.6.1.2.1.31.1.1.1.1) to get interface name → index mapping
-        console.log(`[Mikrotik] Walking SNMP ifName on ${ipAddress} with community "${credentials.snmpCommunity}"...`);
-        const snmpResult = await walkSnmpTable(ipAddress, credentials.snmpCommunity, '1.3.6.1.2.1.31.1.1.1.1');
-        console.log(`[Mikrotik] SNMP walk result on ${ipAddress}: success=${snmpResult.success}, entries=${snmpResult.data ? Object.keys(snmpResult.data).length : 0}`);
-        if (snmpResult.success && snmpResult.data) {
-          for (const [oid, name] of Object.entries(snmpResult.data)) {
-            // OID format: 1.3.6.1.2.1.31.1.1.1.1.X where X is ifIndex
-            const parts = oid.split('.');
-            const ifIndex = parseInt(parts[parts.length - 1]);
-            if (!isNaN(ifIndex) && typeof name === 'string') {
-              snmpIndices[name] = ifIndex;
+        // First test basic SNMP connectivity with a simple GET
+        const connectTest = await testSnmpConnectivity(ipAddress, credentials.snmpCommunity);
+        if (!connectTest.success) {
+          console.log(`[Mikrotik] SNMP connectivity test failed on ${ipAddress}: ${connectTest.error}`);
+        } else {
+          console.log(`[Mikrotik] SNMP connectivity OK on ${ipAddress}: ${connectTest.sysDescr?.substring(0, 50)}...`);
+          
+          // Walk ifName (1.3.6.1.2.1.31.1.1.1.1) to get interface name → index mapping
+          console.log(`[Mikrotik] Walking SNMP ifName on ${ipAddress}...`);
+          const snmpResult = await walkSnmpTable(ipAddress, credentials.snmpCommunity, '1.3.6.1.2.1.31.1.1.1.1');
+          if (snmpResult.success) {
+            console.log(`[Mikrotik] SNMP walk on ${ipAddress}: success, ${Object.keys(snmpResult.data || {}).length} entries`);
+            for (const [oid, name] of Object.entries(snmpResult.data || {})) {
+              // OID format: 1.3.6.1.2.1.31.1.1.1.1.X where X is ifIndex
+              const parts = oid.split('.');
+              const ifIndex = parseInt(parts[parts.length - 1]);
+              if (!isNaN(ifIndex) && typeof name === 'string') {
+                snmpIndices[name] = ifIndex;
+              }
             }
-          }
-          if (Object.keys(snmpIndices).length > 0) {
-            console.log(`[Mikrotik] Found ${Object.keys(snmpIndices).length} SNMP indices via ifName on ${ipAddress}: ${Object.keys(snmpIndices).slice(0, 5).join(', ')}...`);
+            if (Object.keys(snmpIndices).length > 0) {
+              console.log(`[Mikrotik] Found ${Object.keys(snmpIndices).length} SNMP indices via ifName on ${ipAddress}: ${Object.keys(snmpIndices).slice(0, 5).join(', ')}...`);
+            }
+          } else {
+            console.log(`[Mikrotik] SNMP walk on ${ipAddress}: failed - ${snmpResult.error || 'unknown error'}`);
           }
         }
       } catch (e) {
