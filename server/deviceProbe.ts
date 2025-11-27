@@ -819,16 +819,20 @@ function parseCounter(value: any): number | null {
   if (value === undefined || value === null) return null;
   
   // Handle Buffer for 64-bit counters
+  // SNMP library returns variable-length buffers with leading zeros stripped
   if (Buffer.isBuffer(value)) {
-    if (value.length === 8) {
-      // 64-bit counter
-      const high = value.readUInt32BE(0);
-      const low = value.readUInt32BE(4);
+    if (value.length <= 8 && value.length > 0) {
+      // Zero-pad to 8 bytes for consistent 64-bit reading
+      const padded = Buffer.alloc(8, 0);
+      value.copy(padded, 8 - value.length);
+      const high = padded.readUInt32BE(0);
+      const low = padded.readUInt32BE(4);
       return high * 0x100000000 + low;
-    } else if (value.length === 4) {
-      return value.readUInt32BE(0);
     }
-    return parseInt(value.toString(), 10);
+    // Fallback: try parsing as string
+    const strVal = value.toString();
+    const num = parseInt(strVal, 10);
+    return isNaN(num) ? null : num;
   }
   
   // Handle BigInt
