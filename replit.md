@@ -219,6 +219,31 @@ The network scanner allows automated discovery of devices on IP ranges:
 - Existing device detection to prevent duplicates
 - Results include device data (model, version, identity) from successful probes
 
+## Traffic Monitoring Architecture
+
+The application supports real-time traffic monitoring on connections via SNMP:
+
+**Polling Configuration:**
+- Independent 10-second traffic polling loop (separate from 30s device probing)
+- 40 concurrent traffic probes with 8-second timeout
+- SNMP GET (fast path ~1s) when index is cached, SNMP WALK (slow path ~8-25s) otherwise
+
+**SNMP Index Caching:**
+- `monitorSnmpIndex` column stores cached SNMP interface index per connection
+- Index populated when: connection saved with monitoring, device probed, or first successful traffic probe
+- Stale index detection: noSuchName errors trigger index invalidation and re-walk
+
+**Traffic Metrics:**
+- 64-bit counters (ifHCInOctets/ifHCOutOctets) with fallback to 32-bit
+- Rate calculation: delta bytes / delta time between samples
+- Utilization: % of configured link speed (1000 = bits/s, not bytes/s)
+- Stale detection: 2-minute timeout clears rates and shows "Stale" badge
+
+**Performance:**
+- Fast path: ~1s per connection with cached SNMP index (direct GET)
+- Slow path: ~8-25s per connection without cached index (ifDescr walk)
+- Index is cached after first successful walk for subsequent fast polling
+
 ## Future Enhancements (Next Phase)
 
 - WebSocket for real-time device status updates (push vs. poll)
@@ -226,7 +251,6 @@ The network scanner allows automated discovery of devices on IP ranges:
 - Export/import network topology configurations
 - Alert notifications for device status changes
 - Historical performance graphs (CPU/memory trends over time)
-- Network traffic monitoring on connections
 
 ## Project Structure
 
