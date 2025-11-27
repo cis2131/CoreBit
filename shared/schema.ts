@@ -137,6 +137,7 @@ export const connections = pgTable("connections", {
   connectionType: text("connection_type").default("ethernet"),
   linkSpeed: text("link_speed").default("1G"),
   monitorInterface: text("monitor_interface").$type<'source' | 'target' | null>(),
+  monitorSnmpIndex: integer("monitor_snmp_index"),
   linkStats: jsonb("link_stats").$type<{
     inBytesPerSec?: number;
     outBytesPerSec?: number;
