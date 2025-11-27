@@ -11,13 +11,13 @@ interface ConnectionLineProps {
   targetDevice?: Device;
 }
 
-// Format bytes per second to human readable
-const formatTrafficRate = (bytesPerSec: number): string => {
-  if (bytesPerSec === 0) return '0 B/s';
-  const k = 1024;
-  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
-  const i = Math.floor(Math.log(bytesPerSec) / Math.log(k));
-  const value = bytesPerSec / Math.pow(k, i);
+// Format bits per second to human readable (network standard)
+const formatBitsPerSec = (bitsPerSec: number): string => {
+  if (bitsPerSec === 0) return '0 bps';
+  const k = 1000; // Network uses decimal (1000), not binary (1024)
+  const sizes = ['bps', 'Kbps', 'Mbps', 'Gbps', 'Tbps'];
+  const i = Math.floor(Math.log(bitsPerSec) / Math.log(k));
+  const value = bitsPerSec / Math.pow(k, i);
   return value >= 10 ? Math.round(value) + ' ' + sizes[i] : value.toFixed(1) + ' ' + sizes[i];
 };
 
@@ -257,7 +257,7 @@ export function ConnectionLine({
             strokeWidth="1"
             opacity="0.95"
           />
-          {/* Inbound traffic */}
+          {/* RX traffic */}
           <text
             x={midX}
             y={midY - 14}
@@ -265,9 +265,9 @@ export function ConnectionLine({
             className="text-[10px] font-mono fill-blue-500"
             data-testid="text-connection-inbound"
           >
-            {formatTrafficRate(connection.linkStats.inBytesPerSec || 0)}
+            ↓ {formatBitsPerSec(connection.linkStats.inBitsPerSec || 0)}
           </text>
-          {/* Outbound traffic */}
+          {/* TX traffic */}
           <text
             x={midX}
             y={midY + 2}
@@ -275,7 +275,7 @@ export function ConnectionLine({
             className="text-[10px] font-mono fill-green-500"
             data-testid="text-connection-outbound"
           >
-            {formatTrafficRate(connection.linkStats.outBytesPerSec || 0)}
+            ↑ {formatBitsPerSec(connection.linkStats.outBitsPerSec || 0)}
           </text>
         </g>
       )}
