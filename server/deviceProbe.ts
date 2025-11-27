@@ -674,14 +674,27 @@ export async function probeInterfaceTraffic(
       const ifInOctets = `1.3.6.1.2.1.2.2.1.10.${targetIfIndex}`;      // 32-bit in
       const ifOutOctets = `1.3.6.1.2.1.2.2.1.16.${targetIfIndex}`;     // 32-bit out
 
+      console.log(`[Traffic] Querying OIDs for ${interfaceName}@${ipAddress}:`);
+      console.log(`[Traffic]   64-bit IN:  ${ifHCInOctets}`);
+      console.log(`[Traffic]   64-bit OUT: ${ifHCOutOctets}`);
+      console.log(`[Traffic]   32-bit IN:  ${ifInOctets}`);
+      console.log(`[Traffic]   32-bit OUT: ${ifOutOctets}`);
+      
       // Try 64-bit counters first
       session.get([ifHCInOctets, ifHCOutOctets], (error: any, varbinds: any[]) => {
         if (!error && varbinds && varbinds.length === 2 && 
             !snmp.isVarbindError(varbinds[0]) && !snmp.isVarbindError(varbinds[1])) {
+          // Debug: Log raw value details
+          const rawIn = varbinds[0].value;
+          const rawOut = varbinds[1].value;
+          console.log(`[Traffic] Raw 64-bit response for ${interfaceName}@${ipAddress}:`);
+          console.log(`[Traffic]   IN:  type=${typeof rawIn}, isBuffer=${Buffer.isBuffer(rawIn)}, length=${rawIn?.length}, hex=${Buffer.isBuffer(rawIn) ? rawIn.toString('hex') : 'N/A'}`);
+          console.log(`[Traffic]   OUT: type=${typeof rawOut}, isBuffer=${Buffer.isBuffer(rawOut)}, length=${rawOut?.length}, hex=${Buffer.isBuffer(rawOut) ? rawOut.toString('hex') : 'N/A'}`);
+          
           const inOctets = parseCounter(varbinds[0].value);
           const outOctets = parseCounter(varbinds[1].value);
           
-          console.log(`[Traffic] 64-bit counters for ${interfaceName}@${ipAddress}: in=${inOctets}, out=${outOctets} (raw: ${typeof varbinds[0].value} ${varbinds[0].value?.length || 'n/a'})`);
+          console.log(`[Traffic] Parsed 64-bit counters for ${interfaceName}@${ipAddress}: in=${inOctets}, out=${outOctets}`);
           
           if (inOctets !== null && outOctets !== null) {
             cleanup({
