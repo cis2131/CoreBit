@@ -419,14 +419,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const credentials = await resolveCredentials(device);
       
-      // Manual probe should always be detailed and preserve cached speeds
+      // Manual probe should always be detailed and get SNMP indices
       const previousPorts = device.deviceData?.ports;
       const probeResult = await probeDevice(
         device.type, 
         device.ipAddress || undefined, 
         credentials,
         true, // detailedProbe - user explicitly requested probe
-        previousPorts
+        previousPorts,
+        true  // needsSnmpIndexing - always get indices on manual probe
       );
       const status = determineDeviceStatus(probeResult.data, probeResult.success);
 
@@ -434,6 +435,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status,
         deviceData: probeResult.success ? probeResult.data : (device.deviceData || undefined),
       });
+      
+      // Update cached SNMP indices for connections monitoring this device
+      if (probeResult.success && probeResult.data?.ports) {
+        const monitoredConnections = await storage.getMonitoredConnections();
+        for (const conn of monitoredConnections) {
+          const isSource = conn.monitorInterface === 'source' && conn.sourceDeviceId === device.id;
+          const isTarget = conn.monitorInterface === 'target' && conn.targetDeviceId === device.id;
+          
+          if (isSource || isTarget) {
+            const portName = isSource ? conn.sourcePort : conn.targetPort;
+            const port = probeResult.data.ports.find(p => p.name === portName);
+            
+            if (port?.snmpIndex && port.snmpIndex !== conn.monitorSnmpIndex) {
+              console.log(`[Probe] Updating connection ${conn.id} SNMP index: ${conn.monitorSnmpIndex} -> ${port.snmpIndex}`);
+              await storage.updateConnection(conn.id, { monitorSnmpIndex: port.snmpIndex });
+            }
+          }
+        }
+      }
 
       res.json(updatedDevice);
     } catch (error) {
@@ -471,10 +491,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/connections/:id", async (req, res) => {
     try {
       const data = insertConnectionSchema.partial().parse(req.body);
-      const connection = await storage.updateConnection(req.params.id, data);
-      if (!connection) {
+      
+      // Get the current connection to check if monitorInterface changed
+      const existingConn = await storage.getConnection(req.params.id);
+      if (!existingConn) {
         return res.status(404).json({ error: 'Connection not found' });
       }
+      
+      // If monitorInterface is being set/changed, look up the SNMP index
+      if (data.monitorInterface && (data.monitorInterface !== existingConn.monitorInterface || 
+          data.sourcePort !== existingConn.sourcePort || data.targetPort !== existingConn.targetPort)) {
+        const isSource = data.monitorInterface === 'source';
+        const deviceId = isSource ? existingConn.sourceDeviceId : existingConn.targetDeviceId;
+        const portName = isSource ? (data.sourcePort || existingConn.sourcePort) : (data.targetPort || existingConn.targetPort);
+        
+        if (portName) {
+          const device = await storage.getDevice(deviceId);
+          if (device?.deviceData?.ports) {
+            const port = device.deviceData.ports.find(p => p.name === portName);
+            if (port?.snmpIndex) {
+              data.monitorSnmpIndex = port.snmpIndex;
+              console.log(`[Connection] Setting SNMP index ${port.snmpIndex} for ${portName} on connection ${req.params.id}`);
+            }
+          }
+        }
+      }
+      
+      // If monitorInterface is being cleared, also clear the cached index
+      if (data.monitorInterface === null) {
+        data.monitorSnmpIndex = null;
+      }
+      
+      const connection = await storage.updateConnection(req.params.id, data);
       res.json(connection);
     } catch (error) {
       if (error instanceof z.ZodError) {
