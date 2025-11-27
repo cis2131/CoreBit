@@ -681,6 +681,8 @@ export async function probeInterfaceTraffic(
           const inOctets = parseCounter(varbinds[0].value);
           const outOctets = parseCounter(varbinds[1].value);
           
+          console.log(`[Traffic] 64-bit counters for ${interfaceName}@${ipAddress}: in=${inOctets}, out=${outOctets} (raw: ${typeof varbinds[0].value} ${varbinds[0].value?.length || 'n/a'})`);
+          
           if (inOctets !== null && outOctets !== null) {
             cleanup({
               data: {
@@ -760,40 +762,39 @@ export async function probeInterfaceTraffic(
       if (knownSnmpIndex !== undefined) {
         console.log(`[Traffic] Using known SNMP index ${knownSnmpIndex} for ${interfaceName} on ${ipAddress}`);
         fetchCounters(knownSnmpIndex);
-        return;
-      }
+      } else {
+        // Otherwise, walk ifDescr to find the interface index
+        const ifDescrOid = '1.3.6.1.2.1.2.2.1.2'; // ifDescr
+        let targetIfIndex: number | null = null;
 
-      // Otherwise, walk ifDescr to find the interface index
-      const ifDescrOid = '1.3.6.1.2.1.2.2.1.2'; // ifDescr
-      let targetIfIndex: number | null = null;
-
-      session.walk(ifDescrOid, (varbinds: any[]) => {
-        for (const vb of varbinds) {
-          if (snmp.isVarbindError(vb)) continue;
-          
-          const name = vb.value.toString();
-          const oid = vb.oid;
-          const parts = oid.split('.');
-          const ifIndex = parseInt(parts[parts.length - 1]);
-          
-          // Match interface name (case-insensitive, also check for partial match)
-          if (name.toLowerCase() === interfaceName.toLowerCase() ||
-              name.toLowerCase().includes(interfaceName.toLowerCase()) ||
-              interfaceName.toLowerCase().includes(name.toLowerCase())) {
-            targetIfIndex = ifIndex;
-            break;
+        session.walk(ifDescrOid, (varbinds: any[]) => {
+          for (const vb of varbinds) {
+            if (snmp.isVarbindError(vb)) continue;
+            
+            const name = vb.value.toString();
+            const oid = vb.oid;
+            const parts = oid.split('.');
+            const ifIndex = parseInt(parts[parts.length - 1]);
+            
+            // Match interface name (case-insensitive, also check for partial match)
+            if (name.toLowerCase() === interfaceName.toLowerCase() ||
+                name.toLowerCase().includes(interfaceName.toLowerCase()) ||
+                interfaceName.toLowerCase().includes(name.toLowerCase())) {
+              targetIfIndex = ifIndex;
+              break;
+            }
           }
-        }
-      }, (error: any) => {
-        if (error || targetIfIndex === null) {
-          console.warn(`[Traffic] Could not find interface ${interfaceName} on ${ipAddress}`);
-          cleanup({ data: null, success: false });
-          return;
-        }
+        }, (error: any) => {
+          if (error || targetIfIndex === null) {
+            console.warn(`[Traffic] Could not find interface ${interfaceName} on ${ipAddress}`);
+            cleanup({ data: null, success: false });
+            return;
+          }
 
-        // Found the interface, now get the counters
-        fetchCounters(targetIfIndex);
-      });
+          // Found the interface, now get the counters
+          fetchCounters(targetIfIndex);
+        });
+      }
     } catch (error: any) {
       console.error(`[Traffic] Error probing ${interfaceName} on ${ipAddress}:`, error.message);
       cleanup({ data: null, success: false });

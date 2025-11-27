@@ -1289,9 +1289,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
             let inBytesPerSec = 0;
             let outBytesPerSec = 0;
             
-            if (previousStats?.previousInOctets !== undefined && 
+            // Validate current counters are valid numbers
+            const currentInValid = typeof counters.inOctets === 'number' && !isNaN(counters.inOctets);
+            const currentOutValid = typeof counters.outOctets === 'number' && !isNaN(counters.outOctets);
+            
+            if (!currentInValid || !currentOutValid) {
+              console.warn(`[Traffic] Invalid counter values for connection ${conn.id}: in=${counters.inOctets}, out=${counters.outOctets}`);
+            } else if (previousStats?.previousInOctets !== undefined && 
                 previousStats?.previousOutOctets !== undefined &&
-                previousStats?.previousSampleAt) {
+                previousStats?.previousSampleAt &&
+                typeof previousStats.previousInOctets === 'number' && !isNaN(previousStats.previousInOctets) &&
+                typeof previousStats.previousOutOctets === 'number' && !isNaN(previousStats.previousOutOctets)) {
               const prevTimestamp = new Date(previousStats.previousSampleAt).getTime();
               const timeDeltaSec = (counters.timestamp - prevTimestamp) / 1000;
               
@@ -1311,9 +1319,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 
                 // Sanity check: clamp rates to reasonable max (100Gbps = 12.5GB/s)
                 const MAX_RATE = 12500000000; // 100Gbps in bytes/sec
-                if (rawInRate <= MAX_RATE && rawOutRate <= MAX_RATE) {
+                if (!isNaN(rawInRate) && !isNaN(rawOutRate) && rawInRate <= MAX_RATE && rawOutRate <= MAX_RATE) {
                   inBytesPerSec = Math.round(rawInRate);
                   outBytesPerSec = Math.round(rawOutRate);
+                } else if (isNaN(rawInRate) || isNaN(rawOutRate)) {
+                  console.warn(`[Traffic] NaN rate for connection ${conn.id}: in=${rawInRate}, out=${rawOutRate}, counters=(${counters.inOctets}, ${counters.outOctets}), prev=(${previousStats.previousInOctets}, ${previousStats.previousOutOctets})`);
                 } else {
                   // Counter reset or wrap issue - skip this sample
                   console.warn(`[Traffic] Rate sanity check failed for connection ${conn.id}: in=${rawInRate}, out=${rawOutRate}`);
