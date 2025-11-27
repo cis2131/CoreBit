@@ -1295,7 +1295,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             
             if (!currentInValid || !currentOutValid) {
               console.warn(`[Traffic] Invalid counter values for connection ${conn.id}: in=${counters.inOctets}, out=${counters.outOctets}`);
-            } else if (previousStats?.previousInOctets !== undefined && 
+            }
+            
+            if (currentInValid && currentOutValid && (previousStats?.previousInOctets === undefined || previousStats?.previousOutOctets === undefined)) {
+              console.log(`[Traffic] First sample for ${conn.id}: storing counters in=${counters.inOctets}, out=${counters.outOctets} (rates next cycle)`);
+            }
+            
+            if (currentInValid && currentOutValid && previousStats?.previousInOctets !== undefined && 
                 previousStats?.previousOutOctets !== undefined &&
                 previousStats?.previousSampleAt &&
                 typeof previousStats.previousInOctets === 'number' && !isNaN(previousStats.previousInOctets) &&
@@ -1322,6 +1328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 if (!isNaN(rawInRate) && !isNaN(rawOutRate) && rawInRate <= MAX_RATE && rawOutRate <= MAX_RATE) {
                   inBytesPerSec = Math.round(rawInRate);
                   outBytesPerSec = Math.round(rawOutRate);
+                  console.log(`[Traffic] Rates for ${conn.id}: in=${inBytesPerSec} B/s, out=${outBytesPerSec} B/s (${(inBytesPerSec * 8 / 1000000).toFixed(2)} Mbps in, ${(outBytesPerSec * 8 / 1000000).toFixed(2)} Mbps out)`);
                 } else if (isNaN(rawInRate) || isNaN(rawOutRate)) {
                   console.warn(`[Traffic] NaN rate for connection ${conn.id}: in=${rawInRate}, out=${rawOutRate}, counters=(${counters.inOctets}, ${counters.outOctets}), prev=(${previousStats.previousInOctets}, ${previousStats.previousOutOctets})`);
                 } else {
@@ -1339,19 +1346,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
               : 0;
             
             // Update connection with traffic stats
-            await storage.updateConnection(conn.id, {
-              linkStats: {
-                inBytesPerSec,
-                outBytesPerSec,
-                inBitsPerSec: inBytesPerSec * 8,
-                outBitsPerSec: outBytesPerSec * 8,
-                utilizationPct,
-                lastSampleAt: new Date().toISOString(),
-                previousInOctets: counters.inOctets,
-                previousOutOctets: counters.outOctets,
-                previousSampleAt: new Date(counters.timestamp).toISOString(),
-              },
-            });
+            const updatedStats = {
+              inBytesPerSec,
+              outBytesPerSec,
+              inBitsPerSec: inBytesPerSec * 8,
+              outBitsPerSec: outBytesPerSec * 8,
+              utilizationPct,
+              lastSampleAt: new Date().toISOString(),
+              previousInOctets: counters.inOctets,
+              previousOutOctets: counters.outOctets,
+              previousSampleAt: new Date(counters.timestamp).toISOString(),
+            };
+            await storage.updateConnection(conn.id, { linkStats: updatedStats });
+            console.log(`[Traffic] Updated connection ${conn.id} linkStats: ${JSON.stringify(updatedStats)}`);
           }
         } catch (error: any) {
           console.warn(`[Traffic] Error probing connection ${conn.id}:`, error.message);

@@ -65,6 +65,7 @@ export default function NetworkTopology() {
   const { data: connections = [] } = useQuery<Connection[]>({
     queryKey: currentMapId ? ['/api/connections', currentMapId] : [],
     enabled: !!currentMapId,
+    refetchInterval: 10000, // Refetch every 10 seconds to show live traffic stats
   });
 
   // Merge devices with their placements for the current map
