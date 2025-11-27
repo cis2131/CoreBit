@@ -90,12 +90,15 @@ export function ConnectionPropertiesPanel({
     }
   };
 
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+  const formatBitsPerSec = (bitsPerSec: number) => {
+    if (bitsPerSec === 0) return '0 bps';
+    const k = 1000; // Network uses decimal (1000), not binary (1024)
+    const sizes = ['bps', 'Kbps', 'Mbps', 'Gbps', 'Tbps'];
+    const i = Math.floor(Math.log(bitsPerSec) / Math.log(k));
+    const value = bitsPerSec / Math.pow(k, i);
+    // Show 2 decimal places for values < 10, 1 decimal for values < 100, 0 for larger
+    const decimals = value < 10 ? 2 : value < 100 ? 1 : 0;
+    return value.toFixed(decimals) + ' ' + sizes[i];
   };
 
   return (
@@ -300,28 +303,28 @@ export function ConnectionPropertiesPanel({
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {connection.linkStats.inBytesPerSec !== undefined && (
+                {connection.linkStats.inBitsPerSec !== undefined && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
                         <ArrowDown className="h-4 w-4 text-blue-500" />
-                        <span className="text-foreground font-medium">Inbound</span>
+                        <span className="text-foreground font-medium">RX</span>
                       </div>
                       <span className="font-mono font-semibold text-foreground" data-testid="text-inbound-traffic">
-                        {connection.linkStats.isStale ? '—' : `${formatBytes(connection.linkStats.inBytesPerSec)}/s`}
+                        {connection.linkStats.isStale ? '—' : formatBitsPerSec(connection.linkStats.inBitsPerSec)}
                       </span>
                     </div>
                   </div>
                 )}
-                {connection.linkStats.outBytesPerSec !== undefined && (
+                {connection.linkStats.outBitsPerSec !== undefined && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
                         <ArrowUp className="h-4 w-4 text-green-500" />
-                        <span className="text-foreground font-medium">Outbound</span>
+                        <span className="text-foreground font-medium">TX</span>
                       </div>
                       <span className="font-mono font-semibold text-foreground" data-testid="text-outbound-traffic">
-                        {connection.linkStats.isStale ? '—' : `${formatBytes(connection.linkStats.outBytesPerSec)}/s`}
+                        {connection.linkStats.isStale ? '—' : formatBitsPerSec(connection.linkStats.outBitsPerSec)}
                       </span>
                     </div>
                   </div>
