@@ -1182,6 +1182,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Start periodic device probing (configurable interval)
   let isProbing = false; // Guard against overlapping runs
+  let currentPhase = ''; // Track what phase we're in for debugging
   let probeCycle = 0; // Track probe cycles for detailed probing
   const DETAILED_PROBE_INTERVAL = 10; // Run detailed probe every 10 cycles (~5 minutes with 30s polling)
   
@@ -1194,16 +1195,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     setInterval(async () => {
       if (isProbing) {
-        console.warn('[Probing] Previous probe cycle still running, skipping this interval');
+        const elapsed = currentPhase ? ` (stuck in: ${currentPhase})` : '';
+        console.warn(`[Probing] Previous probe cycle still running, skipping this interval${elapsed}`);
         return;
       }
       
       isProbing = true;
+      currentPhase = 'init';
       probeCycle++;
       const startTime = Date.now();
       const isDetailedCycle = probeCycle % DETAILED_PROBE_INTERVAL === 0;
       
       try {
+        currentPhase = 'fetching devices';
         const allDevices = await storage.getAllDevices();
         const devicesWithIp = allDevices.filter(d => d.ipAddress);
         
@@ -1222,21 +1226,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const snmpDeviceCount = devicesNeedingSnmp.size;
         console.log(`[Probing] Starting probe cycle #${probeCycle} for ${totalDevices} devices${isDetailedCycle ? ' (DETAILED)' : ''}, ${snmpDeviceCount} need SNMP indexing`);
         
+        currentPhase = 'device probing';
         const results = await processConcurrentQueue(devicesWithIp, CONCURRENT_PROBES, isDetailedCycle, devicesNeedingSnmp);
         
         const successCount = results.filter(r => r.success).length;
         const timeoutCount = results.filter(r => r.timeout).length;
         const errorCount = results.filter(r => !r.success && !r.timeout).length;
         const successRate = totalDevices > 0 ? ((successCount / totalDevices) * 100).toFixed(1) : '0';
-        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+        const deviceDuration = ((Date.now() - startTime) / 1000).toFixed(1);
         
-        console.log(`[Probing] Completed cycle #${probeCycle} in ${duration}s: ${totalDevices} devices, ${successCount} success (${successRate}%), ${timeoutCount} timeout, ${errorCount} error`);
+        console.log(`[Probing] Device probing done in ${deviceDuration}s: ${totalDevices} devices, ${successCount} success (${successRate}%), ${timeoutCount} timeout, ${errorCount} error`);
         
         // Traffic monitoring for connections
+        currentPhase = `traffic probing (${monitoredConnections.length} connections)`;
+        const trafficStart = Date.now();
         await probeConnectionTraffic(allDevices);
+        const trafficDuration = ((Date.now() - trafficStart) / 1000).toFixed(1);
+        
+        const totalDuration = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`[Probing] Cycle #${probeCycle} complete: devices=${deviceDuration}s, traffic=${trafficDuration}s, total=${totalDuration}s`);
       } catch (error) {
         console.error('[Probing] Error in periodic probing:', error);
       } finally {
+        currentPhase = '';
         isProbing = false;
       }
     }, intervalMs);
