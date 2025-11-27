@@ -971,7 +971,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     error?: string;
   }
   
-  async function probeDeviceWithTimeout(device: any, credentials: any, isDetailedCycle: boolean = false): Promise<ProbeResult> {
+  async function probeDeviceWithTimeout(device: any, credentials: any, isDetailedCycle: boolean = false, needsSnmpIndexing: boolean = false): Promise<ProbeResult> {
     let timeoutId: NodeJS.Timeout;
     let timedOut = false;
     
@@ -993,7 +993,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // For Mikrotik devices, check if any ports transitioned from down to up
       if (device.type.startsWith('mikrotik_') && previousPorts.length > 0 && !isDetailedCycle) {
-        const quickProbe = await probeDevice(device.type, device.ipAddress, credentials, false, previousPorts);
+        const quickProbe = await probeDevice(device.type, device.ipAddress, credentials, false, previousPorts, needsSnmpIndexing);
         
         if (quickProbe.success && quickProbe.data.ports) {
           // Check for down→up transitions
@@ -1071,7 +1071,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         device.ipAddress,
         credentials,
         needsDetailedProbe,
-        previousPorts
+        previousPorts,
+        needsSnmpIndexing
       );
       
       if (timedOut) {
@@ -1142,7 +1143,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
   
-  async function processConcurrentQueue(devices: any[], concurrency: number, isDetailedCycle: boolean = false): Promise<ProbeResult[]> {
+  async function processConcurrentQueue(devices: any[], concurrency: number, isDetailedCycle: boolean = false, devicesNeedingSnmp: Set<string> = new Set()): Promise<ProbeResult[]> {
     const results: ProbeResult[] = [];
     const queue = [...devices];
     const active: Promise<void>[] = [];
@@ -1152,10 +1153,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const device = queue.shift()!;
         if (!device.ipAddress) continue;
         
+        const needsSnmpIndexing = devicesNeedingSnmp.has(device.id);
+        
         const promise = (async () => {
           try {
             const credentials = await resolveCredentials(device);
-            const result = await probeDeviceWithTimeout(device, credentials, isDetailedCycle);
+            const result = await probeDeviceWithTimeout(device, credentials, isDetailedCycle, needsSnmpIndexing);
             results.push(result);
           } catch (error: any) {
             results.push({ device, success: false, timeout: false, error: error.message });
@@ -1204,10 +1207,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const allDevices = await storage.getAllDevices();
         const devicesWithIp = allDevices.filter(d => d.ipAddress);
         
-        const totalDevices = devicesWithIp.length;
-        console.log(`[Probing] Starting probe cycle #${probeCycle} for ${totalDevices} devices${isDetailedCycle ? ' (DETAILED)' : ''}`);
+        // Build set of device IDs that have monitored connections (need SNMP indexing)
+        const monitoredConnections = await storage.getMonitoredConnections();
+        const devicesNeedingSnmp = new Set<string>();
+        for (const conn of monitoredConnections) {
+          if (conn.monitorInterface === 'source') {
+            devicesNeedingSnmp.add(conn.sourceDeviceId);
+          } else if (conn.monitorInterface === 'target') {
+            devicesNeedingSnmp.add(conn.targetDeviceId);
+          }
+        }
         
-        const results = await processConcurrentQueue(devicesWithIp, CONCURRENT_PROBES, isDetailedCycle);
+        const totalDevices = devicesWithIp.length;
+        const snmpDeviceCount = devicesNeedingSnmp.size;
+        console.log(`[Probing] Starting probe cycle #${probeCycle} for ${totalDevices} devices${isDetailedCycle ? ' (DETAILED)' : ''}, ${snmpDeviceCount} need SNMP indexing`);
+        
+        const results = await processConcurrentQueue(devicesWithIp, CONCURRENT_PROBES, isDetailedCycle, devicesNeedingSnmp);
         
         const successCount = results.filter(r => r.success).length;
         const timeoutCount = results.filter(r => r.timeout).length;

@@ -161,7 +161,8 @@ async function probeMikrotikDevice(
   ipAddress: string,
   credentials?: any,
   detailedProbe: boolean = false,
-  previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>
+  previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>,
+  needsSnmpIndexing: boolean = false  // Only do SNMP walks when device has monitored connections
 ): Promise<DeviceProbeData> {
   const username = credentials?.username || 'admin';
   const password = credentials?.password || '';
@@ -215,10 +216,9 @@ async function probeMikrotikDevice(
     // We need to correlate by .id to map interface names to SNMP ifIndex values
     let snmpIndices: { [name: string]: number } = {};
     
-    // Since the RouterOS API oid flag behavior varies by version/library, 
-    // use SNMP to reliably get ifName → ifIndex mapping during probing
-    // This is done once per device probe and cached in deviceData.ports
-    if (credentials?.snmpCommunity) {
+    // Only do SNMP walks when device has monitored connections that need traffic data
+    // This prevents unnecessary SNMP traffic to all devices
+    if (needsSnmpIndexing && credentials?.snmpCommunity) {
       try {
         // First test basic SNMP connectivity with a simple GET
         const connectTest = await testSnmpConnectivity(ipAddress, credentials.snmpCommunity);
@@ -250,8 +250,8 @@ async function probeMikrotikDevice(
       } catch (e) {
         console.log(`[Mikrotik] SNMP ifName walk failed on ${ipAddress}: ${e}`);
       }
-    } else {
-      console.log(`[Mikrotik] No SNMP community configured for ${ipAddress}, skipping ifName walk`);
+    } else if (needsSnmpIndexing && !credentials?.snmpCommunity) {
+      console.log(`[Mikrotik] No SNMP community configured for ${ipAddress}, cannot get ifIndex for traffic monitoring`);
     }
     
     // Copy SNMP indices to main map
@@ -602,7 +602,8 @@ export async function probeDevice(
   ipAddress?: string,
   credentials?: any,
   detailedProbe: boolean = false,
-  previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>
+  previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>,
+  needsSnmpIndexing: boolean = false  // Only true when device has monitored connections
 ): Promise<{ data: DeviceProbeData; success: boolean }> {
   if (!ipAddress) {
     console.log(`[Probe] No IP address provided for ${deviceType}, returning empty data`);
@@ -612,7 +613,7 @@ export async function probeDevice(
   try {
     let data: DeviceProbeData;
     if (deviceType.startsWith('mikrotik_')) {
-      data = await probeMikrotikDevice(ipAddress, credentials, detailedProbe, previousPorts);
+      data = await probeMikrotikDevice(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing);
     } else {
       data = await probeSnmpDevice(ipAddress, credentials);
     }
