@@ -1255,155 +1255,203 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
   
   // Traffic monitoring for connections with monitorInterface set
+  const TRAFFIC_CONCURRENT_PROBES = 40; // Parallel traffic probes
+  const TRAFFIC_PROBE_TIMEOUT = 8000; // 8 second timeout per traffic probe
+  
   async function probeConnectionTraffic(allDevices: Device[]) {
     try {
       const monitoredConnections = await storage.getMonitoredConnections();
       if (monitoredConnections.length === 0) return;
       
-      console.log(`[Traffic] Probing ${monitoredConnections.length} monitored connections`);
+      console.log(`[Traffic] Probing ${monitoredConnections.length} monitored connections (${TRAFFIC_CONCURRENT_PROBES} concurrent)`);
       
       // Build device lookup map
       const deviceMap = new Map(allDevices.map(d => [d.id, d]));
       
-      for (const conn of monitoredConnections) {
-        try {
-          // Determine which device and port to monitor
-          const isSource = conn.monitorInterface === 'source';
-          const deviceId = isSource ? conn.sourceDeviceId : conn.targetDeviceId;
-          const portName = isSource ? conn.sourcePort : conn.targetPort;
+      // Process connections in parallel with bounded concurrency
+      const queue = [...monitoredConnections];
+      const active: Promise<void>[] = [];
+      let successCount = 0;
+      let errorCount = 0;
+      let timeoutCount = 0;
+      
+      while (queue.length > 0 || active.length > 0) {
+        // Fill up to concurrency limit
+        while (active.length < TRAFFIC_CONCURRENT_PROBES && queue.length > 0) {
+          const conn = queue.shift()!;
           
-          if (!portName) {
-            console.warn(`[Traffic] No port specified for ${isSource ? 'source' : 'target'} on connection ${conn.id}`);
-            continue;
-          }
-          
-          const device = deviceMap.get(deviceId);
-          if (!device || !device.ipAddress) {
-            console.warn(`[Traffic] Device ${deviceId} not found or has no IP`);
-            continue;
-          }
-          
-          // Get credentials for the device
-          const credentials = await resolveCredentials(device);
-          
-          // Look up the SNMP index from the device's ports (fetched via /interface/print oid)
-          const port = device.deviceData?.ports?.find(p => p.name === portName);
-          const snmpIndex = port?.snmpIndex;
-          
-          // Probe interface traffic
-          const result = await probeInterfaceTraffic(device.ipAddress, portName, credentials, snmpIndex);
-          
-          // Check for stale data - if last sample is more than 2 minutes old, reset rates
-          const STALE_THRESHOLD_MS = 120000; // 2 minutes
-          const previousStats = conn.linkStats;
-          if (previousStats?.lastSampleAt) {
-            const lastSampleTime = new Date(previousStats.lastSampleAt).getTime();
-            const isStale = Date.now() - lastSampleTime > STALE_THRESHOLD_MS;
-            
-            if (isStale && !result.success) {
-              // Data is stale and we can't get fresh data - reset rates to zero
-              console.log(`[Traffic] Resetting stale stats for connection ${conn.id} (last sample: ${previousStats.lastSampleAt})`);
-              await storage.updateConnection(conn.id, {
-                linkStats: {
-                  ...previousStats,
-                  inBytesPerSec: 0,
-                  outBytesPerSec: 0,
-                  inBitsPerSec: 0,
-                  outBitsPerSec: 0,
-                  utilizationPct: 0,
-                  isStale: true,
-                },
-              });
-              continue;
-            }
-          }
-          
-          if (result.success && result.data) {
-            const counters = result.data;
-            const previousStats = conn.linkStats;
-            
-            // Calculate rates if we have previous data
-            let inBytesPerSec = 0;
-            let outBytesPerSec = 0;
-            
-            // Validate current counters are valid numbers
-            const currentInValid = typeof counters.inOctets === 'number' && !isNaN(counters.inOctets);
-            const currentOutValid = typeof counters.outOctets === 'number' && !isNaN(counters.outOctets);
-            
-            if (!currentInValid || !currentOutValid) {
-              console.warn(`[Traffic] Invalid counter values for connection ${conn.id}: in=${counters.inOctets}, out=${counters.outOctets}`);
-            }
-            
-            if (currentInValid && currentOutValid && (previousStats?.previousInOctets === undefined || previousStats?.previousOutOctets === undefined)) {
-              console.log(`[Traffic] First sample for ${conn.id}: storing counters in=${counters.inOctets}, out=${counters.outOctets} (rates next cycle)`);
-            }
-            
-            if (currentInValid && currentOutValid && previousStats?.previousInOctets !== undefined && 
-                previousStats?.previousOutOctets !== undefined &&
-                previousStats?.previousSampleAt &&
-                typeof previousStats.previousInOctets === 'number' && !isNaN(previousStats.previousInOctets) &&
-                typeof previousStats.previousOutOctets === 'number' && !isNaN(previousStats.previousOutOctets)) {
-              const prevTimestamp = new Date(previousStats.previousSampleAt).getTime();
-              const timeDeltaSec = (counters.timestamp - prevTimestamp) / 1000;
-              
-              if (timeDeltaSec > 0 && timeDeltaSec < 300) { // Ignore stale samples > 5 minutes
-                // Handle counter wrap (32-bit counters can wrap around)
-                const MAX_32BIT = 4294967295;
-                let inDelta = counters.inOctets - previousStats.previousInOctets;
-                let outDelta = counters.outOctets - previousStats.previousOutOctets;
-                
-                // Handle wrap-around for 32-bit counters
-                if (inDelta < 0) inDelta += MAX_32BIT;
-                if (outDelta < 0) outDelta += MAX_32BIT;
-                
-                // Calculate rates
-                const rawInRate = inDelta / timeDeltaSec;
-                const rawOutRate = outDelta / timeDeltaSec;
-                
-                // Sanity check: clamp rates to reasonable max (100Gbps = 12.5GB/s)
-                const MAX_RATE = 12500000000; // 100Gbps in bytes/sec
-                if (!isNaN(rawInRate) && !isNaN(rawOutRate) && rawInRate <= MAX_RATE && rawOutRate <= MAX_RATE) {
-                  inBytesPerSec = Math.round(rawInRate);
-                  outBytesPerSec = Math.round(rawOutRate);
-                  console.log(`[Traffic] Rates for ${conn.id}: in=${inBytesPerSec} B/s, out=${outBytesPerSec} B/s (${(inBytesPerSec * 8 / 1000000).toFixed(2)} Mbps in, ${(outBytesPerSec * 8 / 1000000).toFixed(2)} Mbps out)`);
-                } else if (isNaN(rawInRate) || isNaN(rawOutRate)) {
-                  console.warn(`[Traffic] NaN rate for connection ${conn.id}: in=${rawInRate}, out=${rawOutRate}, counters=(${counters.inOctets}, ${counters.outOctets}), prev=(${previousStats.previousInOctets}, ${previousStats.previousOutOctets})`);
-                } else {
-                  // Counter reset or wrap issue - skip this sample
-                  console.warn(`[Traffic] Rate sanity check failed for connection ${conn.id}: in=${rawInRate}, out=${rawOutRate}`);
-                }
+          const promise = (async () => {
+            try {
+              await probeSingleConnection(conn, deviceMap);
+              successCount++;
+            } catch (error: any) {
+              if (error.message?.includes('timeout')) {
+                timeoutCount++;
+              } else {
+                errorCount++;
               }
             }
-            
-            // Calculate utilization based on link speed
-            const linkSpeedBps = parseLinkSpeed(conn.linkSpeed || '1G');
-            const maxBytesPerSec = linkSpeedBps / 8;
-            const utilizationPct = maxBytesPerSec > 0 
-              ? Math.min(100, Math.round(((inBytesPerSec + outBytesPerSec) / (2 * maxBytesPerSec)) * 100))
-              : 0;
-            
-            // Update connection with traffic stats
-            const updatedStats = {
-              inBytesPerSec,
-              outBytesPerSec,
-              inBitsPerSec: inBytesPerSec * 8,
-              outBitsPerSec: outBytesPerSec * 8,
-              utilizationPct,
-              lastSampleAt: new Date().toISOString(),
-              previousInOctets: counters.inOctets,
-              previousOutOctets: counters.outOctets,
-              previousSampleAt: new Date(counters.timestamp).toISOString(),
-              isStale: false, // Clear stale flag on successful update
-            };
-            await storage.updateConnection(conn.id, { linkStats: updatedStats });
-            console.log(`[Traffic] Updated connection ${conn.id} linkStats: ${JSON.stringify(updatedStats)}`);
-          }
-        } catch (error: any) {
-          console.warn(`[Traffic] Error probing connection ${conn.id}:`, error.message);
+          })();
+          
+          // Wrap with timeout
+          const timeoutPromise = new Promise<void>((_, reject) => {
+            setTimeout(() => reject(new Error('Traffic probe timeout')), TRAFFIC_PROBE_TIMEOUT);
+          });
+          
+          const wrappedPromise = Promise.race([promise, timeoutPromise]).catch(() => {
+            timeoutCount++;
+          });
+          
+          active.push(wrappedPromise as Promise<void>);
+          wrappedPromise.finally(() => {
+            const index = active.indexOf(wrappedPromise as Promise<void>);
+            if (index > -1) active.splice(index, 1);
+          });
+        }
+        
+        if (active.length > 0) {
+          await Promise.race(active);
         }
       }
+      
+      console.log(`[Traffic] Completed: ${successCount} success, ${timeoutCount} timeout, ${errorCount} error`);
     } catch (error: any) {
       console.error('[Traffic] Error in traffic monitoring:', error.message);
+    }
+  }
+  
+  // Probe a single connection for traffic stats
+  async function probeSingleConnection(conn: Connection, deviceMap: Map<string, Device>) {
+    // Determine which device and port to monitor
+    const isSource = conn.monitorInterface === 'source';
+    const deviceId = isSource ? conn.sourceDeviceId : conn.targetDeviceId;
+    const portName = isSource ? conn.sourcePort : conn.targetPort;
+    
+    if (!portName) {
+      console.warn(`[Traffic] No port specified for ${isSource ? 'source' : 'target'} on connection ${conn.id}`);
+      return;
+    }
+    
+    const device = deviceMap.get(deviceId);
+    if (!device || !device.ipAddress) {
+      console.warn(`[Traffic] Device ${deviceId} not found or has no IP`);
+      return;
+    }
+    
+    // Get credentials for the device
+    const credentials = await resolveCredentials(device);
+    
+    // Look up the SNMP index from the device's ports (fetched via /interface/print oid)
+    const port = device.deviceData?.ports?.find(p => p.name === portName);
+    const snmpIndex = port?.snmpIndex;
+    
+    // Probe interface traffic
+    const result = await probeInterfaceTraffic(device.ipAddress, portName, credentials, snmpIndex);
+    
+    // Check for stale data - if last sample is more than 2 minutes old, reset rates
+    const STALE_THRESHOLD_MS = 120000; // 2 minutes
+    const previousStats = conn.linkStats;
+    if (previousStats?.lastSampleAt) {
+      const lastSampleTime = new Date(previousStats.lastSampleAt).getTime();
+      const isStale = Date.now() - lastSampleTime > STALE_THRESHOLD_MS;
+      
+      if (isStale && !result.success) {
+        // Data is stale and we can't get fresh data - reset rates to zero
+        console.log(`[Traffic] Resetting stale stats for connection ${conn.id} (last sample: ${previousStats.lastSampleAt})`);
+        await storage.updateConnection(conn.id, {
+          linkStats: {
+            ...previousStats,
+            inBytesPerSec: 0,
+            outBytesPerSec: 0,
+            inBitsPerSec: 0,
+            outBitsPerSec: 0,
+            utilizationPct: 0,
+            isStale: true,
+          },
+        });
+        return;
+      }
+    }
+    
+    if (result.success && result.data) {
+      const counters = result.data;
+      const previousStats = conn.linkStats;
+      
+      // Calculate rates if we have previous data
+      let inBytesPerSec = 0;
+      let outBytesPerSec = 0;
+      
+      // Validate current counters are valid numbers
+      const currentInValid = typeof counters.inOctets === 'number' && !isNaN(counters.inOctets);
+      const currentOutValid = typeof counters.outOctets === 'number' && !isNaN(counters.outOctets);
+      
+      if (!currentInValid || !currentOutValid) {
+        console.warn(`[Traffic] Invalid counter values for connection ${conn.id}: in=${counters.inOctets}, out=${counters.outOctets}`);
+      }
+      
+      if (currentInValid && currentOutValid && (previousStats?.previousInOctets === undefined || previousStats?.previousOutOctets === undefined)) {
+        console.log(`[Traffic] First sample for ${conn.id}: storing counters in=${counters.inOctets}, out=${counters.outOctets} (rates next cycle)`);
+      }
+      
+      if (currentInValid && currentOutValid && previousStats?.previousInOctets !== undefined && 
+          previousStats?.previousOutOctets !== undefined &&
+          previousStats?.previousSampleAt &&
+          typeof previousStats.previousInOctets === 'number' && !isNaN(previousStats.previousInOctets) &&
+          typeof previousStats.previousOutOctets === 'number' && !isNaN(previousStats.previousOutOctets)) {
+        const prevTimestamp = new Date(previousStats.previousSampleAt).getTime();
+        const timeDeltaSec = (counters.timestamp - prevTimestamp) / 1000;
+        
+        if (timeDeltaSec > 0 && timeDeltaSec < 300) { // Ignore stale samples > 5 minutes
+          // Handle counter wrap (32-bit counters can wrap around)
+          const MAX_32BIT = 4294967295;
+          let inDelta = counters.inOctets - previousStats.previousInOctets;
+          let outDelta = counters.outOctets - previousStats.previousOutOctets;
+          
+          // Handle wrap-around for 32-bit counters
+          if (inDelta < 0) inDelta += MAX_32BIT;
+          if (outDelta < 0) outDelta += MAX_32BIT;
+          
+          // Calculate rates
+          const rawInRate = inDelta / timeDeltaSec;
+          const rawOutRate = outDelta / timeDeltaSec;
+          
+          // Sanity check: clamp rates to reasonable max (100Gbps = 12.5GB/s)
+          const MAX_RATE = 12500000000; // 100Gbps in bytes/sec
+          if (!isNaN(rawInRate) && !isNaN(rawOutRate) && rawInRate <= MAX_RATE && rawOutRate <= MAX_RATE) {
+            inBytesPerSec = Math.round(rawInRate);
+            outBytesPerSec = Math.round(rawOutRate);
+            console.log(`[Traffic] Rates for ${conn.id}: in=${inBytesPerSec} B/s, out=${outBytesPerSec} B/s (${(inBytesPerSec * 8 / 1000000).toFixed(2)} Mbps in, ${(outBytesPerSec * 8 / 1000000).toFixed(2)} Mbps out)`);
+          } else if (isNaN(rawInRate) || isNaN(rawOutRate)) {
+            console.warn(`[Traffic] NaN rate for connection ${conn.id}: in=${rawInRate}, out=${rawOutRate}, counters=(${counters.inOctets}, ${counters.outOctets}), prev=(${previousStats.previousInOctets}, ${previousStats.previousOutOctets})`);
+          } else {
+            // Counter reset or wrap issue - skip this sample
+            console.warn(`[Traffic] Rate sanity check failed for connection ${conn.id}: in=${rawInRate}, out=${rawOutRate}`);
+          }
+        }
+      }
+      
+      // Calculate utilization based on link speed
+      const linkSpeedBps = parseLinkSpeed(conn.linkSpeed || '1G');
+      const maxBytesPerSec = linkSpeedBps / 8;
+      const utilizationPct = maxBytesPerSec > 0 
+        ? Math.min(100, Math.round(((inBytesPerSec + outBytesPerSec) / (2 * maxBytesPerSec)) * 100))
+        : 0;
+      
+      // Update connection with traffic stats
+      const updatedStats = {
+        inBytesPerSec,
+        outBytesPerSec,
+        inBitsPerSec: inBytesPerSec * 8,
+        outBitsPerSec: outBytesPerSec * 8,
+        utilizationPct,
+        lastSampleAt: new Date().toISOString(),
+        previousInOctets: counters.inOctets,
+        previousOutOctets: counters.outOctets,
+        previousSampleAt: new Date(counters.timestamp).toISOString(),
+        isStale: false, // Clear stale flag on successful update
+      };
+      await storage.updateConnection(conn.id, { linkStats: updatedStats });
+      console.log(`[Traffic] Updated connection ${conn.id} linkStats: ${JSON.stringify(updatedStats)}`);
     }
   }
   
