@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Connection, Device } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,9 +25,25 @@ import {
   Radio,
   AlertTriangle,
   RefreshCw,
+  BarChart3,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+
+interface TrafficHistoryPoint {
+  timestamp: number;
+  inBitsPerSec: number;
+  outBitsPerSec: number;
+  utilizationPct: number;
+}
 
 interface ConnectionPropertiesPanelProps {
   connection: Connection;
@@ -54,6 +71,13 @@ export function ConnectionPropertiesPanel({
   );
   const [saving, setSaving] = useState(false);
   const [resettingIndex, setResettingIndex] = useState(false);
+
+  // Fetch traffic history for bandwidth graph (poll every 10 seconds when monitoring is enabled)
+  const { data: trafficHistory = [] } = useQuery<TrafficHistoryPoint[]>({
+    queryKey: ["/api/connections", connection.id, "traffic-history"],
+    enabled: !!connection.monitorInterface,
+    refetchInterval: 10000,
+  });
 
   // Sync state when connection prop changes (e.g., clicking between different connections)
   useEffect(() => {
@@ -536,6 +560,84 @@ export function ConnectionPropertiesPanel({
                       connection.linkStats.lastSampleAt,
                     ).toLocaleString()}
                     {connection.linkStats.isStale && " (no response)"}
+                  </div>
+                )}
+                
+                {trafficHistory.length > 1 && (
+                  <div className="pt-2">
+                    <div className="flex items-center gap-2 mb-2">
+                      <BarChart3 className="h-3 w-3 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">
+                        Bandwidth (last {Math.round((trafficHistory.length * 10) / 60)} min)
+                      </span>
+                    </div>
+                    <div className="h-24 w-full" data-testid="chart-bandwidth">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart
+                          data={trafficHistory.map((point) => ({
+                            time: new Date(point.timestamp).toLocaleTimeString([], { 
+                              hour: '2-digit', 
+                              minute: '2-digit' 
+                            }),
+                            rx: point.inBitsPerSec / 1000000,
+                            tx: point.outBitsPerSec / 1000000,
+                          }))}
+                          margin={{ top: 5, right: 5, left: -20, bottom: 0 }}
+                        >
+                          <XAxis 
+                            dataKey="time" 
+                            tick={{ fontSize: 9 }}
+                            tickLine={false}
+                            axisLine={false}
+                            interval="preserveStartEnd"
+                          />
+                          <YAxis 
+                            tick={{ fontSize: 9 }}
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(value) => `${value}M`}
+                            width={35}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              fontSize: '11px',
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                            }}
+                            formatter={(value: number) => [`${value.toFixed(2)} Mbps`]}
+                            labelFormatter={(label) => `Time: ${label}`}
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="rx"
+                            name="RX"
+                            stroke="#3b82f6"
+                            fill="#3b82f6"
+                            fillOpacity={0.3}
+                            strokeWidth={1.5}
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="tx"
+                            name="TX"
+                            stroke="#22c55e"
+                            fill="#22c55e"
+                            fillOpacity={0.2}
+                            strokeWidth={1.5}
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="flex justify-center gap-4 mt-1">
+                      <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 rounded-full bg-blue-500" />
+                        <span className="text-xs text-muted-foreground">RX</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 rounded-full bg-green-500" />
+                        <span className="text-xs text-muted-foreground">TX</span>
+                      </div>
+                    </div>
                   </div>
                 )}
               </CardContent>

@@ -175,7 +175,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/maps/:id", async (req, res) => {
     try {
-      await storage.deleteMap(req.params.id);
+      const mapId = req.params.id;
+      // Clean up traffic history for all connections on this map before deleting
+      const mapConnections = await storage.getConnectionsByMapId(mapId);
+      for (const conn of mapConnections) {
+        trafficHistory.delete(conn.id);
+      }
+      await storage.deleteMap(mapId);
       res.status(204).send();
     } catch (error) {
       console.error('Error deleting map:', error);
@@ -399,6 +405,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       for (const conn of connectionsToDelete) {
         await storage.deleteConnection(conn.id);
+        // Clean up traffic history for this connection
+        trafficHistory.delete(conn.id);
       }
       
       // Delete the placement
@@ -564,7 +572,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/connections/:id", async (req, res) => {
     try {
-      await storage.deleteConnection(req.params.id);
+      const connectionId = req.params.id;
+      await storage.deleteConnection(connectionId);
+      // Clean up traffic history for this connection
+      trafficHistory.delete(connectionId);
       res.status(204).send();
     } catch (error) {
       console.error('Error deleting connection:', error);
@@ -1586,15 +1597,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!updated) {
         console.error(`[Traffic] FAILED to update connection ${conn.id} linkStats!`);
       } else {
-        // Record to history for bandwidth graphs (only when we have valid rates)
-        if (updatedStats.inBitsPerSec > 0 || updatedStats.outBitsPerSec > 0 || trafficHistory.has(conn.id)) {
-          addTrafficHistoryPoint(conn.id, {
-            timestamp: Date.now(),
-            inBitsPerSec: updatedStats.inBitsPerSec,
-            outBitsPerSec: updatedStats.outBitsPerSec,
-            utilizationPct: updatedStats.utilizationPct,
-          });
-        }
+        // Record to history for bandwidth graphs (always record successful samples for consistent graphing)
+        addTrafficHistoryPoint(conn.id, {
+          timestamp: Date.now(),
+          inBitsPerSec: updatedStats.inBitsPerSec,
+          outBitsPerSec: updatedStats.outBitsPerSec,
+          utilizationPct: updatedStats.utilizationPct,
+        });
       }
     }
     
