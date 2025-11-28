@@ -1419,6 +1419,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
     
+    // Log what we're about to probe for debugging
+    console.log(`[Traffic] PROBE conn=${conn.id.slice(0,8)} monitorIface=${conn.monitorInterface} -> ${portName}@${device.ipAddress} (${device.name}) snmpIdx=${snmpIndex ?? 'walk'}`);
+    
     // Probe interface traffic (fast if we have cached index)
     let result = await probeInterfaceTraffic(device.ipAddress, portName, credentials, snmpIndex);
     
@@ -1495,10 +1498,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const prevTimestamp = new Date(previousStats.previousSampleAt!).getTime();
         const timeDeltaSec = (counters.timestamp - prevTimestamp) / 1000;
         
-        // Debug: log raw calculation values
+        // Debug: log raw calculation values with device IP for identification
         const inDeltaDebug = counters.inOctets - previousStats.previousInOctets;
         const outDeltaDebug = counters.outOctets - previousStats.previousOutOctets;
-        console.log(`[Traffic] DEBUG ${portName}: timeDelta=${timeDeltaSec.toFixed(2)}s, inDelta=${inDeltaDebug}, outDelta=${outDeltaDebug}, inRate=${(inDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps, outRate=${(outDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps`);
+        console.log(`[Traffic] DEBUG ${portName}@${device.ipAddress} (idx=${snmpIndex}): timeDelta=${timeDeltaSec.toFixed(2)}s, inDelta=${inDeltaDebug}, outDelta=${outDeltaDebug}, inRate=${(inDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps, outRate=${(outDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps`);
         
         if (timeDeltaSec > 0 && timeDeltaSec < 300) { // Ignore stale samples > 5 minutes
           // Handle counter wrap (32-bit counters can wrap around)
