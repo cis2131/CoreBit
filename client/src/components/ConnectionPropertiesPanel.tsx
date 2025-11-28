@@ -582,7 +582,7 @@ export function ConnectionPropertiesPanel({
                             rx: point.inBitsPerSec / 1000000,
                             tx: point.outBitsPerSec / 1000000,
                           }))}
-                          margin={{ top: 5, right: 5, left: -20, bottom: 0 }}
+                          margin={{ top: 5, right: 5, left: 0, bottom: 0 }}
                         >
                           <XAxis 
                             dataKey="time" 
@@ -595,8 +595,13 @@ export function ConnectionPropertiesPanel({
                             tick={{ fontSize: 9 }}
                             tickLine={false}
                             axisLine={false}
-                            tickFormatter={(value) => `${value}M`}
-                            width={35}
+                            tickFormatter={(value) => {
+                              if (value >= 1000) return `${(value / 1000).toFixed(0)}G`;
+                              if (value >= 1) return `${value.toFixed(0)}M`;
+                              if (value >= 0.001) return `${(value * 1000).toFixed(0)}K`;
+                              return '0';
+                            }}
+                            width={40}
                           />
                           <Tooltip
                             contentStyle={{
