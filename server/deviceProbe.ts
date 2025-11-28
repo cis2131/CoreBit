@@ -151,6 +151,9 @@ export interface DeviceProbeData {
     speed?: string;
     description?: string;
     snmpIndex?: number;
+    // SNMP OIDs from Mikrotik /interface/print oid - allows direct GET without walks
+    bytesInOid?: string;   // e.g., ".1.3.6.1.2.1.31.1.1.1.6.10"
+    bytesOutOid?: string;  // e.g., ".1.3.6.1.2.1.31.1.1.1.10.10"
   }>;
   cpuUsagePct?: number;
   memoryUsagePct?: number;
@@ -188,6 +191,7 @@ async function probeMikrotikDevice(
     await conn.connect();
     console.log(`[Mikrotik] Connected to ${ipAddress}`);
 
+    // Fetch basic info and interfaces in parallel
     const [identity, resources, interfaces] = await Promise.all([
       conn.write('/system/identity/print').catch(() => []),
       conn.write('/system/resource/print').catch(() => []),
@@ -199,9 +203,6 @@ async function probeMikrotikDevice(
     const version = resources[0]?.version || 'Unknown';
     const uptime = resources[0]?.uptime || '0s';
     
-    // Build SNMP index map from /interface/print with oid flag
-    // The oid flag returns OIDs instead of values, where 'name' contains ifDescr OID like .1.3.6.1.2.1.2.2.1.2.X
-    const snmpIndexMap: { [name: string]: number } = {};
     const interfacesList = interfaces as any[];
     
     // Build a map from .id to interface name from the regular print
@@ -212,51 +213,47 @@ async function probeMikrotikDevice(
       }
     }
     
-    // Try to fetch OIDs - RouterOS /interface/print oid returns OIDs instead of values
-    // We need to correlate by .id to map interface names to SNMP ifIndex values
-    let snmpIndices: { [name: string]: number } = {};
+    // Fetch OIDs via /interface/print oid - this gives us exact SNMP OIDs for each interface
+    // Much more reliable than doing SNMP walks and matching by name
+    interface InterfaceOids {
+      bytesInOid?: string;
+      bytesOutOid?: string;
+    }
+    const interfaceOidMap: { [name: string]: InterfaceOids } = {};
     
-    // Only do SNMP walks when device has monitored connections that need traffic data
-    // This prevents unnecessary SNMP traffic to all devices
-    if (needsSnmpIndexing && credentials?.snmpCommunity) {
+    try {
+      // RouterOS /interface/print oid returns OIDs as values instead of regular data
+      // Example output: name=.1.3.6.1.2.1.2.2.1.2.10, bytes-in=.1.3.6.1.2.1.31.1.1.1.6.10, etc.
+      const oidResult = await conn.write('/interface/print', ['=.proplist=.id,bytes-in,bytes-out']).catch(() => []);
+      
+      // The oid query is done with a different command format in RouterOS 7+
+      // Let's try the standard approach first
+      let oidData: any[] = [];
       try {
-        // First test basic SNMP connectivity with a simple GET
-        const connectTest = await testSnmpConnectivity(ipAddress, credentials.snmpCommunity);
-        if (!connectTest.success) {
-          console.log(`[Mikrotik] SNMP connectivity test failed on ${ipAddress}: ${connectTest.error}`);
-        } else {
-          console.log(`[Mikrotik] SNMP connectivity OK on ${ipAddress}: ${connectTest.sysDescr?.substring(0, 50)}...`);
-          
-          // Walk ifName (1.3.6.1.2.1.31.1.1.1.1) to get interface name → index mapping
-          console.log(`[Mikrotik] Walking SNMP ifName on ${ipAddress}...`);
-          const snmpResult = await walkSnmpTable(ipAddress, credentials.snmpCommunity, '1.3.6.1.2.1.31.1.1.1.1');
-          if (snmpResult.success) {
-            console.log(`[Mikrotik] SNMP walk on ${ipAddress}: success, ${Object.keys(snmpResult.data || {}).length} entries`);
-            for (const [oid, name] of Object.entries(snmpResult.data || {})) {
-              // OID format: 1.3.6.1.2.1.31.1.1.1.1.X where X is ifIndex
-              const parts = oid.split('.');
-              const ifIndex = parseInt(parts[parts.length - 1]);
-              if (!isNaN(ifIndex) && typeof name === 'string') {
-                snmpIndices[name] = ifIndex;
-              }
-            }
-            if (Object.keys(snmpIndices).length > 0) {
-              console.log(`[Mikrotik] Found ${Object.keys(snmpIndices).length} SNMP indices via ifName on ${ipAddress}: ${Object.keys(snmpIndices).slice(0, 5).join(', ')}...`);
-            }
-          } else {
-            console.log(`[Mikrotik] SNMP walk on ${ipAddress}: failed - ${snmpResult.error || 'unknown error'}`);
+        oidData = await conn.write('/interface/print', ['oid']).catch(() => []);
+      } catch (e) {
+        console.log(`[Mikrotik] /interface/print oid command failed on ${ipAddress}, trying alternative method`);
+      }
+      
+      if (oidData && oidData.length > 0) {
+        console.log(`[Mikrotik] Fetched OID data for ${oidData.length} interfaces on ${ipAddress}`);
+        for (const oidEntry of oidData) {
+          const ifaceId = oidEntry['.id'];
+          const ifaceName = idToName[ifaceId];
+          if (ifaceName && oidEntry['bytes-in'] && oidEntry['bytes-out']) {
+            // OIDs come with leading dot, store as-is for SNMP GET
+            interfaceOidMap[ifaceName] = {
+              bytesInOid: oidEntry['bytes-in'],
+              bytesOutOid: oidEntry['bytes-out'],
+            };
+            console.log(`[Mikrotik] OID for ${ifaceName}: in=${oidEntry['bytes-in']}, out=${oidEntry['bytes-out']}`);
           }
         }
-      } catch (e) {
-        console.log(`[Mikrotik] SNMP ifName walk failed on ${ipAddress}: ${e}`);
+      } else {
+        console.log(`[Mikrotik] No OID data returned from /interface/print oid on ${ipAddress}`);
       }
-    } else if (needsSnmpIndexing && !credentials?.snmpCommunity) {
-      console.log(`[Mikrotik] No SNMP community configured for ${ipAddress}, cannot get ifIndex for traffic monitoring`);
-    }
-    
-    // Copy SNMP indices to main map
-    for (const [name, idx] of Object.entries(snmpIndices)) {
-      snmpIndexMap[name] = idx;
+    } catch (e) {
+      console.log(`[Mikrotik] Failed to fetch interface OIDs on ${ipAddress}: ${e}`);
     }
     
     // Extract real CPU and memory usage from Mikrotik resources
@@ -337,13 +334,17 @@ async function probeMikrotikDevice(
         }
       }
       
+      // Get OIDs for this interface (from /interface/print oid)
+      const oids = interfaceOidMap[ifaceName];
+      
       return {
         name: ifaceName,
         defaultName,
         status: currentStatus,
         speed,
         description: iface.comment || undefined,
-        snmpIndex: snmpIndexMap[ifaceName],
+        bytesInOid: oids?.bytesInOid,
+        bytesOutOid: oids?.bytesOutOid,
       };
     });
 
