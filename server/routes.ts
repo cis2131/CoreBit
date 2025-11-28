@@ -1482,11 +1482,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.warn(`[Traffic] Invalid counter values for connection ${conn.id}: in=${counters.inOctets}, out=${counters.outOctets}`);
       }
       
-      // First sample - no logging needed, just store counters
+      // Debug: Check why we might skip rate calculation
+      const hasPrevIn = previousStats?.previousInOctets !== undefined;
+      const hasPrevOut = previousStats?.previousOutOctets !== undefined;
+      const hasPrevAt = !!previousStats?.previousSampleAt;
       
-      if (currentInValid && currentOutValid && previousStats?.previousInOctets !== undefined && 
-          previousStats?.previousOutOctets !== undefined &&
-          previousStats?.previousSampleAt &&
+      // Always log whether we have previous data for debugging
+      console.log(`[Traffic] DEBUG ${portName}: hasPrev=[${hasPrevIn},${hasPrevOut},${hasPrevAt}] currentTs=${counters.timestamp} prevTs=${previousStats?.previousSampleAt}`);
+      
+      if (currentInValid && currentOutValid && hasPrevIn && hasPrevOut && hasPrevAt &&
           typeof previousStats.previousInOctets === 'number' && !isNaN(previousStats.previousInOctets) &&
           typeof previousStats.previousOutOctets === 'number' && !isNaN(previousStats.previousOutOctets)) {
         const prevTimestamp = new Date(previousStats.previousSampleAt).getTime();
@@ -1495,7 +1499,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Debug: log raw calculation values
         const inDeltaDebug = counters.inOctets - previousStats.previousInOctets;
         const outDeltaDebug = counters.outOctets - previousStats.previousOutOctets;
-        console.log(`[Traffic] DEBUG ${portName}: timeDelta=${timeDeltaSec.toFixed(2)}s, inDelta=${inDeltaDebug}, outDelta=${outDeltaDebug}, inRate=${(inDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps, outRate=${(outDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps`);
+        console.log(`[Traffic] CALC ${portName}: timeDelta=${timeDeltaSec.toFixed(2)}s, inDelta=${inDeltaDebug}, outDelta=${outDeltaDebug}, inRate=${(inDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps, outRate=${(outDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps`);
         
         if (timeDeltaSec > 0 && timeDeltaSec < 300) { // Ignore stale samples > 5 minutes
           // Handle counter wrap (32-bit counters can wrap around)
