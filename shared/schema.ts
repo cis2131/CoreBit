@@ -96,11 +96,7 @@ export const devices = pgTable("devices", {
       status: string; 
       speed?: string; 
       description?: string;
-      snmpIndex?: number;
-      // SNMP OID fields from Mikrotik /interface/print oid
-      // These allow direct SNMP GET without needing to walk ifDescr
-      bytesInOid?: string;   // e.g., ".1.3.6.1.2.1.31.1.1.1.6.10"
-      bytesOutOid?: string;  // e.g., ".1.3.6.1.2.1.31.1.1.1.10.10"
+      snmpIndex?: number; // SNMP ifIndex for this interface - allows direct OID construction for traffic monitoring
     }>;
     cpuUsagePct?: number;
     memoryUsagePct?: number;

@@ -223,15 +223,26 @@ The network scanner allows automated discovery of devices on IP ranges:
 
 The application supports real-time traffic monitoring on connections via SNMP:
 
+**IMPORTANT: SNMP Credentials Required**
+- Traffic monitoring requires SNMP credentials (community or v3 params) to be configured in the device's credential profile
+- Mikrotik API credentials alone are NOT sufficient - you must also configure SNMP community string in the same credential profile
+- If SNMP credentials are not configured, the system will log a warning and fall back to slower SNMP walks instead of using stored indexes
+
+**SNMP Index Storage (Optimized Path):**
+- During device probing, if the device has monitored connections AND SNMP credentials, an SNMP walk fetches interface indexes
+- The ifIndex for each interface is stored in `device.deviceData.ports[].snmpIndex`
+- Traffic monitoring uses stored snmpIndex to construct OIDs directly (fast GET, ~1s)
+- Supports both SNMPv2c and SNMPv3 credentials
+
 **Polling Configuration:**
 - Independent 10-second traffic polling loop (separate from 30s device probing)
 - 40 concurrent traffic probes with 8-second timeout
-- SNMP GET (fast path ~1s) when index is cached, SNMP WALK (slow path ~8-25s) otherwise
+- Direct SNMP GET when index is stored/cached (~1s), SNMP WALK fallback (~8-25s)
 
-**SNMP Index Caching:**
+**Connection Caching:**
 - `monitorSnmpIndex` column stores cached SNMP interface index per connection
-- Index populated when: connection saved with monitoring, device probed, or first successful traffic probe
-- Stale index detection: noSuchName errors trigger index invalidation and re-walk
+- Index is cached from successful traffic probes for devices without stored port indexes
+- Stale index detection: noSuchName errors trigger cache invalidation
 
 **Traffic Metrics:**
 - 64-bit counters (ifHCInOctets/ifHCOutOctets) with fallback to 32-bit
@@ -240,9 +251,9 @@ The application supports real-time traffic monitoring on connections via SNMP:
 - Stale detection: 2-minute timeout clears rates and shows "Stale" badge
 
 **Performance:**
-- Fast path: ~1s per connection with cached SNMP index (direct GET)
-- Slow path: ~8-25s per connection without cached index (ifDescr walk)
-- Index is cached after first successful walk for subsequent fast polling
+- Fast path: ~1s per connection with stored/cached SNMP index (direct GET)
+- Slow path: ~8-25s per connection without index (ifDescr walk with EXACT name matching)
+- Index is stored on device ports after successful device probe (when SNMP credentials available)
 
 ## Future Enhancements (Next Phase)
 

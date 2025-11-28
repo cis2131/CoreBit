@@ -567,7 +567,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Clear the cached SNMP index and link stats
       const updated = await storage.updateConnection(req.params.id, { 
         monitorSnmpIndex: null,
-        linkStats: null 
+        linkStats: undefined 
       });
       
       console.log(`[Connection] Reset SNMP index for connection ${req.params.id} (manual refresh)`);
@@ -1421,39 +1421,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Get credentials for the device
     const credentials = await resolveCredentials(device);
     
-    // Use cached SNMP index from connection (fast path) or fall back to device port lookup
-    let snmpIndex = conn.monitorSnmpIndex ?? undefined;
+    // Look up the port in device data to get stored snmpIndex (from SNMP walk during device probe)
+    // Port lookup needs to handle both name (custom name) and defaultName (original name like sfp28-1)
+    const port = device.deviceData?.ports?.find(p => 
+      p.name === portName || p.defaultName === portName
+    );
     
-    // If no cached index, try to get from device ports as fallback
-    if (snmpIndex === undefined) {
-      const port = device.deviceData?.ports?.find(p => p.name === portName);
-      snmpIndex = port?.snmpIndex;
-      
-      // If we found an index, cache it on the connection for next time
-      if (snmpIndex !== undefined) {
-        await storage.updateConnection(conn.id, { monitorSnmpIndex: snmpIndex });
-      }
-    }
+    // Get stored snmpIndex for direct OID construction (preferred method)
+    const storedSnmpIndex = port?.snmpIndex;
     
     // Log what we're about to probe for debugging
-    console.log(`[Traffic] PROBE conn=${conn.id.slice(0,8)} monitorIface=${conn.monitorInterface} -> ${portName}@${device.ipAddress} (${device.name}) snmpIdx=${snmpIndex ?? 'walk'}`);
+    const hasIndex = storedSnmpIndex !== undefined;
+    console.log(`[Traffic] PROBE conn=${conn.id.slice(0,8)} monitorIface=${conn.monitorInterface} -> ${portName}@${device.ipAddress} (${device.name}) ${hasIndex ? `idx=${storedSnmpIndex}` : 'walk'}`);
     
-    // Probe interface traffic (fast if we have cached index)
-    let result = await probeInterfaceTraffic(device.ipAddress, portName, credentials, snmpIndex);
+    // Probe interface traffic using stored snmpIndex (fast) or SNMP walk (slow fallback)
+    let result = await probeInterfaceTraffic(
+      device.ipAddress, 
+      portName, 
+      credentials, 
+      conn.monitorSnmpIndex ?? undefined, // Use cached connection index as secondary option
+      hasIndex ? { snmpIndex: storedSnmpIndex } : undefined
+    );
     
-    // Handle stale SNMP index - if we got noSuchName/noSuchInstance error with a cached index,
-    // the index is stale. Clear it and retry with a walk to get fresh index.
-    if (!result.success && snmpIndex !== undefined && result.error?.includes('noSuch')) {
-      console.log(`[Traffic] Stale SNMP index ${snmpIndex} for ${portName}, clearing and retrying with walk`);
-      await storage.updateConnection(conn.id, { monitorSnmpIndex: null });
-      
-      // Retry without cached index (will do SNMP walk)
-      result = await probeInterfaceTraffic(device.ipAddress, portName, credentials, undefined);
-    }
-    
-    // If probe returned a new index (from SNMP walk), cache it
-    if (result.success && result.data?.ifIndex && result.data.ifIndex !== snmpIndex) {
-      await storage.updateConnection(conn.id, { monitorSnmpIndex: result.data.ifIndex });
+    // If probe was successful and returned an ifIndex, cache it on the connection for future use
+    // This helps when device ports don't have stored indexes (e.g., non-Mikrotik devices)
+    if (result.success && result.data?.ifIndex !== undefined) {
+      const newIfIndex = result.data.ifIndex;
+      if (conn.monitorSnmpIndex !== newIfIndex) {
+        // Update the connection's cached SNMP index
+        await storage.updateConnection(conn.id, { monitorSnmpIndex: newIfIndex });
+        console.log(`[Traffic] Cached SNMP index ${newIfIndex} for connection ${conn.id.slice(0,8)}`);
+      }
     }
     
     // Check for stale data - if last sample is more than 2 minutes old, reset rates
@@ -1517,7 +1515,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Debug: log raw calculation values with device IP for identification
         const inDeltaDebug = counters.inOctets - previousStats.previousInOctets;
         const outDeltaDebug = counters.outOctets - previousStats.previousOutOctets;
-        console.log(`[Traffic] DEBUG ${portName}@${device.ipAddress} (idx=${snmpIndex}): timeDelta=${timeDeltaSec.toFixed(2)}s, inDelta=${inDeltaDebug}, outDelta=${outDeltaDebug}, inRate=${(inDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps, outRate=${(outDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps`);
+        console.log(`[Traffic] DEBUG ${portName}@${device.ipAddress}: timeDelta=${timeDeltaSec.toFixed(2)}s, inDelta=${inDeltaDebug}, outDelta=${outDeltaDebug}, inRate=${(inDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps, outRate=${(outDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps`);
         
         if (timeDeltaSec > 0 && timeDeltaSec < 300) { // Ignore stale samples > 5 minutes
           // Handle counter wrap (32-bit counters can wrap around)

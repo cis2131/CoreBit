@@ -139,6 +139,114 @@ async function testSnmpConnectivity(
   });
 }
 
+// Fetch SNMP interface indexes by walking ifDescr and building name→ifIndex map
+// Uses EXACT string matching to avoid partial matches (e.g., "1" matching "sfp28-1")
+// Supports both SNMPv2c and SNMPv3 based on credentials
+async function fetchSnmpInterfaceIndexes(
+  ipAddress: string,
+  credentials?: any
+): Promise<{ success: boolean; data?: { [interfaceName: string]: number }; error?: string }> {
+  const snmpVersion = credentials?.snmpVersion || '2c';
+  const community = credentials?.snmpCommunity || 'public';
+  
+  // For SNMPv2c, use the simpler walkSnmpTable function
+  if (snmpVersion !== '3') {
+    const walkResult = await walkSnmpTable(ipAddress, community, '1.3.6.1.2.1.2.2.1.2');
+    
+    if (!walkResult.success || !walkResult.data) {
+      return { success: false, error: walkResult.error || 'No data returned' };
+    }
+    
+    const indexMap: { [interfaceName: string]: number } = {};
+    
+    for (const [oid, ifDescr] of Object.entries(walkResult.data)) {
+      const oidParts = oid.split('.');
+      const ifIndex = parseInt(oidParts[oidParts.length - 1], 10);
+      
+      if (!isNaN(ifIndex) && ifDescr) {
+        indexMap[ifDescr] = ifIndex;
+      }
+    }
+    
+    return { success: true, data: indexMap };
+  }
+  
+  // For SNMPv3, create a v3 session and walk
+  return new Promise((resolve) => {
+    let resolved = false;
+    let sessionClosed = false;
+    
+    const user = {
+      name: credentials?.snmpUsername || 'snmpuser',
+      level: snmp.SecurityLevel.authPriv,
+      authProtocol: credentials?.snmpAuthProtocol === 'MD5' ? snmp.AuthProtocols.md5 : snmp.AuthProtocols.sha,
+      authKey: credentials?.snmpAuthKey || '',
+      privProtocol: credentials?.snmpPrivProtocol === 'DES' ? snmp.PrivProtocols.des : snmp.PrivProtocols.aes,
+      privKey: credentials?.snmpPrivKey || '',
+    };
+    
+    const session = snmp.createV3Session(ipAddress, user, {
+      port: 161,
+      retries: 1,
+      timeout: 5000,
+    });
+    
+    session.on('error', (err: any) => {
+      if (!resolved) {
+        resolved = true;
+        try { session.close(); } catch (e) { /* ignore */ }
+        resolve({ success: false, error: `SNMPv3 session error: ${err.message || err}` });
+      }
+    });
+    
+    const indexMap: { [interfaceName: string]: number } = {};
+    
+    session.subtree('1.3.6.1.2.1.2.2.1.2', 1, (varbinds: any[]) => {
+      for (const vb of varbinds) {
+        if (snmp.isVarbindError(vb)) continue;
+        
+        const oidParts = vb.oid.split('.');
+        const ifIndex = parseInt(oidParts[oidParts.length - 1], 10);
+        const ifDescr = vb.value.toString();
+        
+        if (!isNaN(ifIndex) && ifDescr) {
+          indexMap[ifDescr] = ifIndex;
+        }
+      }
+    }, (error: any) => {
+      if (resolved) return;
+      resolved = true;
+      
+      if (!sessionClosed) {
+        sessionClosed = true;
+        try { session.close(); } catch (e) { /* ignore */ }
+      }
+      
+      if (error) {
+        const errMsg = error.message || String(error);
+        if (errMsg.includes('End of MIB') || errMsg.includes('endOfMibView')) {
+          resolve({ success: true, data: indexMap });
+        } else {
+          resolve({ success: false, error: `SNMPv3 walk error: ${errMsg}` });
+        }
+      } else {
+        resolve({ success: true, data: indexMap });
+      }
+    });
+    
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        if (!sessionClosed) {
+          sessionClosed = true;
+          try { session.close(); } catch (e) { /* ignore */ }
+        }
+        resolve({ success: false, error: 'SNMPv3 walk timeout after 10s' });
+      }
+    }, 10000);
+  });
+}
+
 export interface DeviceProbeData {
   uptime?: string;
   model?: string;
@@ -150,10 +258,7 @@ export interface DeviceProbeData {
     status: string;
     speed?: string;
     description?: string;
-    snmpIndex?: number;
-    // SNMP OIDs from Mikrotik /interface/print oid - allows direct GET without walks
-    bytesInOid?: string;   // e.g., ".1.3.6.1.2.1.31.1.1.1.6.10"
-    bytesOutOid?: string;  // e.g., ".1.3.6.1.2.1.31.1.1.1.10.10"
+    snmpIndex?: number; // SNMP ifIndex for this interface - allows direct OID construction for traffic monitoring
   }>;
   cpuUsagePct?: number;
   memoryUsagePct?: number;
@@ -213,47 +318,34 @@ async function probeMikrotikDevice(
       }
     }
     
-    // Fetch OIDs via /interface/print oid - this gives us exact SNMP OIDs for each interface
-    // Much more reliable than doing SNMP walks and matching by name
-    interface InterfaceOids {
-      bytesInOid?: string;
-      bytesOutOid?: string;
+    // Fetch SNMP ifIndex for each interface via SNMP walk (only if device needs SNMP indexing)
+    // This allows traffic monitoring to use direct SNMP GET instead of slow walks
+    // NOTE: Mikrotik API's /interface/print oid doesn't work correctly via API since RouterOS 3.22
+    interface SnmpIndexMap {
+      [interfaceName: string]: number;
     }
-    const interfaceOidMap: { [name: string]: InterfaceOids } = {};
+    const snmpIndexMap: SnmpIndexMap = {};
     
-    try {
-      // RouterOS /interface/print oid returns OIDs as values instead of regular data
-      // Example output: name=.1.3.6.1.2.1.2.2.1.2.10, bytes-in=.1.3.6.1.2.1.31.1.1.1.6.10, etc.
-      const oidResult = await conn.write('/interface/print', ['=.proplist=.id,bytes-in,bytes-out']).catch(() => []);
-      
-      // The oid query is done with a different command format in RouterOS 7+
-      // Let's try the standard approach first
-      let oidData: any[] = [];
-      try {
-        oidData = await conn.write('/interface/print', ['oid']).catch(() => []);
-      } catch (e) {
-        console.log(`[Mikrotik] /interface/print oid command failed on ${ipAddress}, trying alternative method`);
-      }
-      
-      if (oidData && oidData.length > 0) {
-        console.log(`[Mikrotik] Fetched OID data for ${oidData.length} interfaces on ${ipAddress}`);
-        for (const oidEntry of oidData) {
-          const ifaceId = oidEntry['.id'];
-          const ifaceName = idToName[ifaceId];
-          if (ifaceName && oidEntry['bytes-in'] && oidEntry['bytes-out']) {
-            // OIDs come with leading dot, store as-is for SNMP GET
-            interfaceOidMap[ifaceName] = {
-              bytesInOid: oidEntry['bytes-in'],
-              bytesOutOid: oidEntry['bytes-out'],
-            };
-            console.log(`[Mikrotik] OID for ${ifaceName}: in=${oidEntry['bytes-in']}, out=${oidEntry['bytes-out']}`);
+    // Only fetch SNMP indexes if this device has monitored connections (needsSnmpIndexing flag)
+    if (needsSnmpIndexing) {
+      const hasSnmpCredentials = credentials?.snmpCommunity || credentials?.snmpVersion === '3';
+      if (hasSnmpCredentials && ipAddress) {
+        try {
+          const snmpVersion = credentials?.snmpVersion || '2c';
+          console.log(`[Mikrotik] Fetching SNMP indexes for ${ipAddress} (has monitored connections, SNMPv${snmpVersion})...`);
+          const indexResult = await fetchSnmpInterfaceIndexes(ipAddress, credentials);
+          if (indexResult.success && indexResult.data) {
+            Object.assign(snmpIndexMap, indexResult.data);
+            console.log(`[Mikrotik] Got SNMP indexes for ${Object.keys(snmpIndexMap).length} interfaces on ${ipAddress}`);
+          } else {
+            console.warn(`[Mikrotik] SNMP walk failed on ${ipAddress}: ${indexResult.error}`);
           }
+        } catch (e) {
+          console.log(`[Mikrotik] Failed to fetch SNMP indexes on ${ipAddress}: ${e}`);
         }
       } else {
-        console.log(`[Mikrotik] No OID data returned from /interface/print oid on ${ipAddress}`);
+        console.warn(`[Mikrotik] Device ${ipAddress} needs SNMP indexing but no SNMP credentials configured - traffic monitoring will use slow walks`);
       }
-    } catch (e) {
-      console.log(`[Mikrotik] Failed to fetch interface OIDs on ${ipAddress}: ${e}`);
     }
     
     // Extract real CPU and memory usage from Mikrotik resources
@@ -334,8 +426,14 @@ async function probeMikrotikDevice(
         }
       }
       
-      // Get OIDs for this interface (from /interface/print oid)
-      const oids = interfaceOidMap[ifaceName];
+      // Get SNMP ifIndex for this interface (from SNMP walk)
+      // Try matching by both name and defaultName (Mikrotik uses defaultName in SNMP)
+      let snmpIndex: number | undefined;
+      if (snmpIndexMap[ifaceName]) {
+        snmpIndex = snmpIndexMap[ifaceName];
+      } else if (defaultName && snmpIndexMap[defaultName]) {
+        snmpIndex = snmpIndexMap[defaultName];
+      }
       
       return {
         name: ifaceName,
@@ -343,8 +441,7 @@ async function probeMikrotikDevice(
         status: currentStatus,
         speed,
         description: iface.comment || undefined,
-        bytesInOid: oids?.bytesInOid,
-        bytesOutOid: oids?.bytesOutOid,
+        snmpIndex,
       };
     });
 
@@ -638,11 +735,17 @@ export interface TrafficCounters {
   timestamp: number;
 }
 
+// Options for traffic probing - prefer stored snmpIndex for direct OID construction
+export interface TrafficProbeOptions {
+  snmpIndex?: number;  // SNMP ifIndex for this interface (from device probe)
+}
+
 export async function probeInterfaceTraffic(
   ipAddress: string,
   interfaceName: string,
   credentials?: any,
-  knownSnmpIndex?: number
+  knownSnmpIndex?: number,
+  options?: TrafficProbeOptions
 ): Promise<{ data: TrafficCounters | null; success: boolean; error?: string }> {
   const snmpVersion = credentials?.snmpVersion || '2c';
   const community = credentials?.snmpCommunity || 'public';
@@ -667,7 +770,8 @@ export async function probeInterfaceTraffic(
       resolve(result);
     };
 
-    const fetchCounters = (targetIfIndex: number) => {
+    // Fetch counters using ifIndex (builds OIDs from index)
+    const fetchCountersByIndex = (targetIfIndex: number) => {
       // Get the counters using the known interface index
       // Use 64-bit counters (ifHCInOctets/ifHCOutOctets) if available, fall back to 32-bit
       const ifHCInOctets = `1.3.6.1.2.1.31.1.1.1.6.${targetIfIndex}`;  // 64-bit in
@@ -740,8 +844,12 @@ export async function probeInterfaceTraffic(
     };
 
     try {
-      // Use longer timeout for walks (when snmpIndex is unknown), shorter for direct GETs
-      const needsWalk = knownSnmpIndex === undefined;
+      // Determine the best probing method:
+      // 1. If we have stored snmpIndex from device port (from SNMP walk during device probe), use direct GET - fastest
+      // 2. If we have a known SNMP index from connection cache, use direct GET - fast
+      // 3. Otherwise, do SNMP walk to find interface - slow, only for devices without stored indexes
+      const hasStoredIndex = options?.snmpIndex !== undefined;
+      const needsWalk = !hasStoredIndex && knownSnmpIndex === undefined;
       const sessionTimeout = needsWalk ? 25000 : 4000; // 25s for walks on large routers, 4s for GETs
       
       if (snmpVersion === '3') {
@@ -769,11 +877,21 @@ export async function probeInterfaceTraffic(
         });
       }
       
-      // If we have a known SNMP index from Mikrotik, use it directly (skip ifDescr walk)
-      if (knownSnmpIndex !== undefined) {
-        fetchCounters(knownSnmpIndex);
+      // Priority: stored snmpIndex from device port > known index from connection > SNMP walk
+      // Note: We no longer use bytesInOid/bytesOutOid since Mikrotik API OID fetching is broken since RouterOS 3.22
+      const storedSnmpIndex = options?.snmpIndex;
+      
+      if (storedSnmpIndex !== undefined) {
+        // Best case: use snmpIndex stored on the device port (from SNMP walk during device probe)
+        console.log(`[Traffic] Using stored snmpIndex=${storedSnmpIndex} for ${interfaceName}@${ipAddress}`);
+        fetchCountersByIndex(storedSnmpIndex);
+      } else if (knownSnmpIndex !== undefined) {
+        // Good case: use index cached on the connection record
+        console.log(`[Traffic] Using cached snmpIndex=${knownSnmpIndex} for ${interfaceName}@${ipAddress}`);
+        fetchCountersByIndex(knownSnmpIndex);
       } else {
-        // Otherwise, walk ifDescr to find the interface index
+        // Fallback: walk ifDescr to find the interface (non-Mikrotik devices only)
+        // Use exact matching only - no partial matches which caused wrong interface selection
         const ifDescrOid = '1.3.6.1.2.1.2.2.1.2'; // ifDescr
         let targetIfIndex: number | null = null;
 
@@ -788,18 +906,16 @@ export async function probeInterfaceTraffic(
             const ifIndex = parseInt(parts[parts.length - 1]);
             foundInterfaces.push(`${name}(${ifIndex})`);
             
-            // Match interface name (case-insensitive, also check for partial match)
-            if (name.toLowerCase() === interfaceName.toLowerCase() ||
-                name.toLowerCase().includes(interfaceName.toLowerCase()) ||
-                interfaceName.toLowerCase().includes(name.toLowerCase())) {
+            // EXACT match only - no partial matching to avoid wrong interface selection
+            if (name.toLowerCase() === interfaceName.toLowerCase()) {
               targetIfIndex = ifIndex;
-              console.log(`[Traffic] WALK matched '${name}' (ifIndex=${ifIndex}) for search '${interfaceName}'@${ipAddress}`);
+              console.log(`[Traffic] WALK exact match '${name}' (ifIndex=${ifIndex}) for '${interfaceName}'@${ipAddress}`);
               break;
             }
           }
         }, (error: any) => {
           if (error || targetIfIndex === null) {
-            const errorMsg = error ? (error.message || 'Walk failed') : `Interface '${interfaceName}' not found in walk`;
+            const errorMsg = error ? (error.message || 'Walk failed') : `Interface '${interfaceName}' not found in walk (exact match only)`;
             console.warn(`[Traffic] FAILED ${interfaceName}@${ipAddress} OID=${ifDescrOid} (walk): ${errorMsg}`);
             console.warn(`[Traffic] Available interfaces on ${ipAddress}: ${foundInterfaces.slice(0, 20).join(', ')}${foundInterfaces.length > 20 ? '...' : ''}`);
             cleanup({ data: null, success: false, error: errorMsg });
@@ -807,7 +923,7 @@ export async function probeInterfaceTraffic(
           }
 
           // Found the interface, now get the counters
-          fetchCounters(targetIfIndex);
+          fetchCountersByIndex(targetIfIndex);
         });
       }
     } catch (error: any) {
