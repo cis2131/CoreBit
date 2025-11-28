@@ -609,7 +609,12 @@ export function ConnectionPropertiesPanel({
                               padding: '4px 8px',
                               borderRadius: '4px',
                             }}
-                            formatter={(value: number) => [`${value.toFixed(2)} Mbps`]}
+                            formatter={(value: number) => {
+                              if (value >= 1000) return [`${(value / 1000).toFixed(2)} Gbps`];
+                              if (value >= 1) return [`${value.toFixed(2)} Mbps`];
+                              if (value >= 0.001) return [`${(value * 1000).toFixed(2)} Kbps`];
+                              return [`${(value * 1000000).toFixed(0)} bps`];
+                            }}
                             labelFormatter={(label) => `Time: ${label}`}
                           />
                           <Area
