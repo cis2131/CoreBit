@@ -1493,7 +1493,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (currentInValid && currentOutValid && hasPrevIn && hasPrevOut && hasPrevAt &&
           typeof previousStats.previousInOctets === 'number' && !isNaN(previousStats.previousInOctets) &&
           typeof previousStats.previousOutOctets === 'number' && !isNaN(previousStats.previousOutOctets)) {
-        const prevTimestamp = new Date(previousStats.previousSampleAt).getTime();
+        const prevTimestamp = new Date(previousStats.previousSampleAt!).getTime();
         const timeDeltaSec = (counters.timestamp - prevTimestamp) / 1000;
         
         // Debug: log raw calculation values
@@ -1549,7 +1549,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         previousSampleAt: new Date(counters.timestamp).toISOString(),
         isStale: false, // Clear stale flag on successful update
       };
-      await storage.updateConnection(conn.id, { linkStats: updatedStats });
+      const updated = await storage.updateConnection(conn.id, { linkStats: updatedStats });
+      if (!updated) {
+        console.error(`[Traffic] FAILED to update connection ${conn.id} linkStats!`);
+      }
     }
     
     return true; // Success
