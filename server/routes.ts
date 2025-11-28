@@ -1314,7 +1314,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Traffic monitoring for connections with monitorInterface set
   const TRAFFIC_CONCURRENT_PROBES = 40; // Parallel traffic probes
-  const TRAFFIC_PROBE_TIMEOUT = 8000; // 8 second timeout per traffic probe
+  const TRAFFIC_PROBE_TIMEOUT = 30000; // 30 second timeout per traffic probe (must be > 25s SNMP walk timeout)
   
   async function probeConnectionTraffic(allDevices: Device[]) {
     try {
@@ -1340,8 +1340,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           const promise = (async () => {
             try {
-              await probeSingleConnection(conn, deviceMap);
-              successCount++;
+              const success = await probeSingleConnection(conn, deviceMap);
+              if (success) {
+                successCount++;
+              } else {
+                errorCount++;
+              }
             } catch (error: any) {
               if (error.message?.includes('timeout')) {
                 timeoutCount++;
@@ -1352,11 +1356,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })();
           
           // Wrap with timeout
+          const device = deviceMap.get(conn.monitorInterface === 'source' ? conn.sourceDeviceId : conn.targetDeviceId);
+          const portName = conn.monitorInterface === 'source' ? conn.sourcePort : conn.targetPort;
           const timeoutPromise = new Promise<void>((_, reject) => {
             setTimeout(() => reject(new Error('Traffic probe timeout')), TRAFFIC_PROBE_TIMEOUT);
           });
           
           const wrappedPromise = Promise.race([promise, timeoutPromise]).catch(() => {
+            console.warn(`[Traffic] TIMEOUT ${portName}@${device?.ipAddress || 'unknown'} after ${TRAFFIC_PROBE_TIMEOUT/1000}s`);
             timeoutCount++;
           });
           
@@ -1379,19 +1386,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
   
   // Probe a single connection for traffic stats
-  async function probeSingleConnection(conn: Connection, deviceMap: Map<string, Device>) {
+  // Returns true if successful, false if failed (for counting purposes)
+  async function probeSingleConnection(conn: Connection, deviceMap: Map<string, Device>): Promise<boolean> {
     // Determine which device and port to monitor
     const isSource = conn.monitorInterface === 'source';
     const deviceId = isSource ? conn.sourceDeviceId : conn.targetDeviceId;
     const portName = isSource ? conn.sourcePort : conn.targetPort;
     
     if (!portName) {
-      return; // Silently skip - no port configured
+      return true; // Skip - no port configured (not counted as failure)
     }
     
     const device = deviceMap.get(deviceId);
     if (!device || !device.ipAddress) {
-      return; // Silently skip - device not available
+      return true; // Skip - device not available (not counted as failure)
     }
     
     // Get credentials for the device
@@ -1407,7 +1415,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // If we found an index, cache it on the connection for next time
       if (snmpIndex !== undefined) {
-        console.log(`[Traffic] Caching SNMP index ${snmpIndex} for connection ${conn.id}`);
         await storage.updateConnection(conn.id, { monitorSnmpIndex: snmpIndex });
       }
     }
@@ -1427,7 +1434,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     // If probe returned a new index (from SNMP walk), cache it
     if (result.success && result.data?.ifIndex && result.data.ifIndex !== snmpIndex) {
-      console.log(`[Traffic] Caching SNMP index ${result.data.ifIndex} for ${portName} on connection ${conn.id}`);
       await storage.updateConnection(conn.id, { monitorSnmpIndex: result.data.ifIndex });
     }
     
@@ -1440,7 +1446,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (isStale && !result.success) {
         // Data is stale and we can't get fresh data - reset rates to zero
-        console.log(`[Traffic] Resetting stale stats for connection ${conn.id} (last sample: ${previousStats.lastSampleAt})`);
         await storage.updateConnection(conn.id, {
           linkStats: {
             ...previousStats,
@@ -1452,8 +1457,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             isStale: true,
           },
         });
-        return;
+        return false; // Probe failed
       }
+    }
+    
+    // If probe wasn't successful, return false
+    if (!result.success) {
+      return false;
     }
     
     if (result.success && result.data) {
@@ -1472,9 +1482,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.warn(`[Traffic] Invalid counter values for connection ${conn.id}: in=${counters.inOctets}, out=${counters.outOctets}`);
       }
       
-      if (currentInValid && currentOutValid && (previousStats?.previousInOctets === undefined || previousStats?.previousOutOctets === undefined)) {
-        console.log(`[Traffic] First sample for ${conn.id}: storing counters in=${counters.inOctets}, out=${counters.outOctets} (rates next cycle)`);
-      }
+      // First sample - no logging needed, just store counters
       
       if (currentInValid && currentOutValid && previousStats?.previousInOctets !== undefined && 
           previousStats?.previousOutOctets !== undefined &&
@@ -1503,12 +1511,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!isNaN(rawInRate) && !isNaN(rawOutRate) && rawInRate <= MAX_RATE && rawOutRate <= MAX_RATE) {
             inBytesPerSec = Math.round(rawInRate);
             outBytesPerSec = Math.round(rawOutRate);
-            console.log(`[Traffic] Rates for ${conn.id}: in=${inBytesPerSec} B/s, out=${outBytesPerSec} B/s (${(inBytesPerSec * 8 / 1000000).toFixed(2)} Mbps in, ${(outBytesPerSec * 8 / 1000000).toFixed(2)} Mbps out)`);
           } else if (isNaN(rawInRate) || isNaN(rawOutRate)) {
-            console.warn(`[Traffic] NaN rate for connection ${conn.id}: in=${rawInRate}, out=${rawOutRate}, counters=(${counters.inOctets}, ${counters.outOctets}), prev=(${previousStats.previousInOctets}, ${previousStats.previousOutOctets})`);
+            console.warn(`[Traffic] FAILED rate calc ${conn.id}: NaN (counters: in=${counters.inOctets}, out=${counters.outOctets}, prev: in=${previousStats.previousInOctets}, out=${previousStats.previousOutOctets})`);
           } else {
             // Counter reset or wrap issue - skip this sample
-            console.warn(`[Traffic] Rate sanity check failed for connection ${conn.id}: in=${rawInRate}, out=${rawOutRate}`);
+            console.warn(`[Traffic] FAILED rate calc ${conn.id}: sanity check (in=${rawInRate}, out=${rawOutRate})`);
           }
         }
       }
@@ -1534,8 +1541,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isStale: false, // Clear stale flag on successful update
       };
       await storage.updateConnection(conn.id, { linkStats: updatedStats });
-      console.log(`[Traffic] Updated connection ${conn.id} linkStats: ${JSON.stringify(updatedStats)}`);
     }
+    
+    return true; // Success
   }
   
   // Parse link speed string to bits per second
