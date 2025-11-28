@@ -420,15 +420,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const credentials = await resolveCredentials(device);
       
       // Manual probe should always be detailed and get SNMP indices
+      // Add 20-second timeout to prevent hanging forever when SNMP doesn't respond
       const previousPorts = device.deviceData?.ports;
-      const probeResult = await probeDevice(
-        device.type, 
-        device.ipAddress || undefined, 
-        credentials,
-        true, // detailedProbe - user explicitly requested probe
-        previousPorts,
-        true  // needsSnmpIndexing - always get indices on manual probe
-      );
+      const MANUAL_PROBE_TIMEOUT = 20000; // 20 seconds for manual probe
+      
+      let probeResult: { success: boolean; data?: any; error?: string };
+      try {
+        const probePromise = probeDevice(
+          device.type, 
+          device.ipAddress || undefined, 
+          credentials,
+          true, // detailedProbe - user explicitly requested probe
+          previousPorts,
+          true  // needsSnmpIndexing - always get indices on manual probe
+        );
+        
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Probe timed out after 20 seconds')), MANUAL_PROBE_TIMEOUT);
+        });
+        
+        probeResult = await Promise.race([probePromise, timeoutPromise]);
+      } catch (timeoutError: any) {
+        console.warn(`[Probe] Manual probe timeout for ${device.name}: ${timeoutError.message}`);
+        probeResult = { success: false, error: timeoutError.message };
+      }
+      
       const status = determineDeviceStatus(probeResult.data, probeResult.success);
 
       const updatedDevice = await storage.updateDevice(req.params.id, {
@@ -445,7 +461,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           if (isSource || isTarget) {
             const portName = isSource ? conn.sourcePort : conn.targetPort;
-            const port = probeResult.data.ports.find(p => p.name === portName);
+            const port = probeResult.data.ports.find((p: any) => p.name === portName);
             
             if (port?.snmpIndex && port.snmpIndex !== conn.monitorSnmpIndex) {
               console.log(`[Probe] Updating connection ${conn.id} SNMP index: ${conn.monitorSnmpIndex} -> ${port.snmpIndex}`);
