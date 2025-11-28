@@ -1487,8 +1487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const hasPrevOut = previousStats?.previousOutOctets !== undefined;
       const hasPrevAt = !!previousStats?.previousSampleAt;
       
-      // Always log whether we have previous data for debugging
-      console.log(`[Traffic] DEBUG ${portName}: hasPrev=[${hasPrevIn},${hasPrevOut},${hasPrevAt}] currentTs=${counters.timestamp} prevTs=${previousStats?.previousSampleAt}`);
+      // Remove verbose debug logging - keep only rate calculations
       
       if (currentInValid && currentOutValid && hasPrevIn && hasPrevOut && hasPrevAt &&
           typeof previousStats.previousInOctets === 'number' && !isNaN(previousStats.previousInOctets) &&
@@ -1499,7 +1498,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Debug: log raw calculation values
         const inDeltaDebug = counters.inOctets - previousStats.previousInOctets;
         const outDeltaDebug = counters.outOctets - previousStats.previousOutOctets;
-        console.log(`[Traffic] CALC ${portName}: timeDelta=${timeDeltaSec.toFixed(2)}s, inDelta=${inDeltaDebug}, outDelta=${outDeltaDebug}, inRate=${(inDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps, outRate=${(outDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps`);
+        console.log(`[Traffic] DEBUG ${portName}: timeDelta=${timeDeltaSec.toFixed(2)}s, inDelta=${inDeltaDebug}, outDelta=${outDeltaDebug}, inRate=${(inDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps, outRate=${(outDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps`);
         
         if (timeDeltaSec > 0 && timeDeltaSec < 300) { // Ignore stale samples > 5 minutes
           // Handle counter wrap (32-bit counters can wrap around)
@@ -1549,9 +1548,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         previousSampleAt: new Date(counters.timestamp).toISOString(),
         isStale: false, // Clear stale flag on successful update
       };
+      console.log(`[Traffic] SAVE ${portName}: in=${updatedStats.inBitsPerSec}, out=${updatedStats.outBitsPerSec}, util=${updatedStats.utilizationPct}%`);
       const updated = await storage.updateConnection(conn.id, { linkStats: updatedStats });
       if (!updated) {
         console.error(`[Traffic] FAILED to update connection ${conn.id} linkStats!`);
+      } else {
+        console.log(`[Traffic] OK saved linkStats for ${conn.id}`);
       }
     }
     
