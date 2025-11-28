@@ -1586,7 +1586,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!updated) {
         console.error(`[Traffic] FAILED to update connection ${conn.id} linkStats!`);
       } else {
-        console.log(`[Traffic] OK saved linkStats for ${conn.id}`);
+        // Record to history for bandwidth graphs (only when we have valid rates)
+        if (updatedStats.inBitsPerSec > 0 || updatedStats.outBitsPerSec > 0 || trafficHistory.has(conn.id)) {
+          addTrafficHistoryPoint(conn.id, {
+            timestamp: Date.now(),
+            inBitsPerSec: updatedStats.inBitsPerSec,
+            outBitsPerSec: updatedStats.outBitsPerSec,
+            utilizationPct: updatedStats.utilizationPct,
+          });
+        }
       }
     }
     
@@ -1608,6 +1616,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       default: return value * 1000000000;
     }
   }
+  
+  // Traffic history storage for bandwidth graphs
+  // Stores last 5 minutes of traffic data per connection (30 samples at 10s intervals)
+  interface TrafficHistoryPoint {
+    timestamp: number;
+    inBitsPerSec: number;
+    outBitsPerSec: number;
+    utilizationPct: number;
+  }
+  
+  const TRAFFIC_HISTORY_MAX_POINTS = 30; // 5 minutes of data at 10s intervals
+  const trafficHistory: Map<string, TrafficHistoryPoint[]> = new Map();
+  
+  // Helper to add a data point to traffic history
+  function addTrafficHistoryPoint(connectionId: string, point: TrafficHistoryPoint) {
+    let history = trafficHistory.get(connectionId);
+    if (!history) {
+      history = [];
+      trafficHistory.set(connectionId, history);
+    }
+    history.push(point);
+    // Keep only the last N points
+    while (history.length > TRAFFIC_HISTORY_MAX_POINTS) {
+      history.shift();
+    }
+  }
+  
+  // API endpoint to get traffic history for a connection
+  app.get("/api/connections/:id/traffic-history", async (req, res) => {
+    try {
+      const connectionId = req.params.id;
+      const history = trafficHistory.get(connectionId) || [];
+      res.json(history);
+    } catch (error) {
+      console.error('Error fetching traffic history:', error);
+      res.status(500).json({ error: 'Failed to fetch traffic history' });
+    }
+  });
   
   // Start separate traffic polling loop (10s interval, independent of device probing)
   let isPollingTraffic = false;
