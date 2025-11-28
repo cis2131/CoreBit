@@ -776,6 +776,7 @@ export async function probeInterfaceTraffic(
         const ifDescrOid = '1.3.6.1.2.1.2.2.1.2'; // ifDescr
         let targetIfIndex: number | null = null;
 
+        const foundInterfaces: string[] = [];
         session.walk(ifDescrOid, (varbinds: any[]) => {
           for (const vb of varbinds) {
             if (snmp.isVarbindError(vb)) continue;
@@ -784,19 +785,22 @@ export async function probeInterfaceTraffic(
             const oid = vb.oid;
             const parts = oid.split('.');
             const ifIndex = parseInt(parts[parts.length - 1]);
+            foundInterfaces.push(`${name}(${ifIndex})`);
             
             // Match interface name (case-insensitive, also check for partial match)
             if (name.toLowerCase() === interfaceName.toLowerCase() ||
                 name.toLowerCase().includes(interfaceName.toLowerCase()) ||
                 interfaceName.toLowerCase().includes(name.toLowerCase())) {
               targetIfIndex = ifIndex;
+              console.log(`[Traffic] WALK matched '${name}' (ifIndex=${ifIndex}) for search '${interfaceName}'@${ipAddress}`);
               break;
             }
           }
         }, (error: any) => {
           if (error || targetIfIndex === null) {
-            const errorMsg = error ? (error.message || 'Walk failed') : `Interface not found in walk`;
+            const errorMsg = error ? (error.message || 'Walk failed') : `Interface '${interfaceName}' not found in walk`;
             console.warn(`[Traffic] FAILED ${interfaceName}@${ipAddress} OID=${ifDescrOid} (walk): ${errorMsg}`);
+            console.warn(`[Traffic] Available interfaces on ${ipAddress}: ${foundInterfaces.slice(0, 20).join(', ')}${foundInterfaces.length > 20 ? '...' : ''}`);
             cleanup({ data: null, success: false, error: errorMsg });
             return;
           }

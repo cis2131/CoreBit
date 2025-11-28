@@ -517,23 +517,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Connection not found' });
       }
       
-      // If monitorInterface is being set/changed, look up the SNMP index
+      // If monitorInterface is being set/changed, CLEAR the cached SNMP index 
+      // to force a fresh SNMP walk on next traffic probe. This is necessary because:
+      // 1. Mikrotik ifindex != SNMP ifIndex (they are separate numbering schemes)
+      // 2. The stored portName uses defaultName, not custom name
+      // 3. The SNMP walk will find the correct ifIndex by matching interface name
       if (data.monitorInterface && (data.monitorInterface !== existingConn.monitorInterface || 
           data.sourcePort !== existingConn.sourcePort || data.targetPort !== existingConn.targetPort)) {
+        data.monitorSnmpIndex = null; // Clear cached index to force fresh walk
         const isSource = data.monitorInterface === 'source';
-        const deviceId = isSource ? existingConn.sourceDeviceId : existingConn.targetDeviceId;
         const portName = isSource ? (data.sourcePort || existingConn.sourcePort) : (data.targetPort || existingConn.targetPort);
-        
-        if (portName) {
-          const device = await storage.getDevice(deviceId);
-          if (device?.deviceData?.ports) {
-            const port = device.deviceData.ports.find(p => p.name === portName);
-            if (port?.snmpIndex) {
-              data.monitorSnmpIndex = port.snmpIndex;
-              console.log(`[Connection] Setting SNMP index ${port.snmpIndex} for ${portName} on connection ${req.params.id}`);
-            }
-          }
-        }
+        console.log(`[Connection] Cleared SNMP index for ${portName} on connection ${req.params.id} (interface changed)`);
       }
       
       // If monitorInterface is being cleared, also clear the cached index
@@ -559,6 +553,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error deleting connection:', error);
       res.status(500).json({ error: 'Failed to delete connection' });
+    }
+  });
+
+  // Reset SNMP index to force a fresh walk on next traffic probe
+  app.post("/api/connections/:id/reset-snmp-index", async (req, res) => {
+    try {
+      const connection = await storage.getConnection(req.params.id);
+      if (!connection) {
+        return res.status(404).json({ error: 'Connection not found' });
+      }
+      
+      // Clear the cached SNMP index and link stats
+      const updated = await storage.updateConnection(req.params.id, { 
+        monitorSnmpIndex: null,
+        linkStats: null 
+      });
+      
+      console.log(`[Connection] Reset SNMP index for connection ${req.params.id} (manual refresh)`);
+      res.json(updated);
+    } catch (error) {
+      console.error('Error resetting SNMP index:', error);
+      res.status(500).json({ error: 'Failed to reset SNMP index' });
     }
   });
 

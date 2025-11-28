@@ -23,6 +23,7 @@ import {
   ArrowUp,
   Radio,
   AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -52,6 +53,7 @@ export function ConnectionPropertiesPanel({
     connection.monitorInterface || "none",
   );
   const [saving, setSaving] = useState(false);
+  const [resettingIndex, setResettingIndex] = useState(false);
 
   // Sync state when connection prop changes (e.g., clicking between different connections)
   useEffect(() => {
@@ -123,6 +125,28 @@ export function ConnectionPropertiesPanel({
     // Show 2 decimal places for values < 10, 1 decimal for values < 100, 0 for larger
     const decimals = value < 10 ? 2 : value < 100 ? 1 : 0;
     return value.toFixed(decimals) + " " + sizes[i];
+  };
+
+  const handleResetSnmpIndex = async () => {
+    setResettingIndex(true);
+    try {
+      await apiRequest("POST", `/api/connections/${connection.id}/reset-snmp-index`);
+      queryClient.invalidateQueries({
+        queryKey: ["/api/connections", connection.mapId],
+      });
+      toast({
+        title: "SNMP index reset",
+        description: "Traffic monitoring will re-discover the interface on next poll.",
+      });
+    } catch (error) {
+      toast({
+        title: "Reset failed",
+        description: "Could not reset SNMP index.",
+        variant: "destructive",
+      });
+    } finally {
+      setResettingIndex(false);
+    }
   };
 
   return (
@@ -396,12 +420,25 @@ export function ConnectionPropertiesPanel({
                 </Select>
               </div>
               {monitorInterface !== "none" && (
-                <Badge variant="secondary" className="text-xs">
-                  Monitoring:{" "}
-                  {monitorInterface === "source"
-                    ? sourceDevice.name
-                    : targetDevice.name}
-                </Badge>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="secondary" className="text-xs">
+                    Monitoring:{" "}
+                    {monitorInterface === "source"
+                      ? sourceDevice.name
+                      : targetDevice.name}
+                  </Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleResetSnmpIndex}
+                    disabled={resettingIndex}
+                    className="h-6 text-xs"
+                    data-testid="button-reset-snmp-index"
+                  >
+                    <RefreshCw className={`h-3 w-3 mr-1 ${resettingIndex ? 'animate-spin' : ''}`} />
+                    {resettingIndex ? "Refreshing..." : "Refresh Index"}
+                  </Button>
+                </div>
               )}
             </CardContent>
           </Card>
