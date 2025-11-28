@@ -1564,38 +1564,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Start separate traffic polling loop (10s interval, independent of device probing)
   let isPollingTraffic = false;
+  let trafficCycleCompleted = 0; // Tracks completed cycles (not started)
   let trafficCycle = 0;
   const TRAFFIC_POLLING_INTERVAL = 10000; // 10 seconds
+  
+  async function runTrafficCycle() {
+    if (isPollingTraffic) {
+      // Only log skip warning after first cycle has completed (not during initial slow SNMP walk)
+      if (trafficCycleCompleted > 0) {
+        console.warn('[Traffic] Previous cycle still running, skipping');
+      }
+      return;
+    }
+    
+    isPollingTraffic = true;
+    trafficCycle++;
+    const startTime = Date.now();
+    
+    try {
+      const allDevices = await storage.getAllDevices();
+      await probeConnectionTraffic(allDevices);
+      
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+      // Only log completion for non-empty cycles
+      const monitoredCount = (await storage.getMonitoredConnections()).length;
+      if (monitoredCount > 0) {
+        console.log(`[Traffic] Cycle #${trafficCycle} complete in ${duration}s`);
+      }
+    } catch (error: any) {
+      console.error('[Traffic] Error in traffic polling:', error.message);
+    } finally {
+      isPollingTraffic = false;
+      trafficCycleCompleted++;
+    }
+  }
   
   async function startTrafficPolling() {
     console.log(`[Traffic] Starting traffic polling service (${TRAFFIC_POLLING_INTERVAL / 1000}s interval, ${TRAFFIC_CONCURRENT_PROBES} concurrent)`);
     
-    setInterval(async () => {
-      if (isPollingTraffic) {
-        console.warn('[Traffic] Previous traffic cycle still running, skipping');
-        return;
-      }
-      
-      isPollingTraffic = true;
-      trafficCycle++;
-      const startTime = Date.now();
-      
-      try {
-        const allDevices = await storage.getAllDevices();
-        await probeConnectionTraffic(allDevices);
-        
-        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-        // Only log completion for non-empty cycles
-        const monitoredCount = (await storage.getMonitoredConnections()).length;
-        if (monitoredCount > 0) {
-          console.log(`[Traffic] Cycle #${trafficCycle} complete in ${duration}s`);
-        }
-      } catch (error: any) {
-        console.error('[Traffic] Error in traffic polling:', error.message);
-      } finally {
-        isPollingTraffic = false;
-      }
-    }, TRAFFIC_POLLING_INTERVAL);
+    // Run first cycle immediately, then schedule subsequent cycles
+    runTrafficCycle();
+    setInterval(runTrafficCycle, TRAFFIC_POLLING_INTERVAL);
   }
   
   startPeriodicProbing();
