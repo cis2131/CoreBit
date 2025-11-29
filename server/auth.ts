@@ -50,10 +50,10 @@ export function setupSession(app: Express): void {
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
-    proxy: isProduction,
+    proxy: true,
     name: 'thedude.sid',
     cookie: {
-      secure: isProduction,
+      secure: false,
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       sameSite: 'lax' as const,
