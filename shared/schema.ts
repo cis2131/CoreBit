@@ -85,6 +85,7 @@ export const devices = pgTable("devices", {
   type: text("type").notNull(),
   ipAddress: text("ip_address"),
   status: text("status").notNull().default("unknown"),
+  probeTimeout: integer("probe_timeout"), // Custom probe timeout in seconds (null = use default 6s)
   deviceData: jsonb("device_data").$type<{
     uptime?: string;
     model?: string;
