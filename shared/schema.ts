@@ -181,6 +181,30 @@ export const backups = pgTable("backups", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const userRoles = ['admin', 'superuser', 'viewer'] as const;
+export type UserRole = typeof userRoles[number];
+
+export const users = pgTable("users", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull().default("viewer").$type<UserRole>(),
+  displayName: text("display_name"),
+  email: text("email"),
+  lastLoginAt: timestamp("last_login_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const portLocks = pgTable("port_locks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  deviceId: varchar("device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
+  portName: text("port_name").notNull(),
+  lockedBy: varchar("locked_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  lockedAt: timestamp("locked_at").defaultNow().notNull(),
+  reason: text("reason"),
+});
+
 export const mapsRelations = relations(maps, ({ many }) => ({
   devicePlacements: many(devicePlacements),
   connections: many(connections),
@@ -345,6 +369,20 @@ export const insertBackupSchema = createInsertSchema(backups).omit({
   }).optional(),
 });
 
+export const insertUserSchema = createInsertSchema(users).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastLoginAt: true,
+}).extend({
+  role: z.enum(['admin', 'superuser', 'viewer']).optional(),
+});
+
+export const insertPortLockSchema = createInsertSchema(portLocks).omit({
+  id: true,
+  lockedAt: true,
+});
+
 export type Map = typeof maps.$inferSelect;
 export type InsertMap = z.infer<typeof insertMapSchema>;
 export type Device = typeof devices.$inferSelect;
@@ -365,3 +403,7 @@ export type ScanProfile = typeof scanProfiles.$inferSelect;
 export type InsertScanProfile = z.infer<typeof insertScanProfileSchema>;
 export type Backup = typeof backups.$inferSelect;
 export type InsertBackup = z.infer<typeof insertBackupSchema>;
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type PortLock = typeof portLocks.$inferSelect;
+export type InsertPortLock = z.infer<typeof insertPortLockSchema>;
