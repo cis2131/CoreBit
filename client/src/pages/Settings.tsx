@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth, type User } from "@/hooks/useAuth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +15,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw, Users, Crown, Shield, Eye, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 import { z } from "zod";
 import type { CredentialProfile, InsertCredentialProfile, Notification, InsertNotification, Backup } from "@shared/schema";
@@ -357,6 +358,372 @@ function BackupSection() {
             <AlertDialogAction
               onClick={() => deletingBackup && deleteBackupMutation.mutate(deletingBackup.id)}
               data-testid="button-confirm-delete-backup"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+
+const userFormSchema = z.object({
+  username: z.string().min(3, "Username must be at least 3 characters"),
+  password: z.string().min(4, "Password must be at least 4 characters").optional(),
+  displayName: z.string().optional(),
+  role: z.enum(["admin", "superuser", "viewer"]),
+});
+
+type UserFormData = z.infer<typeof userFormSchema>;
+
+function UserManagementSection() {
+  const { toast } = useToast();
+  const { user: currentUser, isAdmin } = useAuth();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
+
+  const { data: users = [], isLoading } = useQuery<User[]>({
+    queryKey: ["/api/users"],
+    enabled: isAdmin,
+  });
+
+  const form = useForm<UserFormData>({
+    resolver: zodResolver(userFormSchema),
+    defaultValues: {
+      username: "",
+      password: "",
+      displayName: "",
+      role: "viewer",
+    },
+  });
+
+  useEffect(() => {
+    if (editingUser) {
+      form.reset({
+        username: editingUser.username,
+        password: "",
+        displayName: editingUser.displayName || "",
+        role: editingUser.role,
+      });
+    } else {
+      form.reset({
+        username: "",
+        password: "",
+        displayName: "",
+        role: "viewer",
+      });
+    }
+  }, [editingUser, form]);
+
+  const createUserMutation = useMutation({
+    mutationFn: async (data: UserFormData) =>
+      apiRequest("POST", "/api/users", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      toast({ description: "User created successfully" });
+      handleDialogClose();
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", description: error?.message || "Failed to create user" });
+    },
+  });
+
+  const updateUserMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<UserFormData> }) =>
+      apiRequest("PATCH", `/api/users/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      toast({ description: "User updated successfully" });
+      handleDialogClose();
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", description: error?.message || "Failed to update user" });
+    },
+  });
+
+  const deleteUserMutation = useMutation({
+    mutationFn: async (id: string) =>
+      apiRequest("DELETE", `/api/users/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      toast({ description: "User deleted" });
+      setDeletingUser(null);
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", description: error?.message || "Failed to delete user" });
+    },
+  });
+
+  const handleDialogClose = () => {
+    setDialogOpen(false);
+    setEditingUser(null);
+    form.reset();
+  };
+
+  const handleEdit = (user: User) => {
+    setEditingUser(user);
+    setDialogOpen(true);
+  };
+
+  const handleSubmit = (data: UserFormData) => {
+    if (editingUser) {
+      const updateData: Partial<UserFormData> = {
+        displayName: data.displayName,
+        role: data.role,
+      };
+      if (data.password && data.password.length > 0) {
+        updateData.password = data.password;
+      }
+      updateUserMutation.mutate({ id: editingUser.id, data: updateData });
+    } else {
+      createUserMutation.mutate(data);
+    }
+  };
+
+  const getRoleIcon = (role: string) => {
+    switch (role) {
+      case 'admin': return <Crown className="h-4 w-4 text-yellow-500" />;
+      case 'superuser': return <Shield className="h-4 w-4 text-blue-500" />;
+      case 'viewer': return <Eye className="h-4 w-4 text-muted-foreground" />;
+      default: return null;
+    }
+  };
+
+  const getRoleDescription = (role: string) => {
+    switch (role) {
+      case 'admin': return "Full access including user management and settings";
+      case 'superuser': return "Dashboard access, can modify devices and maps";
+      case 'viewer': return "Read-only access to view the network";
+      default: return "";
+    }
+  };
+
+  if (!isAdmin) {
+    return null;
+  }
+
+  return (
+    <Card data-testid="card-user-management">
+      <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5" />
+            User Management
+          </CardTitle>
+          <CardDescription>
+            Manage users and their access levels
+          </CardDescription>
+        </div>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" data-testid="button-add-user">
+              <Plus className="h-4 w-4 mr-2" />
+              Add User
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editingUser ? "Edit User" : "Add User"}</DialogTitle>
+              <DialogDescription>
+                {editingUser ? "Update user details and role" : "Create a new user account"}
+              </DialogDescription>
+            </DialogHeader>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="username"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Username</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          disabled={!!editingUser}
+                          placeholder="Enter username"
+                          data-testid="input-user-username"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="displayName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Display Name</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder="Enter display name"
+                          data-testid="input-user-displayname"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{editingUser ? "New Password (leave empty to keep current)" : "Password"}</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="password"
+                          placeholder={editingUser ? "Enter new password" : "Enter password"}
+                          data-testid="input-user-password"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="role"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Role</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-user-role">
+                            <SelectValue placeholder="Select a role" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="admin" data-testid="role-option-admin">
+                            <div className="flex items-center gap-2">
+                              <Crown className="h-4 w-4 text-yellow-500" />
+                              Admin
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="superuser" data-testid="role-option-superuser">
+                            <div className="flex items-center gap-2">
+                              <Shield className="h-4 w-4 text-blue-500" />
+                              Superuser
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="viewer" data-testid="role-option-viewer">
+                            <div className="flex items-center gap-2">
+                              <Eye className="h-4 w-4 text-muted-foreground" />
+                              Viewer
+                            </div>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        {getRoleDescription(field.value)}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleDialogClose}
+                    data-testid="button-cancel-user"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={createUserMutation.isPending || updateUserMutation.isPending}
+                    data-testid="button-save-user"
+                  >
+                    {(createUserMutation.isPending || updateUserMutation.isPending) && (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    )}
+                    {editingUser ? "Update" : "Create"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : users.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8">
+            No users found
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {users.map((user) => (
+              <div
+                key={user.id}
+                className="flex items-center justify-between p-4 border rounded-md hover-elevate"
+                data-testid={`user-item-${user.id}`}
+              >
+                <div className="flex items-center gap-3">
+                  {getRoleIcon(user.role)}
+                  <div>
+                    <div className="font-medium text-foreground flex items-center gap-2">
+                      {user.displayName || user.username}
+                      {user.id === currentUser?.id && (
+                        <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">You</span>
+                      )}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      @{user.username} · {user.role}
+                      {user.lastLogin && (
+                        <span className="ml-2">
+                          · Last login: {new Date(user.lastLogin).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleEdit(user)}
+                    data-testid={`button-edit-user-${user.id}`}
+                  >
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setDeletingUser(user)}
+                    disabled={user.id === currentUser?.id}
+                    data-testid={`button-delete-user-${user.id}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+
+      <AlertDialog open={!!deletingUser} onOpenChange={(open) => !open && setDeletingUser(null)}>
+        <AlertDialogContent data-testid="dialog-delete-user-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete User</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{deletingUser?.displayName || deletingUser?.username}"? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-user">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deletingUser && deleteUserMutation.mutate(deletingUser.id)}
+              data-testid="button-confirm-delete-user"
             >
               Delete
             </AlertDialogAction>
@@ -1401,6 +1768,8 @@ export default function Settings() {
           </Card>
 
           <BackupSection />
+
+          <UserManagementSection />
         </div>
       </main>
 
