@@ -1304,21 +1304,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
   
   async function probeDeviceWithTimeout(device: any, credentials: any, isDetailedCycle: boolean = false, needsSnmpIndexing: boolean = false): Promise<ProbeResult> {
-    let timeoutId: NodeJS.Timeout;
-    let timedOut = false;
-    
     // Use per-device timeout if set, otherwise use default (6 seconds)
     const deviceTimeoutSeconds = device.probeTimeout || 6;
     const deviceTimeoutMs = deviceTimeoutSeconds * 1000;
     
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => {
-        timedOut = true;
-        reject(new Error('Probe timeout'));
-      }, deviceTimeoutMs);
-    });
+    // Try probe with retry on timeout
+    const maxAttempts = 2;
     
-    const probePromise = (async () => {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let timeoutId: NodeJS.Timeout;
+      let timedOut = false;
+      
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          reject(new Error('Probe timeout'));
+        }, deviceTimeoutMs);
+      });
+      
+      const probePromise = (async () => {
       // Detect link state changes for Mikrotik devices
       const previousPorts = device.deviceData?.ports || [];
       let needsDetailedProbe = isDetailedCycle;
@@ -1463,72 +1467,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return { device, success: probeResult.success, timeout: false };
     })();
     
-    try {
-      const result = await Promise.race([probePromise, timeoutPromise]);
-      clearTimeout(timeoutId!);
-      return result;
-    } catch (error: any) {
-      clearTimeout(timeoutId!);
-      if (error.message === 'Probe timeout') {
-        // Fetch current device status from DB to avoid stale data
-        const currentDevice = await storage.getDevice(device.id);
+      try {
+        const result = await Promise.race([probePromise, timeoutPromise]);
+        clearTimeout(timeoutId!);
+        return result;
+      } catch (error: any) {
+        clearTimeout(timeoutId!);
         
-        // Device was deleted during probe cycle - bail out
-        if (!currentDevice) {
+        if (error.message === 'Probe timeout') {
+          // If this was the first attempt, retry once
+          if (attempt < maxAttempts) {
+            const timestamp = new Date().toISOString();
+            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): timeout on attempt ${attempt}, retrying...`);
+            continue; // Try again
+          }
+          
+          // Final attempt also timed out - mark device offline
+          // Fetch current device status from DB to avoid stale data
+          const currentDevice = await storage.getDevice(device.id);
+          
+          // Device was deleted during probe cycle - bail out
+          if (!currentDevice) {
+            return { device, success: false, timeout: true };
+          }
+          
+          const oldStatus = currentDevice.status;
+          
+          // Only update and log if status is actually changing
+          if (oldStatus !== 'offline') {
+            await storage.updateDevice(device.id, { status: 'offline' });
+            
+            // IMPORTANT: Update the device object so downstream code doesn't overwrite with stale status
+            device.status = 'offline';
+            
+            // Log status change to console with timestamp
+            const timestamp = new Date().toISOString();
+            console.warn(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → offline (timeout after ${maxAttempts} attempts)`);
+            
+            // Create log entry for status change
+            try {
+              await storage.createLog({
+                deviceId: device.id,
+                eventType: 'status_change',
+                severity: 'error',
+                message: `Device ${device.name} status changed from ${oldStatus} to offline (probe timeout after ${maxAttempts} attempts)`,
+                oldStatus,
+                newStatus: 'offline',
+              });
+            } catch (logError: any) {
+              console.error(`[Logging] Error creating timeout log for ${device.name}:`, logError.message);
+            }
+            
+            // Send notifications for timeout
+            try {
+              const deviceNotifications = await storage.getDeviceNotifications(device.id);
+              if (deviceNotifications.length > 0) {
+                for (const dn of deviceNotifications) {
+                  const notification = await storage.getNotification(dn.notificationId);
+                  if (notification) {
+                    await sendNotification(notification, device, 'offline', oldStatus);
+                  }
+                }
+              }
+            } catch (notifError: any) {
+              console.error(`[Notification] Error sending timeout notifications for ${device.name}:`, notifError.message);
+            }
+          } else {
+            // Device is already offline - just update the local object to match DB
+            device.status = 'offline';
+          }
+          
           return { device, success: false, timeout: true };
         }
         
-        const oldStatus = currentDevice.status;
-        
-        // Only update and log if status is actually changing
-        if (oldStatus !== 'offline') {
-          await storage.updateDevice(device.id, { status: 'offline' });
-          
-          // IMPORTANT: Update the device object so downstream code doesn't overwrite with stale status
-          device.status = 'offline';
-          
-          // Log status change to console with timestamp
-          const timestamp = new Date().toISOString();
-          console.warn(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → offline (timeout)`);
-          
-          // Create log entry for status change
-          try {
-            await storage.createLog({
-              deviceId: device.id,
-              eventType: 'status_change',
-              severity: 'error',
-              message: `Device ${device.name} status changed from ${oldStatus} to offline (probe timeout)`,
-              oldStatus,
-              newStatus: 'offline',
-            });
-          } catch (logError: any) {
-            console.error(`[Logging] Error creating timeout log for ${device.name}:`, logError.message);
-          }
-          
-          // Send notifications for timeout
-          try {
-            const deviceNotifications = await storage.getDeviceNotifications(device.id);
-            if (deviceNotifications.length > 0) {
-              for (const dn of deviceNotifications) {
-                const notification = await storage.getNotification(dn.notificationId);
-                if (notification) {
-                  await sendNotification(notification, device, 'offline', oldStatus);
-                }
-              }
-            }
-          } catch (notifError: any) {
-            console.error(`[Notification] Error sending timeout notifications for ${device.name}:`, notifError.message);
-          }
-        } else {
-          // Device is already offline - just update the local object to match DB
-          device.status = 'offline';
-        }
-        
-        return { device, success: false, timeout: true };
+        // Non-timeout error - don't retry
+        console.error(`[Probing] Failed to probe ${device.name}:`, error.message);
+        return { device, success: false, timeout: false, error: error.message };
       }
-      console.error(`[Probing] Failed to probe ${device.name}:`, error.message);
-      return { device, success: false, timeout: false, error: error.message };
     }
+    
+    // Should never reach here, but TypeScript needs a return
+    return { device, success: false, timeout: true };
   }
   
   async function processConcurrentQueue(devices: any[], concurrency: number, isDetailedCycle: boolean = false, devicesNeedingSnmp: Set<string> = new Set()): Promise<ProbeResult[]> {
