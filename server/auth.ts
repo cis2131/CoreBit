@@ -26,6 +26,12 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 
 export function setupSession(app: Express): void {
   const sessionSecret = process.env.SESSION_SECRET || 'dev-secret-change-in-production';
+  const isProduction = process.env.NODE_ENV === 'production';
+  
+  // Trust proxy in production (Replit runs behind a proxy)
+  if (isProduction) {
+    app.set('trust proxy', 1);
+  }
   
   const PgSession = connectPgSimple(session);
   const pool = new Pool({
@@ -42,8 +48,9 @@ export function setupSession(app: Express): void {
       secret: sessionSecret,
       resave: false,
       saveUninitialized: false,
+      proxy: isProduction,
       cookie: {
-        secure: process.env.NODE_ENV === 'production',
+        secure: isProduction,
         httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
         sameSite: 'lax',
