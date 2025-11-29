@@ -1995,7 +1995,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Clear device notifications
       const deviceNotifs = await storage.getDeviceNotifications(device.id);
       for (const dn of deviceNotifs) {
-        await storage.deleteDeviceNotification(dn.id);
+        await storage.removeDeviceNotification(dn.deviceId, dn.notificationId);
       }
       await storage.deleteDevice(device.id);
     }
@@ -2085,56 +2085,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const newDeviceId = deviceIdMap.get(placement.deviceId);
         const newMapId = mapIdMap.get(placement.mapId);
         if (newDeviceId && newMapId) {
+          // Handle both old format (x, y) and new format (position: {x, y})
+          const x = placement.position?.x ?? placement.x ?? 0;
+          const y = placement.position?.y ?? placement.y ?? 0;
           await storage.createPlacement({
             deviceId: newDeviceId,
             mapId: newMapId,
-            x: placement.x,
-            y: placement.y,
+            position: { x, y },
           });
         }
       }
     }
     
-    // 6. Connections (with placement/device and map ID mapping)
+    // 6. Connections (with device and map ID mapping)
     if (data.connections) {
-      // Need to get the new placements to map connections
-      const allNewPlacements = [];
-      for (const map of data.maps || []) {
-        const newMapId = mapIdMap.get(map.id);
-        if (newMapId) {
-          const placements = await storage.getPlacementsByMapId(newMapId);
-          allNewPlacements.push(...placements);
-        }
-      }
-      
       for (const conn of data.connections) {
         const newMapId = mapIdMap.get(conn.mapId);
         const newSourceDeviceId = deviceIdMap.get(conn.sourceDeviceId);
         const newTargetDeviceId = deviceIdMap.get(conn.targetDeviceId);
         
         if (newMapId && newSourceDeviceId && newTargetDeviceId) {
-          // Find matching placements
-          const sourcePlacement = allNewPlacements.find(
-            p => p.deviceId === newSourceDeviceId && p.mapId === newMapId
-          );
-          const targetPlacement = allNewPlacements.find(
-            p => p.deviceId === newTargetDeviceId && p.mapId === newMapId
-          );
-          
-          if (sourcePlacement && targetPlacement) {
-            await storage.createConnection({
-              mapId: newMapId,
-              sourcePlacementId: sourcePlacement.id,
-              targetPlacementId: targetPlacement.id,
-              sourceDeviceId: newSourceDeviceId,
-              targetDeviceId: newTargetDeviceId,
-              sourceInterface: conn.sourceInterface,
-              targetInterface: conn.targetInterface,
-              monitorInterface: conn.monitorInterface,
-              monitorSnmpIndex: conn.monitorSnmpIndex,
-              linkSpeed: conn.linkSpeed,
-            });
-          }
+          await storage.createConnection({
+            mapId: newMapId,
+            sourceDeviceId: newSourceDeviceId,
+            targetDeviceId: newTargetDeviceId,
+            sourcePort: conn.sourcePort || conn.sourceInterface,
+            targetPort: conn.targetPort || conn.targetInterface,
+            connectionType: conn.connectionType,
+            monitorInterface: conn.monitorInterface,
+            monitorSnmpIndex: conn.monitorSnmpIndex,
+            linkSpeed: conn.linkSpeed,
+          });
         }
       }
     }
@@ -2145,7 +2126,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const newDeviceId = deviceIdMap.get(dn.deviceId);
         const newNotificationId = notificationIdMap.get(dn.notificationId);
         if (newDeviceId && newNotificationId) {
-          await storage.createDeviceNotification({
+          await storage.addDeviceNotification({
             deviceId: newDeviceId,
             notificationId: newNotificationId,
           });
