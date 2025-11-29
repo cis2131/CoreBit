@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useCallback, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -30,10 +30,23 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   
-  const { data: sessionData, isLoading, refetch } = useQuery<{ user: User }>({
+  const { data: sessionData, isLoading, refetch } = useQuery<{ user: User } | null>({
     queryKey: ["/api/auth/session"],
+    queryFn: async () => {
+      const res = await fetch("/api/auth/session", {
+        credentials: "include",
+      });
+      if (res.status === 401) {
+        return null;
+      }
+      if (!res.ok) {
+        throw new Error("Failed to fetch session");
+      }
+      return res.json();
+    },
     retry: false,
     refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   const user = sessionData?.user ?? null;
@@ -44,8 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loginMutation = useMutation({
     mutationFn: async ({ username, password }: { username: string; password: string }) => {
-      const response = await apiRequest("POST", "/api/auth/login", { username, password });
-      return response.json();
+      return await apiRequest("POST", "/api/auth/login", { username, password });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
@@ -57,8 +69,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await apiRequest("POST", "/api/auth/logout");
     },
     onSuccess: () => {
-      queryClient.clear();
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
+      queryClient.setQueryData(["/api/auth/session"], null);
+      queryClient.invalidateQueries();
     },
   });
 
