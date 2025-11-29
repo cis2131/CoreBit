@@ -8,7 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { Checkbox } from '@/components/ui/checkbox';
-import { X, Trash2, Edit, RefreshCw, Key, Cpu, MemoryStick, Bell, Link as LinkIcon, Clock } from 'lucide-react';
+import { X, Trash2, Edit, RefreshCw, Key, Cpu, MemoryStick, Bell, Link as LinkIcon, Clock, AlertTriangle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { apiRequest, queryClient } from '@/lib/queryClient';
@@ -47,11 +47,13 @@ export function DevicePropertiesPanel({
   const { toast } = useToast();
   const [probing, setProbing] = useState(false);
   const [timeoutValue, setTimeoutValue] = useState<string>(device.probeTimeout?.toString() ?? '');
+  const [thresholdValue, setThresholdValue] = useState<string>(device.offlineThreshold?.toString() ?? '');
   const status = statusLabels[device.status as keyof typeof statusLabels] || statusLabels.unknown;
 
   useEffect(() => {
     setTimeoutValue(device.probeTimeout?.toString() ?? '');
-  }, [device.id, device.probeTimeout]);
+    setThresholdValue(device.offlineThreshold?.toString() ?? '');
+  }, [device.id, device.probeTimeout, device.offlineThreshold]);
 
   const { data: credentialProfile } = useQuery<CredentialProfile>({
     queryKey: ['/api/credential-profiles', device.credentialProfileId],
@@ -134,6 +136,30 @@ export function DevicePropertiesPanel({
     } else {
       setTimeoutValue(device.probeTimeout?.toString() ?? '');
       toast({ variant: 'destructive', description: 'Timeout must be between 1 and 120 seconds' });
+    }
+  };
+
+  const updateThresholdMutation = useMutation({
+    mutationFn: async (threshold: number | null) =>
+      apiRequest('PATCH', `/api/devices/${device.id}`, { offlineThreshold: threshold }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/devices'] });
+      toast({ description: 'Offline threshold updated' });
+    },
+    onError: () => {
+      toast({ variant: 'destructive', description: 'Failed to update threshold' });
+    },
+  });
+
+  const handleThresholdBlur = () => {
+    const parsed = parseInt(thresholdValue, 10);
+    if (thresholdValue === '' || isNaN(parsed)) {
+      updateThresholdMutation.mutate(null);
+    } else if (parsed >= 1 && parsed <= 10) {
+      updateThresholdMutation.mutate(parsed);
+    } else {
+      setThresholdValue(device.offlineThreshold?.toString() ?? '');
+      toast({ variant: 'destructive', description: 'Threshold must be between 1 and 10 cycles' });
     }
   };
 
@@ -452,6 +478,38 @@ export function DevicePropertiesPanel({
                 <p className="text-xs text-muted-foreground">
                   Increase for devices with slow API connections
                 </p>
+              </div>
+              
+              <Separator />
+              
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                  <Label className="text-sm font-medium">Offline Threshold</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    placeholder="1"
+                    value={thresholdValue}
+                    onChange={(e) => setThresholdValue(e.target.value)}
+                    onBlur={handleThresholdBlur}
+                    className="w-20 h-8"
+                    data-testid="input-offline-threshold"
+                    disabled={!canModify}
+                  />
+                  <span className="text-sm text-muted-foreground">cycles (default: 1)</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Failed probe cycles before marking device offline
+                </p>
+                {device.failureCount ? (
+                  <p className="text-xs text-yellow-600">
+                    Current failures: {device.failureCount}/{device.offlineThreshold || 1}
+                  </p>
+                ) : null}
               </div>
             </CardContent>
           </Card>

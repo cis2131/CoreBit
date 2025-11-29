@@ -1360,6 +1360,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await storage.updateDevice(device.id, {
               status,
               deviceData: quickProbe.data,
+              failureCount: 0, // Reset failure count on successful probe
             });
           }
           
@@ -1425,6 +1426,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updateDevice(device.id, {
           status,
           deviceData: probeResult.success ? probeResult.data : (device.deviceData || undefined),
+          failureCount: probeResult.success ? 0 : undefined, // Reset failure count on successful probe
         });
       }
       
@@ -1482,7 +1484,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             continue; // Try again
           }
           
-          // Final attempt also timed out - mark device offline
+          // Final attempt also timed out - check offline threshold
           // Fetch current device status from DB to avoid stale data
           const currentDevice = await storage.getDevice(device.id);
           
@@ -1492,49 +1494,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           
           const oldStatus = currentDevice.status;
+          const currentFailureCount = (currentDevice.failureCount || 0) + 1;
+          const offlineThreshold = currentDevice.offlineThreshold || 1; // Default: mark offline immediately
           
-          // Only update and log if status is actually changing
-          if (oldStatus !== 'offline') {
-            await storage.updateDevice(device.id, { status: 'offline' });
-            
-            // IMPORTANT: Update the device object so downstream code doesn't overwrite with stale status
-            device.status = 'offline';
-            
-            // Log status change to console with timestamp
-            const timestamp = new Date().toISOString();
-            console.warn(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → offline (timeout after ${maxAttempts} attempts)`);
-            
-            // Create log entry for status change
-            try {
-              await storage.createLog({
-                deviceId: device.id,
-                eventType: 'status_change',
-                severity: 'error',
-                message: `Device ${device.name} status changed from ${oldStatus} to offline (probe timeout after ${maxAttempts} attempts)`,
-                oldStatus,
-                newStatus: 'offline',
-              });
-            } catch (logError: any) {
-              console.error(`[Logging] Error creating timeout log for ${device.name}:`, logError.message);
-            }
-            
-            // Send notifications for timeout
-            try {
-              const deviceNotifications = await storage.getDeviceNotifications(device.id);
-              if (deviceNotifications.length > 0) {
-                for (const dn of deviceNotifications) {
-                  const notification = await storage.getNotification(dn.notificationId);
-                  if (notification) {
-                    await sendNotification(notification, device, 'offline', oldStatus);
+          // Increment failure count
+          await storage.updateDevice(device.id, { failureCount: currentFailureCount });
+          
+          // Check if we've reached the offline threshold
+          if (currentFailureCount >= offlineThreshold) {
+            // Only update and log if status is actually changing
+            if (oldStatus !== 'offline') {
+              await storage.updateDevice(device.id, { status: 'offline', failureCount: currentFailureCount });
+              
+              // IMPORTANT: Update the device object so downstream code doesn't overwrite with stale status
+              device.status = 'offline';
+              
+              // Log status change to console with timestamp
+              const timestamp = new Date().toISOString();
+              console.warn(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → offline (timeout after ${currentFailureCount}/${offlineThreshold} failed cycles)`);
+              
+              // Create log entry for status change
+              try {
+                await storage.createLog({
+                  deviceId: device.id,
+                  eventType: 'status_change',
+                  severity: 'error',
+                  message: `Device ${device.name} status changed from ${oldStatus} to offline (probe timeout after ${currentFailureCount} failed cycles)`,
+                  oldStatus,
+                  newStatus: 'offline',
+                });
+              } catch (logError: any) {
+                console.error(`[Logging] Error creating timeout log for ${device.name}:`, logError.message);
+              }
+              
+              // Send notifications for timeout
+              try {
+                const deviceNotifications = await storage.getDeviceNotifications(device.id);
+                if (deviceNotifications.length > 0) {
+                  for (const dn of deviceNotifications) {
+                    const notification = await storage.getNotification(dn.notificationId);
+                    if (notification) {
+                      await sendNotification(notification, device, 'offline', oldStatus);
+                    }
                   }
                 }
+              } catch (notifError: any) {
+                console.error(`[Notification] Error sending timeout notifications for ${device.name}:`, notifError.message);
               }
-            } catch (notifError: any) {
-              console.error(`[Notification] Error sending timeout notifications for ${device.name}:`, notifError.message);
+            } else {
+              // Device is already offline - just update the local object to match DB
+              device.status = 'offline';
             }
           } else {
-            // Device is already offline - just update the local object to match DB
-            device.status = 'offline';
+            // Not yet reached threshold - log the failure count
+            const timestamp = new Date().toISOString();
+            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): timeout (${currentFailureCount}/${offlineThreshold} failures, not yet offline)`);
           }
           
           return { device, success: false, timeout: true };

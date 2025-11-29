@@ -86,6 +86,8 @@ export const devices = pgTable("devices", {
   ipAddress: text("ip_address"),
   status: text("status").notNull().default("unknown"),
   probeTimeout: integer("probe_timeout"), // Custom probe timeout in seconds (null = use default 6s)
+  offlineThreshold: integer("offline_threshold"), // Number of consecutive failed probe cycles before marking offline (null = immediate)
+  failureCount: integer("failure_count").default(0), // Current consecutive failure count
   deviceData: jsonb("device_data").$type<{
     uptime?: string;
     model?: string;
