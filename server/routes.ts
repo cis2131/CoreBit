@@ -1343,6 +1343,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // If we don't need detailed probe, use the quick probe result and return early
         if (!needsDetailedProbe && quickProbe.success) {
+          // Check if we timed out before updating - prevents race condition
+          if (timedOut) {
+            return { device, success: false, timeout: true };
+          }
+          
           const status = determineDeviceStatus(quickProbe.data, quickProbe.success);
           const oldStatus = device.status;
           const statusChanged = status !== oldStatus;
@@ -1387,10 +1392,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             } catch (error: any) {
               console.error(`[Notification] Error sending notifications for ${device.name}:`, error.message);
             }
-          }
-          
-          if (timedOut) {
-            return { device, success: false, timeout: true };
           }
           
           return { device, success: quickProbe.success, timeout: false };
