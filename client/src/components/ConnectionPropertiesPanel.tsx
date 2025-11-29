@@ -51,6 +51,7 @@ interface ConnectionPropertiesPanelProps {
   targetDevice: Device;
   onClose: () => void;
   onDelete: (connectionId: string) => void;
+  canModify?: boolean;
 }
 
 const linkSpeeds = ["1G", "10G", "25G", "40G", "100G"] as const;
@@ -61,6 +62,7 @@ export function ConnectionPropertiesPanel({
   targetDevice,
   onClose,
   onDelete,
+  canModify = true,
 }: ConnectionPropertiesPanelProps) {
   const { toast } = useToast();
   const [linkSpeed, setLinkSpeed] = useState(connection.linkSpeed || "1G");
@@ -658,27 +660,29 @@ export function ConnectionPropertiesPanel({
 
       <Separator />
 
-      <div className="p-4 space-y-2">
-        <Button
-          variant="default"
-          className="w-full justify-start gap-2"
-          onClick={handleSave}
-          disabled={!hasChanges || saving}
-          data-testid="button-save-connection"
-        >
-          <Save className="h-4 w-4" />
-          {saving ? "Saving..." : "Save Changes"}
-        </Button>
-        <Button
-          variant="destructive"
-          className="w-full justify-start gap-2"
-          onClick={() => onDelete(connection.id)}
-          data-testid="button-delete-connection"
-        >
-          <Trash2 className="h-4 w-4" />
-          Delete Connection
-        </Button>
-      </div>
+      {canModify && (
+        <div className="p-4 space-y-2">
+          <Button
+            variant="default"
+            className="w-full justify-start gap-2"
+            onClick={handleSave}
+            disabled={!hasChanges || saving}
+            data-testid="button-save-connection"
+          >
+            <Save className="h-4 w-4" />
+            {saving ? "Saving..." : "Save Changes"}
+          </Button>
+          <Button
+            variant="destructive"
+            className="w-full justify-start gap-2"
+            onClick={() => onDelete(connection.id)}
+            data-testid="button-delete-connection"
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete Connection
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

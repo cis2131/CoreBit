@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function NetworkTopology() {
   const [currentMapId, setCurrentMapId] = useState<string | null>(null);
@@ -35,6 +36,7 @@ export default function NetworkTopology() {
   const [editMapDescription, setEditMapDescription] = useState('');
   const [editMapIsDefault, setEditMapIsDefault] = useState(false);
   const { toast } = useToast();
+  const { canModify } = useAuth();
 
   const { data: maps = [] } = useQuery<Map[]>({
     queryKey: ['/api/maps'],
@@ -485,7 +487,7 @@ export default function NetworkTopology() {
         <DeviceListSidebar
           devices={allDevices}
           placedDeviceIds={placements.map(p => p.deviceId)}
-          onDeviceDragStart={setDraggingDeviceId}
+          onDeviceDragStart={canModify ? setDraggingDeviceId : undefined}
           onEditDevice={handleDeviceEdit}
           onDeviceClick={(deviceId) => {
             const device = devicesOnMap.find(d => d.id === deviceId);
@@ -494,6 +496,7 @@ export default function NetworkTopology() {
               setSelectedPlacementId(device.placementId);
             }
           }}
+          canModify={canModify}
         />
 
         <div className="flex-1">
@@ -543,6 +546,7 @@ export default function NetworkTopology() {
               }
             }}
             onStartConnectionFromPort={handleStartConnectionFromPort}
+            canModify={canModify}
           />
         )}
 
@@ -553,6 +557,7 @@ export default function NetworkTopology() {
             targetDevice={selectedConnectionTargetDevice}
             onClose={() => setSelectedConnectionId(null)}
             onDelete={handleConnectionDelete}
+            canModify={canModify}
           />
         )}
       </div>

@@ -381,7 +381,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/maps", async (req, res) => {
+  app.post("/api/maps", canModify as any, async (req, res) => {
     try {
       const data = insertMapSchema.parse(req.body);
       const map = await storage.createMap(data);
@@ -395,7 +395,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/maps/:id", async (req, res) => {
+  app.patch("/api/maps/:id", canModify as any, async (req, res) => {
     try {
       const data = insertMapSchema.partial().parse(req.body);
       const map = await storage.updateMap(req.params.id, data);
@@ -409,7 +409,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/maps/:id", async (req, res) => {
+  app.delete("/api/maps/:id", canModify as any, async (req, res) => {
     try {
       const mapId = req.params.id;
       // Clean up traffic history for all connections on this map before deleting
@@ -449,7 +449,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/devices", async (req, res) => {
+  app.post("/api/devices", canModify as any, async (req, res) => {
     try {
       const data = insertDeviceSchema.parse(req.body);
       
@@ -479,7 +479,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/devices/:id", async (req, res) => {
+  app.patch("/api/devices/:id", canModify as any, async (req, res) => {
     try {
       const updateData = insertDeviceSchema.partial().parse(req.body);
       
@@ -521,7 +521,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/devices/:id", async (req, res) => {
+  app.delete("/api/devices/:id", canModify as any, async (req, res) => {
     try {
       await storage.deleteDevice(req.params.id);
       res.status(204).send();
@@ -554,7 +554,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/logs", async (req, res) => {
+  app.delete("/api/logs", requireAdmin as any, async (req, res) => {
     try {
       await storage.deleteAllLogs();
       res.status(204).send();
@@ -564,7 +564,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/logs/device/:deviceId", async (req, res) => {
+  app.delete("/api/logs/device/:deviceId", requireAdmin as any, async (req, res) => {
     try {
       await storage.deleteLogsByDeviceId(req.params.deviceId);
       res.status(204).send();
@@ -586,7 +586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/placements", async (req, res) => {
+  app.post("/api/placements", canModify as any, async (req, res) => {
     try {
       const data = insertDevicePlacementSchema.parse(req.body);
       
@@ -608,7 +608,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/placements/:id", async (req, res) => {
+  app.patch("/api/placements/:id", canModify as any, async (req, res) => {
     try {
       const data = insertDevicePlacementSchema.partial().parse(req.body);
       const placement = await storage.updatePlacement(req.params.id, data);
@@ -625,7 +625,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/placements/:id", async (req, res) => {
+  app.delete("/api/placements/:id", canModify as any, async (req, res) => {
     try {
       // Get placement to find deviceId and mapId
       const placement = await storage.getPlacement(req.params.id);
@@ -734,7 +734,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/connections", async (req, res) => {
+  app.post("/api/connections", canModify as any, async (req, res) => {
     try {
       const data = insertConnectionSchema.parse(req.body);
       
@@ -767,7 +767,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/connections/:id", async (req, res) => {
+  app.patch("/api/connections/:id", canModify as any, async (req, res) => {
     try {
       const data = insertConnectionSchema.partial().parse(req.body);
       
@@ -806,7 +806,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/connections/:id", async (req, res) => {
+  app.delete("/api/connections/:id", canModify as any, async (req, res) => {
     try {
       const connectionId = req.params.id;
       await storage.deleteConnection(connectionId);
@@ -820,7 +820,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Reset SNMP index to force a fresh walk on next traffic probe
-  app.post("/api/connections/:id/reset-snmp-index", async (req, res) => {
+  app.post("/api/connections/:id/reset-snmp-index", canModify as any, async (req, res) => {
     try {
       const connection = await storage.getConnection(req.params.id);
       if (!connection) {
@@ -865,7 +865,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/credential-profiles", async (req, res) => {
+  app.post("/api/credential-profiles", requireAdmin as any, async (req, res) => {
     try {
       const data = insertCredentialProfileSchema.parse(req.body);
       const profile = await storage.createCredentialProfile(data);
@@ -879,7 +879,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/credential-profiles/:id", async (req, res) => {
+  app.patch("/api/credential-profiles/:id", requireAdmin as any, async (req, res) => {
     try {
       const data = insertCredentialProfileSchema.partial().parse(req.body);
       const profile = await storage.updateCredentialProfile(req.params.id, data);
@@ -896,7 +896,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/credential-profiles/:id", async (req, res) => {
+  app.delete("/api/credential-profiles/:id", requireAdmin as any, async (req, res) => {
     try {
       await storage.deleteCredentialProfile(req.params.id);
       res.status(204).send();
@@ -930,7 +930,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/notifications", async (req, res) => {
+  app.post("/api/notifications", requireAdmin as any, async (req, res) => {
     try {
       const data = insertNotificationSchema.parse(req.body);
       const notification = await storage.createNotification(data);
@@ -944,7 +944,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/notifications/:id", async (req, res) => {
+  app.patch("/api/notifications/:id", requireAdmin as any, async (req, res) => {
     try {
       const data = insertNotificationSchema.partial().parse(req.body);
       const notification = await storage.updateNotification(req.params.id, data);
@@ -961,7 +961,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/notifications/:id", async (req, res) => {
+  app.delete("/api/notifications/:id", requireAdmin as any, async (req, res) => {
     try {
       await storage.deleteNotification(req.params.id);
       res.status(204).send();
@@ -982,7 +982,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/devices/:deviceId/notifications", async (req, res) => {
+  app.post("/api/devices/:deviceId/notifications", requireAdmin as any, async (req, res) => {
     try {
       const data = insertDeviceNotificationSchema.parse({
         deviceId: req.params.deviceId,
@@ -999,7 +999,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/devices/:deviceId/notifications/:notificationId", async (req, res) => {
+  app.delete("/api/devices/:deviceId/notifications/:notificationId", requireAdmin as any, async (req, res) => {
     try {
       await storage.removeDeviceNotification(req.params.deviceId, req.params.notificationId);
       res.status(204).send();
@@ -1033,7 +1033,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/scan-profiles", async (req, res) => {
+  app.post("/api/scan-profiles", canModify as any, async (req, res) => {
     try {
       const data = insertScanProfileSchema.parse(req.body);
       const profile = await storage.createScanProfile(data);
@@ -1047,7 +1047,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/scan-profiles/:id", async (req, res) => {
+  app.patch("/api/scan-profiles/:id", canModify as any, async (req, res) => {
     try {
       const data = insertScanProfileSchema.partial().parse(req.body);
       const profile = await storage.updateScanProfile(req.params.id, data);
@@ -1064,7 +1064,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/scan-profiles/:id", async (req, res) => {
+  app.delete("/api/scan-profiles/:id", canModify as any, async (req, res) => {
     try {
       await storage.deleteScanProfile(req.params.id);
       res.status(204).send();
@@ -1090,7 +1090,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     error?: string;
   }
 
-  app.post("/api/network-scan", async (req, res) => {
+  app.post("/api/network-scan", canModify as any, async (req, res) => {
     try {
       const { ipRange, credentialProfileIds, probeTypes } = scanRequestSchema.parse(req.body);
       
@@ -1231,7 +1231,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })),
   });
 
-  app.post("/api/devices/batch", async (req, res) => {
+  app.post("/api/devices/batch", canModify as any, async (req, res) => {
     try {
       const { devices } = batchDeviceSchema.parse(req.body);
       
@@ -1291,7 +1291,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/settings/:key", async (req, res) => {
+  app.put("/api/settings/:key", requireAdmin as any, async (req, res) => {
     try {
       const { value } = req.body;
       if (value === undefined) {
@@ -1948,7 +1948,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============ BACKUP/RESTORE ROUTES ============
   
   // Create a backup of all data
-  app.post("/api/backups", async (req, res) => {
+  app.post("/api/backups", requireAdmin as any, async (req, res) => {
     try {
       const type = req.body.type || 'manual';
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -2096,7 +2096,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Delete a backup
-  app.delete("/api/backups/:id", async (req, res) => {
+  app.delete("/api/backups/:id", requireAdmin as any, async (req, res) => {
     try {
       const backup = await storage.getBackup(req.params.id);
       if (!backup) {
@@ -2120,7 +2120,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Restore from a backup (by ID)
-  app.post("/api/backups/:id/restore", async (req, res) => {
+  app.post("/api/backups/:id/restore", requireAdmin as any, async (req, res) => {
     try {
       const backup = await storage.getBackup(req.params.id);
       if (!backup) {
@@ -2153,7 +2153,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Restore from uploaded file
-  app.post("/api/restore", async (req, res) => {
+  app.post("/api/restore", requireAdmin as any, async (req, res) => {
     try {
       const backupData = req.body;
       
@@ -2410,7 +2410,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Update backup settings
-  app.patch("/api/backup-settings", async (req, res) => {
+  app.patch("/api/backup-settings", requireAdmin as any, async (req, res) => {
     try {
       const { schedule, retention } = req.body;
       

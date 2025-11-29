@@ -21,6 +21,7 @@ interface DevicePropertiesPanelProps {
   onEdit: (device: Device) => void;
   onNavigateToDevice?: (deviceId: string) => void;
   onStartConnectionFromPort?: (deviceId: string, portName: string) => void;
+  canModify?: boolean;
 }
 
 const statusLabels = {
@@ -38,7 +39,8 @@ export function DevicePropertiesPanel({
   onDelete, 
   onEdit, 
   onNavigateToDevice,
-  onStartConnectionFromPort
+  onStartConnectionFromPort,
+  canModify = true
 }: DevicePropertiesPanelProps) {
   const { toast } = useToast();
   const [probing, setProbing] = useState(false);
@@ -472,24 +474,28 @@ export function DevicePropertiesPanel({
           <RefreshCw className={`h-4 w-4 ${probing ? 'animate-spin' : ''}`} />
           {probing ? 'Probing...' : 'Probe Now'}
         </Button>
-        <Button
-          variant="outline"
-          className="w-full justify-start gap-2"
-          onClick={() => onEdit(device)}
-          data-testid="button-edit-device"
-        >
-          <Edit className="h-4 w-4" />
-          Edit Device
-        </Button>
-        <Button
-          variant="destructive"
-          className="w-full justify-start gap-2"
-          onClick={() => onDelete(device.id)}
-          data-testid="button-delete-device"
-        >
-          <Trash2 className="h-4 w-4" />
-          Delete Device
-        </Button>
+        {canModify && (
+          <>
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2"
+              onClick={() => onEdit(device)}
+              data-testid="button-edit-device"
+            >
+              <Edit className="h-4 w-4" />
+              Edit Device
+            </Button>
+            <Button
+              variant="destructive"
+              className="w-full justify-start gap-2"
+              onClick={() => onDelete(device.id)}
+              data-testid="button-delete-device"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete Device
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );

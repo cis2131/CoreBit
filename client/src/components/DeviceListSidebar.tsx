@@ -11,6 +11,7 @@ interface DeviceListSidebarProps {
   onDeviceDragStart?: (deviceId: string) => void;
   onEditDevice?: (device: Device) => void;
   onDeviceClick?: (deviceId: string) => void;
+  canModify?: boolean;
 }
 
 const deviceTypeIcons: Record<string, React.ElementType> = {
@@ -34,7 +35,7 @@ function getStatusColor(status: string): string {
   }
 }
 
-export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragStart, onEditDevice, onDeviceClick }: DeviceListSidebarProps) {
+export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragStart, onEditDevice, onDeviceClick, canModify = true }: DeviceListSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [hideUnplaced, setHideUnplaced] = useState(false);
@@ -119,20 +120,22 @@ export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragS
                             {device.ipAddress || 'No IP'} {isPlaced && '(placed)'}
                           </p>
                         </div>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 flex-shrink-0"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEditDevice?.(device);
-                          }}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          draggable={false}
-                          data-testid={`button-edit-device-${device.id}`}
-                        >
-                          <Settings className="h-3.5 w-3.5" />
-                        </Button>
+                        {canModify && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 flex-shrink-0"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditDevice?.(device);
+                            }}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            draggable={false}
+                            data-testid={`button-edit-device-${device.id}`}
+                          >
+                            <Settings className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   );

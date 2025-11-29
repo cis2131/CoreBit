@@ -157,8 +157,9 @@ function BackupSection() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleString();
+  const formatDate = (date: string | Date) => {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    return d.toLocaleString();
   };
 
   return (
@@ -1469,6 +1470,7 @@ function CredentialProfileDialog({
 
 export default function Settings() {
   const { toast } = useToast();
+  const { isAdmin, user } = useAuth();
   const [editingProfile, setEditingProfile] = useState<CredentialProfile | undefined>();
   const [deletingProfile, setDeletingProfile] = useState<CredentialProfile | undefined>();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -1476,6 +1478,53 @@ export default function Settings() {
   const [deletingNotification, setDeletingNotification] = useState<Notification | undefined>();
   const [notificationDialogOpen, setNotificationDialogOpen] = useState(false);
   const [pollingInterval, setPollingInterval] = useState("30");
+
+  // Only admins can access settings
+  if (!isAdmin) {
+    return (
+      <div className="h-screen flex flex-col bg-background">
+        <header className="border-b bg-card">
+          <div className="flex items-center gap-4 px-6 py-4">
+            <Link href="/">
+              <Button variant="ghost" size="icon" data-testid="button-back">
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            </Link>
+            <div>
+              <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
+              <p className="text-sm text-muted-foreground">
+                Access Restricted
+              </p>
+            </div>
+          </div>
+        </header>
+        <main className="flex-1 flex items-center justify-center">
+          <Card className="max-w-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5 text-destructive" />
+                Access Denied
+              </CardTitle>
+              <CardDescription>
+                You don't have permission to access the Settings page.
+                Only administrators can modify system settings.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                Your current role: <span className="font-medium capitalize">{user?.role || 'unknown'}</span>
+              </p>
+              <Link href="/">
+                <Button className="w-full" data-testid="button-return-home">
+                  Return to Dashboard
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    );
+  }
 
   const { data: profiles = [], isLoading } = useQuery<CredentialProfile[]>({
     queryKey: ["/api/credential-profiles"],

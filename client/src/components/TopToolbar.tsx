@@ -131,7 +131,7 @@ export function TopToolbar({
             </SelectContent>
           </Select>
 
-          {currentMap && (
+          {currentMap && canModify && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="icon" variant="ghost" data-testid="button-map-actions">
@@ -158,12 +158,13 @@ export function TopToolbar({
             </DropdownMenu>
           )}
 
-          <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-            <DialogTrigger asChild>
-              <Button size="icon" variant="outline" data-testid="button-create-map">
-                <Plus className="h-4 w-4" />
-              </Button>
-            </DialogTrigger>
+          {canModify && (
+            <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+              <DialogTrigger asChild>
+                <Button size="icon" variant="outline" data-testid="button-create-map">
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Create New Map</DialogTitle>
@@ -206,7 +207,8 @@ export function TopToolbar({
                 </Button>
               </DialogFooter>
             </DialogContent>
-          </Dialog>
+            </Dialog>
+          )}
         </div>
       </div>
 
@@ -217,18 +219,20 @@ export function TopToolbar({
           onDeviceSelect={onDeviceStatusSelect || (() => {})}
         />
 
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setIsScannerOpen(true)}
-          data-testid="button-network-scanner"
-          className="gap-2"
-        >
-          <Radar className="h-4 w-4" />
-          Scan
-        </Button>
+        {canModify && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setIsScannerOpen(true)}
+            data-testid="button-network-scanner"
+            className="gap-2"
+          >
+            <Radar className="h-4 w-4" />
+            Scan
+          </Button>
+        )}
 
-        {onAddDevice && (
+        {canModify && onAddDevice && (
           <Button
             size="sm"
             onClick={onAddDevice}
@@ -241,17 +245,19 @@ export function TopToolbar({
           </Button>
         )}
 
-        <Button
-          variant={connectionMode ? 'default' : 'outline'}
-          size="sm"
-          onClick={onConnectionModeToggle}
-          disabled={!currentMapId}
-          data-testid="button-connection-mode"
-          className="gap-2"
-        >
-          <Link2 className="h-4 w-4" />
-          {connectionMode ? 'Cancel' : 'Connect'}
-        </Button>
+        {canModify && (
+          <Button
+            variant={connectionMode ? 'default' : 'outline'}
+            size="sm"
+            onClick={onConnectionModeToggle}
+            disabled={!currentMapId}
+            data-testid="button-connection-mode"
+            className="gap-2"
+          >
+            <Link2 className="h-4 w-4" />
+            {connectionMode ? 'Cancel' : 'Connect'}
+          </Button>
+        )}
 
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -274,15 +280,17 @@ export function TopToolbar({
           </Button>
         </Link>
 
-        <Link href="/settings">
-          <Button
-            size="icon"
-            variant="ghost"
-            data-testid="button-settings"
-          >
-            <Settings className="h-5 w-5" />
-          </Button>
-        </Link>
+        {isAdmin && (
+          <Link href="/settings">
+            <Button
+              size="icon"
+              variant="ghost"
+              data-testid="button-settings"
+            >
+              <Settings className="h-5 w-5" />
+            </Button>
+          </Link>
+        )}
 
         <Button
           size="icon"
