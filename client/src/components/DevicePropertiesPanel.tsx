@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Device, Connection, type CredentialProfile, type Notification, type DeviceNotification } from '@shared/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { Checkbox } from '@/components/ui/checkbox';
-import { X, Trash2, Edit, RefreshCw, Key, Cpu, MemoryStick, Bell, Link as LinkIcon } from 'lucide-react';
+import { X, Trash2, Edit, RefreshCw, Key, Cpu, MemoryStick, Bell, Link as LinkIcon, Clock } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 
@@ -44,7 +46,12 @@ export function DevicePropertiesPanel({
 }: DevicePropertiesPanelProps) {
   const { toast } = useToast();
   const [probing, setProbing] = useState(false);
+  const [timeoutValue, setTimeoutValue] = useState<string>(device.probeTimeout?.toString() ?? '');
   const status = statusLabels[device.status as keyof typeof statusLabels] || statusLabels.unknown;
+
+  useEffect(() => {
+    setTimeoutValue(device.probeTimeout?.toString() ?? '');
+  }, [device.id, device.probeTimeout]);
 
   const { data: credentialProfile } = useQuery<CredentialProfile>({
     queryKey: ['/api/credential-profiles', device.credentialProfileId],
@@ -103,6 +110,30 @@ export function DevicePropertiesPanel({
       addNotificationMutation.mutate(notificationId);
     } else {
       removeNotificationMutation.mutate(notificationId);
+    }
+  };
+
+  const updateTimeoutMutation = useMutation({
+    mutationFn: async (timeout: number | null) =>
+      apiRequest('PATCH', `/api/devices/${device.id}`, { probeTimeout: timeout }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/devices'] });
+      toast({ description: 'Probe timeout updated' });
+    },
+    onError: () => {
+      toast({ variant: 'destructive', description: 'Failed to update timeout' });
+    },
+  });
+
+  const handleTimeoutBlur = () => {
+    const parsed = parseInt(timeoutValue, 10);
+    if (timeoutValue === '' || isNaN(parsed)) {
+      updateTimeoutMutation.mutate(null);
+    } else if (parsed >= 1 && parsed <= 120) {
+      updateTimeoutMutation.mutate(parsed);
+    } else {
+      setTimeoutValue(device.probeTimeout?.toString() ?? '');
+      toast({ variant: 'destructive', description: 'Timeout must be between 1 and 120 seconds' });
     }
   };
 
@@ -373,7 +404,7 @@ export function DevicePropertiesPanel({
                 <CardTitle className="text-sm">Credentials</CardTitle>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               {device.credentialProfileId && credentialProfile ? (
                 <div className="space-y-1">
                   <div className="text-sm text-foreground font-medium">{credentialProfile.name}</div>
@@ -395,6 +426,33 @@ export function DevicePropertiesPanel({
                   No credentials configured
                 </div>
               )}
+              
+              <Separator />
+              
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <Label className="text-sm font-medium">Probe Timeout</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={120}
+                    placeholder="6"
+                    value={timeoutValue}
+                    onChange={(e) => setTimeoutValue(e.target.value)}
+                    onBlur={handleTimeoutBlur}
+                    className="w-20 h-8"
+                    data-testid="input-probe-timeout"
+                    disabled={!canModify}
+                  />
+                  <span className="text-sm text-muted-foreground">seconds (default: 6)</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Increase for devices with slow API connections
+                </p>
+              </div>
             </CardContent>
           </Card>
 

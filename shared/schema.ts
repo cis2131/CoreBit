@@ -292,6 +292,7 @@ export const insertDeviceSchema = createInsertSchema(devices).omit({
     memoryUsagePct: z.number().optional(),
   }).optional(),
   customCredentials: credentialsSchema.optional(),
+  probeTimeout: z.union([z.number().int().min(1).max(120), z.null()]).optional(),
 });
 
 export const insertDevicePlacementSchema = createInsertSchema(devicePlacements).omit({

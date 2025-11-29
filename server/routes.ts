@@ -1305,11 +1305,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let timeoutId: NodeJS.Timeout;
     let timedOut = false;
     
+    // Use per-device timeout if set, otherwise use default
+    const deviceTimeoutMs = device.probeTimeout ? device.probeTimeout * 1000 : PROBE_TIMEOUT_MS;
+    
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
         timedOut = true;
         reject(new Error('Probe timeout'));
-      }, PROBE_TIMEOUT_MS);
+      }, deviceTimeoutMs);
     });
     
     const probePromise = (async () => {
