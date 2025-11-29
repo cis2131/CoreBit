@@ -102,7 +102,6 @@ function renderMessageTemplate(template: string, device: any, newStatus: string,
 // Helper function to send notification via HTTP
 async function sendNotification(notification: any, device: any, newStatus: string, oldStatus?: string) {
   if (!notification.enabled) {
-    console.log(`[Notification] Skipping disabled notification: ${notification.name}`);
     return;
   }
 
@@ -111,8 +110,6 @@ async function sendNotification(notification: any, device: any, newStatus: strin
   try {
     const url = notification.url;
     const method = notification.method.toUpperCase();
-    
-    console.log(`[Notification] Sending ${method} to ${url} for device ${device.name}`);
     
     let finalUrl = url;
     let fetchOptions: RequestInit = { method };
@@ -133,8 +130,6 @@ async function sendNotification(notification: any, device: any, newStatus: strin
     
     if (!response.ok) {
       console.error(`[Notification] HTTP ${response.status} from ${finalUrl}`);
-    } else {
-      console.log(`[Notification] Successfully sent to ${finalUrl}`);
     }
   } catch (error: any) {
     console.error(`[Notification] Failed to send to ${notification.url}:`, error.message);
@@ -183,7 +178,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error('[Auth] Session save error:', err);
           return res.status(500).json({ message: 'Failed to create session' });
         }
-        console.log('[Auth] Session saved for user:', user.username, 'sessionID:', req.sessionID);
         res.json({ user: getUserSafeData(user) });
       });
     } catch (error) {
@@ -206,7 +200,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Get current session
   app.get("/api/auth/session", async (req, res) => {
-    console.log('[Auth] Session check - sessionID:', req.sessionID, 'userId:', req.session?.userId);
     
     if (!req.session?.userId) {
       return res.status(401).json({ message: 'Not authenticated' });
@@ -708,7 +701,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const port = probeResult.data.ports.find((p: any) => p.name === portName);
             
             if (port?.snmpIndex && port.snmpIndex !== conn.monitorSnmpIndex) {
-              console.log(`[Probe] Updating connection ${conn.id} SNMP index: ${conn.monitorSnmpIndex} -> ${port.snmpIndex}`);
               await storage.updateConnection(conn.id, { monitorSnmpIndex: port.snmpIndex });
             }
           }
@@ -750,7 +742,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const port = device.deviceData.ports.find(p => p.name === portName);
             if (port?.snmpIndex) {
               data.monitorSnmpIndex = port.snmpIndex;
-              console.log(`[Connection] Caching SNMP index ${port.snmpIndex} for ${portName} on new connection`);
             }
           }
         }
@@ -785,9 +776,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (data.monitorInterface && (data.monitorInterface !== existingConn.monitorInterface || 
           data.sourcePort !== existingConn.sourcePort || data.targetPort !== existingConn.targetPort)) {
         data.monitorSnmpIndex = null; // Clear cached index to force fresh walk
-        const isSource = data.monitorInterface === 'source';
-        const portName = isSource ? (data.sourcePort || existingConn.sourcePort) : (data.targetPort || existingConn.targetPort);
-        console.log(`[Connection] Cleared SNMP index for ${portName} on connection ${req.params.id} (interface changed)`);
       }
       
       // If monitorInterface is being cleared, also clear the cached index
@@ -833,7 +821,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         linkStats: undefined 
       });
       
-      console.log(`[Connection] Reset SNMP index for connection ${req.params.id} (manual refresh)`);
       res.json(updated);
     } catch (error) {
       console.error('Error resetting SNMP index:', error);
@@ -1100,8 +1087,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Invalid IP range' });
       }
       
-      console.log(`[Network Scan] Starting scan of ${ips.length} IPs with ${credentialProfileIds.length} credential profiles`);
-      
       // Fetch credential profiles
       const credProfiles = await Promise.all(
         credentialProfileIds.map(id => storage.getCredentialProfile(id))
@@ -1198,7 +1183,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const successCount = results.filter(r => r.status === 'success').length;
-      console.log(`[Network Scan] Completed: ${successCount}/${ips.length} devices discovered`);
       
       // Return results with existing device info
       const enrichedResults = results.map(r => ({
@@ -1333,10 +1317,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const previousPorts = device.deviceData?.ports || [];
       let needsDetailedProbe = isDetailedCycle;
       
-      if (isDetailedCycle) {
-        console.log(`[Probing] Detailed cycle for ${device.name}, will run full ethernet monitoring`);
-      }
-      
       // For Mikrotik devices, check if any ports transitioned from down to up
       if (device.type.startsWith('mikrotik_') && previousPorts.length > 0 && !isDetailedCycle) {
         const quickProbe = await probeDevice(device.type, device.ipAddress, credentials, false, previousPorts, needsSnmpIndexing);
@@ -1349,7 +1329,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
               (currentPort.defaultName && p.defaultName === currentPort.defaultName) || p.name === currentPort.name
             );
             if (prevPort && prevPort.status === 'down' && currentPort.status === 'up') {
-              console.log(`[Probing] Link state change detected on ${device.name} port ${currentPort.name}: down → up, triggering detailed probe`);
               needsDetailedProbe = true;
               break;
             }
@@ -1367,7 +1346,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
               status,
               deviceData: quickProbe.data,
             });
-            console.log(`[Probing] Updated ${device.name} (${device.ipAddress}): ${oldStatus} → ${status}`);
           }
           
           if (statusChanged) {
@@ -1389,8 +1367,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             try {
               const deviceNotifications = await storage.getDeviceNotifications(device.id);
               if (deviceNotifications.length > 0) {
-                console.log(`[Notification] Status changed for ${device.name}: ${oldStatus} → ${status}`);
-                
                 for (const dn of deviceNotifications) {
                   const notification = await storage.getNotification(dn.notificationId);
                   if (notification) {
@@ -1434,7 +1410,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status,
           deviceData: probeResult.success ? probeResult.data : (device.deviceData || undefined),
         });
-        console.log(`[Probing] Updated ${device.name} (${device.ipAddress}): ${oldStatus} → ${status}`);
       }
       
       // Trigger notifications and logging on status change
@@ -1457,8 +1432,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           const deviceNotifications = await storage.getDeviceNotifications(device.id);
           if (deviceNotifications.length > 0) {
-            console.log(`[Notification] Status changed for ${device.name}: ${oldStatus} → ${status}`);
-            
             for (const dn of deviceNotifications) {
               const notification = await storage.getNotification(dn.notificationId);
               if (notification) {
@@ -1536,13 +1509,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const pollingInterval = await storage.getSetting('polling_interval') || 30;
     const intervalMs = parseInt(pollingInterval) * 1000;
     
-    console.log(`[Probing] Starting automatic device probing service (${pollingInterval}s interval, ${CONCURRENT_PROBES} concurrent)`);
-    console.log(`[Probing] Detailed link speed probing every ${DETAILED_PROBE_INTERVAL} cycles (~${DETAILED_PROBE_INTERVAL * parseInt(pollingInterval) / 60} minutes)`);
-    
     setInterval(async () => {
       if (isProbing) {
-        const elapsed = currentPhase ? ` (stuck in: ${currentPhase})` : '';
-        console.warn(`[Probing] Previous probe cycle still running, skipping this interval${elapsed}`);
         return;
       }
       
@@ -1568,20 +1536,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
-        const totalDevices = devicesWithIp.length;
-        const snmpDeviceCount = devicesNeedingSnmp.size;
-        console.log(`[Probing] Starting probe cycle #${probeCycle} for ${totalDevices} devices${isDetailedCycle ? ' (DETAILED)' : ''}, ${snmpDeviceCount} need SNMP indexing`);
-        
         currentPhase = 'device probing';
-        const results = await processConcurrentQueue(devicesWithIp, CONCURRENT_PROBES, isDetailedCycle, devicesNeedingSnmp);
-        
-        const successCount = results.filter(r => r.success).length;
-        const timeoutCount = results.filter(r => r.timeout).length;
-        const errorCount = results.filter(r => !r.success && !r.timeout).length;
-        const successRate = totalDevices > 0 ? ((successCount / totalDevices) * 100).toFixed(1) : '0';
-        const deviceDuration = ((Date.now() - startTime) / 1000).toFixed(1);
-        
-        console.log(`[Probing] Cycle #${probeCycle} complete in ${deviceDuration}s: ${totalDevices} devices, ${successCount} success (${successRate}%), ${timeoutCount} timeout, ${errorCount} error`);
+        await processConcurrentQueue(devicesWithIp, CONCURRENT_PROBES, isDetailedCycle, devicesNeedingSnmp);
       } catch (error) {
         console.error('[Probing] Error in periodic probing:', error);
       } finally {
@@ -1599,8 +1555,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const monitoredConnections = await storage.getMonitoredConnections();
       if (monitoredConnections.length === 0) return;
-      
-      console.log(`[Traffic] Probing ${monitoredConnections.length} monitored connections (${TRAFFIC_CONCURRENT_PROBES} concurrent)`);
       
       // Build device lookup map
       const deviceMap = new Map(allDevices.map(d => [d.id, d]));
@@ -1658,7 +1612,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      console.log(`[Traffic] Completed: ${successCount} success, ${timeoutCount} timeout, ${errorCount} error`);
     } catch (error: any) {
       console.error('[Traffic] Error in traffic monitoring:', error.message);
     }
@@ -1692,10 +1645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     // Get stored snmpIndex for direct OID construction (preferred method)
     const storedSnmpIndex = port?.snmpIndex;
-    
-    // Log what we're about to probe for debugging
     const hasIndex = storedSnmpIndex !== undefined;
-    console.log(`[Traffic] PROBE conn=${conn.id.slice(0,8)} monitorIface=${conn.monitorInterface} -> ${portName}@${device.ipAddress} (${device.name}) ${hasIndex ? `idx=${storedSnmpIndex}` : 'walk'}`);
     
     // Probe interface traffic using stored snmpIndex (fast) or SNMP walk (slow fallback)
     let result = await probeInterfaceTraffic(
@@ -1713,7 +1663,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (conn.monitorSnmpIndex !== newIfIndex) {
         // Update the connection's cached SNMP index
         await storage.updateConnection(conn.id, { monitorSnmpIndex: newIfIndex });
-        console.log(`[Traffic] Cached SNMP index ${newIfIndex} for connection ${conn.id.slice(0,8)}`);
       }
     }
     
@@ -1758,27 +1707,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const currentInValid = typeof counters.inOctets === 'number' && !isNaN(counters.inOctets);
       const currentOutValid = typeof counters.outOctets === 'number' && !isNaN(counters.outOctets);
       
-      if (!currentInValid || !currentOutValid) {
-        console.warn(`[Traffic] Invalid counter values for connection ${conn.id}: in=${counters.inOctets}, out=${counters.outOctets}`);
-      }
-      
-      // Debug: Check why we might skip rate calculation
       const hasPrevIn = previousStats?.previousInOctets !== undefined;
       const hasPrevOut = previousStats?.previousOutOctets !== undefined;
       const hasPrevAt = !!previousStats?.previousSampleAt;
-      
-      // Remove verbose debug logging - keep only rate calculations
       
       if (currentInValid && currentOutValid && hasPrevIn && hasPrevOut && hasPrevAt &&
           typeof previousStats.previousInOctets === 'number' && !isNaN(previousStats.previousInOctets) &&
           typeof previousStats.previousOutOctets === 'number' && !isNaN(previousStats.previousOutOctets)) {
         const prevTimestamp = new Date(previousStats.previousSampleAt!).getTime();
         const timeDeltaSec = (counters.timestamp - prevTimestamp) / 1000;
-        
-        // Debug: log raw calculation values with device IP for identification
-        const inDeltaDebug = counters.inOctets - previousStats.previousInOctets;
-        const outDeltaDebug = counters.outOctets - previousStats.previousOutOctets;
-        console.log(`[Traffic] DEBUG ${portName}@${device.ipAddress}: timeDelta=${timeDeltaSec.toFixed(2)}s, inDelta=${inDeltaDebug}, outDelta=${outDeltaDebug}, inRate=${(inDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps, outRate=${(outDeltaDebug/timeDeltaSec*8/1000000).toFixed(2)}Mbps`);
         
         if (timeDeltaSec > 0 && timeDeltaSec < 300) { // Ignore stale samples > 5 minutes
           // Handle counter wrap (32-bit counters can wrap around)
@@ -1799,11 +1736,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!isNaN(rawInRate) && !isNaN(rawOutRate) && rawInRate <= MAX_RATE && rawOutRate <= MAX_RATE) {
             inBytesPerSec = Math.round(rawInRate);
             outBytesPerSec = Math.round(rawOutRate);
-          } else if (isNaN(rawInRate) || isNaN(rawOutRate)) {
-            console.warn(`[Traffic] FAILED rate calc ${conn.id}: NaN (counters: in=${counters.inOctets}, out=${counters.outOctets}, prev: in=${previousStats.previousInOctets}, out=${previousStats.previousOutOctets})`);
-          } else {
-            // Counter reset or wrap issue - skip this sample
-            console.warn(`[Traffic] FAILED rate calc ${conn.id}: sanity check (in=${rawInRate}, out=${rawOutRate})`);
           }
         }
       }
@@ -1828,7 +1760,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         previousSampleAt: new Date(counters.timestamp).toISOString(),
         isStale: false, // Clear stale flag on successful update
       };
-      console.log(`[Traffic] SAVE ${portName}: in=${updatedStats.inBitsPerSec}, out=${updatedStats.outBitsPerSec}, util=${updatedStats.utilizationPct}%`);
       const updated = await storage.updateConnection(conn.id, { linkStats: updatedStats });
       if (!updated) {
         console.error(`[Traffic] FAILED to update connection ${conn.id} linkStats!`);
@@ -1908,27 +1839,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   async function runTrafficCycle() {
     if (isPollingTraffic) {
-      // Only log skip warning after first cycle has completed (not during initial slow SNMP walk)
-      if (trafficCycleCompleted > 0) {
-        console.warn('[Traffic] Previous cycle still running, skipping');
-      }
       return;
     }
     
     isPollingTraffic = true;
     trafficCycle++;
-    const startTime = Date.now();
     
     try {
       const allDevices = await storage.getAllDevices();
       await probeConnectionTraffic(allDevices);
-      
-      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-      // Only log completion for non-empty cycles
-      const monitoredCount = (await storage.getMonitoredConnections()).length;
-      if (monitoredCount > 0) {
-        console.log(`[Traffic] Cycle #${trafficCycle} complete in ${duration}s`);
-      }
     } catch (error: any) {
       console.error('[Traffic] Error in traffic polling:', error.message);
     } finally {
@@ -1938,8 +1857,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
   
   async function startTrafficPolling() {
-    console.log(`[Traffic] Starting traffic polling service (${TRAFFIC_POLLING_INTERVAL / 1000}s interval, ${TRAFFIC_CONCURRENT_PROBES} concurrent)`);
-    
     // Run first cycle immediately, then schedule subsequent cycles
     runTrafficCycle();
     setInterval(runTrafficCycle, TRAFFIC_POLLING_INTERVAL);
@@ -2046,8 +1963,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       });
       
-      console.log(`[Backup] Created ${type} backup: ${filename} (${(sizeBytes / 1024).toFixed(1)} KB)`);
-      
       // Log the backup
       await storage.createLog({
         eventType: 'backup_created',
@@ -2111,7 +2026,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Delete the database record
       await storage.deleteBackup(req.params.id);
       
-      console.log(`[Backup] Deleted backup: ${backup.filename}`);
       res.status(204).send();
     } catch (error) {
       console.error('Error deleting backup:', error);
@@ -2135,8 +2049,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const backupData = JSON.parse(fileContent);
       
       await performRestore(backupData);
-      
-      console.log(`[Backup] Restored from backup: ${backup.filename}`);
       
       await storage.createLog({
         eventType: 'backup_restored',
@@ -2162,8 +2074,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       await performRestore(backupData);
-      
-      console.log(`[Backup] Restored from uploaded file`);
       
       await storage.createLog({
         eventType: 'backup_restored',
@@ -2199,8 +2109,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // 6. Clear notifications
     // 7. Clear scan profiles
     // 8. Clear credential profiles
-    
-    console.log('[Restore] Clearing existing data...');
     
     // We need to clear data - use storage methods to get and delete each
     const existingMaps = await storage.getAllMaps();
@@ -2241,8 +2149,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     for (const profile of existingCredentialProfiles) {
       await storage.deleteCredentialProfile(profile.id);
     }
-    
-    console.log('[Restore] Restoring data...');
     
     // Create ID mapping tables
     const credentialProfileIdMap = new Map<string, string>(); // old ID -> new ID
@@ -2393,8 +2299,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
     
-    console.log('[Restore] Restore completed successfully');
-    console.log(`[Restore] Restored: ${data.devices?.length || 0} devices, ${data.maps?.length || 0} maps, ${data.connections?.length || 0} connections`);
   }
   
   // Get backup settings
@@ -2435,7 +2339,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   let scheduledBackupTimer: NodeJS.Timeout | null = null;
   
   async function performScheduledBackup() {
-    console.log('[Backup] Running scheduled backup...');
     try {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const filename = `backup-${timestamp}.json`;
@@ -2500,8 +2403,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       });
       
-      console.log(`[Backup] Scheduled backup created: ${filename} (${(sizeBytes / 1024).toFixed(1)} KB)`);
-      
       // Apply retention policy
       const retentionSettings = await storage.getSetting('backup_retention') || { maxBackups: 10 };
       const allBackups = await storage.getAllBackups();
@@ -2515,7 +2416,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             fs.unlinkSync(backup.filePath);
           }
           await storage.deleteBackup(backup.id);
-          console.log(`[Backup] Deleted old scheduled backup: ${backup.filename}`);
         }
       }
       
@@ -2532,10 +2432,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     if (schedule.enabled && schedule.intervalHours > 0) {
       const intervalMs = schedule.intervalHours * 60 * 60 * 1000;
-      console.log(`[Backup] Scheduling backups every ${schedule.intervalHours} hours`);
       scheduledBackupTimer = setInterval(performScheduledBackup, intervalMs);
-    } else {
-      console.log('[Backup] Scheduled backups disabled');
     }
   }
   

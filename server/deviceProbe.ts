@@ -23,7 +23,6 @@ async function walkSnmpTable(
     // Handle session errors to prevent crashes
     session.on('error', (err: any) => {
       if (!resolved) {
-        console.log(`[SNMP] Session error on ${ipAddress}: ${err.message || err}`);
         cleanup(false, `Session error: ${err.message || err}`);
       }
     });
@@ -48,10 +47,7 @@ async function walkSnmpTable(
     // Some devices don't handle GETBULK well
     session.subtree(oid, 1, (varbinds: any[]) => {
       for (const vb of varbinds) {
-        if (snmp.isVarbindError(vb)) {
-          console.log(`[SNMP] Varbind error on ${ipAddress}: ${snmp.varbindError(vb)}`);
-          continue;
-        }
+        if (snmp.isVarbindError(vb)) continue;
         results[vb.oid] = vb.value.toString();
       }
     }, (error: any) => {
@@ -61,7 +57,6 @@ async function walkSnmpTable(
         if (errMsg.includes('End of MIB') || errMsg.includes('endOfMibView')) {
           cleanup(true);
         } else {
-          console.log(`[SNMP] Subtree error on ${ipAddress}: ${errMsg}`);
           cleanup(false, `Subtree error: ${errMsg}`);
         }
       } else {
@@ -72,7 +67,7 @@ async function walkSnmpTable(
     // Timeout protection
     setTimeout(() => {
       if (!resolved) {
-        console.log(`[SNMP] Subtree timeout on ${ipAddress} after 10s`);
+        console.warn(`[SNMP] Timeout on ${ipAddress} after 10s`);
         cleanup(false, 'Timeout after 10s');
       }
     }, 10000);
@@ -276,8 +271,6 @@ async function probeMikrotikDevice(
   const password = credentials?.password || '';
   const port = credentials?.apiPort || 8728;
 
-  console.log(`[Mikrotik] Connecting to ${ipAddress}:${port} as ${username}${detailedProbe ? ' (detailed)' : ''}...`);
-
   const conn = new RouterOSAPI({
     host: ipAddress,
     user: username,
@@ -289,12 +282,11 @@ async function probeMikrotikDevice(
   // Attach error handler to prevent unhandled 'error' event crashes
   // This handles timeout errors and connection failures that emit events
   (conn as any).on('error', (err: any) => {
-    console.log(`[Mikrotik] Connection error on ${ipAddress}: ${err.message || err}`);
+    // Silent handler - errors are handled in catch block
   });
 
   try {
     await conn.connect();
-    console.log(`[Mikrotik] Connected to ${ipAddress}`);
 
     // Fetch basic info and interfaces in parallel
     const [identity, resources, interfaces] = await Promise.all([
@@ -331,20 +323,13 @@ async function probeMikrotikDevice(
       const hasSnmpCredentials = credentials?.snmpCommunity || credentials?.snmpVersion === '3';
       if (hasSnmpCredentials && ipAddress) {
         try {
-          const snmpVersion = credentials?.snmpVersion || '2c';
-          console.log(`[Mikrotik] Fetching SNMP indexes for ${ipAddress} (has monitored connections, SNMPv${snmpVersion})...`);
           const indexResult = await fetchSnmpInterfaceIndexes(ipAddress, credentials);
           if (indexResult.success && indexResult.data) {
             Object.assign(snmpIndexMap, indexResult.data);
-            console.log(`[Mikrotik] Got SNMP indexes for ${Object.keys(snmpIndexMap).length} interfaces on ${ipAddress}`);
-          } else {
-            console.warn(`[Mikrotik] SNMP walk failed on ${ipAddress}: ${indexResult.error}`);
           }
         } catch (e) {
-          console.log(`[Mikrotik] Failed to fetch SNMP indexes on ${ipAddress}: ${e}`);
+          // SNMP index fetch failed - traffic monitoring will use slower walks
         }
-      } else {
-        console.warn(`[Mikrotik] Device ${ipAddress} needs SNMP indexing but no SNMP credentials configured - traffic monitoring will use slow walks`);
       }
     }
     
@@ -369,7 +354,6 @@ async function probeMikrotikDevice(
     let speedMap: { [name: string]: string } = {};
     if (detailedProbe) {
       try {
-        console.log(`[Mikrotik] Running detailed ethernet monitoring on ${ipAddress}...`);
         // Get list of ethernet interfaces
         const etherInterfaces = await conn.write('/interface/ethernet/print').catch(() => []);
         
@@ -384,19 +368,16 @@ async function probeMikrotikDevice(
             // RouterOS returns speed under 'speed' property, not 'rate'
             if (monitorResult[0]?.speed) {
               speedMap[ethIface.name] = monitorResult[0].speed;
-              console.log(`[Mikrotik] Interface ${ethIface.name} speed: ${monitorResult[0].speed}`);
             } else if (monitorResult[0]?.rate) {
               // Fallback to 'rate' if 'speed' not found
               speedMap[ethIface.name] = monitorResult[0].rate;
-              console.log(`[Mikrotik] Interface ${ethIface.name} rate: ${monitorResult[0].rate}`);
             }
           } catch (err: any) {
-            console.warn(`[Mikrotik] Failed to monitor ${ethIface.name}:`, err.message);
+            // Individual interface monitoring failure - continue with others
           }
         }
-        console.log(`[Mikrotik] Detailed monitoring complete for ${ipAddress}, found ${Object.keys(speedMap).length} speeds`);
       } catch (err: any) {
-        console.warn(`[Mikrotik] Detailed monitoring failed on ${ipAddress}:`, err.message);
+        // Detailed monitoring failed - ports will use cached speeds
       }
     }
 
@@ -470,8 +451,6 @@ async function probeSnmpDevice(
   const snmpVersion = credentials?.snmpVersion || '2c';
   const community = credentials?.snmpCommunity || 'public';
 
-  console.log(`[SNMP] Probing ${ipAddress} with SNMPv${snmpVersion}...`);
-
   const basicOids = [
     '1.3.6.1.2.1.1.1.0',       // sysDescr
     '1.3.6.1.2.1.1.3.0',       // sysUpTime
@@ -488,7 +467,7 @@ async function probeSnmpDevice(
         try {
           session.close();
         } catch (err: any) {
-          console.warn(`[SNMP] Error closing session:`, err.message);
+          // Session close error - ignore
         }
       }
     };
@@ -520,7 +499,6 @@ async function probeSnmpDevice(
 
     session.get(basicOids, (error: any, varbinds: any[]) => {
       if (error) {
-        console.error(`[SNMP] Failed to probe ${ipAddress}:`, error.message);
         closeSession();
         return reject(new Error(`SNMP probe failed: ${error.message}`));
       }
@@ -530,9 +508,7 @@ async function probeSnmpDevice(
       let sysName = 'Unknown';
 
       varbinds.forEach((vb, idx) => {
-        if (snmp.isVarbindError(vb)) {
-          console.warn(`[SNMP] Error in varbind ${idx}:`, snmp.varbindError(vb));
-        } else {
+        if (!snmp.isVarbindError(vb)) {
           if (idx === 0) sysDescr = vb.value.toString();
           if (idx === 1) sysUpTime = formatUptime(parseInt(vb.value.toString()) / 100);
           if (idx === 2) sysName = vb.value.toString();
@@ -657,11 +633,7 @@ async function probeSnmpDevice(
             });
           }, (error: any) => {
             closeSession();
-            
-            if (error) {
-              console.warn(`[SNMP] Walk failed, using basic data:`, error.message);
-            }
-            
+            // Walk failed - use basic data
             resolve({
               model: sysDescr.substring(0, 100),
               systemIdentity: sysName,
@@ -704,7 +676,6 @@ export async function probeDevice(
   needsSnmpIndexing: boolean = false  // Only true when device has monitored connections
 ): Promise<{ data: DeviceProbeData; success: boolean }> {
   if (!ipAddress) {
-    console.log(`[Probe] No IP address provided for ${deviceType}, returning empty data`);
     return { data: {}, success: false };
   }
 
@@ -717,7 +688,6 @@ export async function probeDevice(
     }
     return { data, success: true };
   } catch (error: any) {
-    console.error(`[Probe] Error probing ${deviceType} at ${ipAddress}:`, error.message);
     return { data: {}, success: false };
   }
 }
@@ -781,10 +751,6 @@ export async function probeInterfaceTraffic(
       
       // Try 64-bit counters first
       session.get([ifHCInOctets, ifHCOutOctets], (error: any, varbinds: any[]) => {
-        if (error) {
-          console.warn(`[Traffic] FAILED ${interfaceName}@${ipAddress} OIDs=[${ifHCInOctets}, ${ifHCOutOctets}]: ${error.message || error}`);
-        }
-        
         if (!error && varbinds && varbinds.length === 2 && 
             !snmp.isVarbindError(varbinds[0]) && !snmp.isVarbindError(varbinds[1])) {
           const inOctets = parseCounter(varbinds[0].value);
@@ -808,7 +774,6 @@ export async function probeInterfaceTraffic(
         session.get([ifInOctets, ifOutOctets], (error: any, varbinds: any[]) => {
           if (error || !varbinds || varbinds.length !== 2) {
             const errorMsg = error?.message || error?.toString() || 'Unknown error';
-            console.warn(`[Traffic] FAILED ${interfaceName}@${ipAddress} OIDs=[${ifInOctets}, ${ifOutOctets}]: ${errorMsg}`);
             cleanup({ data: null, success: false, error: errorMsg });
             return;
           }
@@ -816,7 +781,6 @@ export async function probeInterfaceTraffic(
           if (snmp.isVarbindError(varbinds[0]) || snmp.isVarbindError(varbinds[1])) {
             const errorType = varbinds[0]?.type || varbinds[1]?.type;
             const errorMsg = `noSuchName (type=${errorType})`;
-            console.warn(`[Traffic] FAILED ${interfaceName}@${ipAddress} OIDs=[${ifInOctets}, ${ifOutOctets}]: ${errorMsg}`);
             cleanup({ data: null, success: false, error: errorMsg });
             return;
           }
@@ -825,7 +789,6 @@ export async function probeInterfaceTraffic(
           const outOctets = parseCounter(varbinds[1].value);
 
           if (inOctets === null || outOctets === null) {
-            console.warn(`[Traffic] FAILED ${interfaceName}@${ipAddress}: Could not parse counter values`);
             cleanup({ data: null, success: false, error: 'Parse error' });
             return;
           }
@@ -883,11 +846,9 @@ export async function probeInterfaceTraffic(
       
       if (storedSnmpIndex !== undefined) {
         // Best case: use snmpIndex stored on the device port (from SNMP walk during device probe)
-        console.log(`[Traffic] Using stored snmpIndex=${storedSnmpIndex} for ${interfaceName}@${ipAddress}`);
         fetchCountersByIndex(storedSnmpIndex);
       } else if (knownSnmpIndex !== undefined) {
         // Good case: use index cached on the connection record
-        console.log(`[Traffic] Using cached snmpIndex=${knownSnmpIndex} for ${interfaceName}@${ipAddress}`);
         fetchCountersByIndex(knownSnmpIndex);
       } else {
         // Fallback: walk ifDescr to find the interface (non-Mikrotik devices only)
@@ -909,15 +870,12 @@ export async function probeInterfaceTraffic(
             // EXACT match only - no partial matching to avoid wrong interface selection
             if (name.toLowerCase() === interfaceName.toLowerCase()) {
               targetIfIndex = ifIndex;
-              console.log(`[Traffic] WALK exact match '${name}' (ifIndex=${ifIndex}) for '${interfaceName}'@${ipAddress}`);
               break;
             }
           }
         }, (error: any) => {
           if (error || targetIfIndex === null) {
-            const errorMsg = error ? (error.message || 'Walk failed') : `Interface '${interfaceName}' not found in walk (exact match only)`;
-            console.warn(`[Traffic] FAILED ${interfaceName}@${ipAddress} OID=${ifDescrOid} (walk): ${errorMsg}`);
-            console.warn(`[Traffic] Available interfaces on ${ipAddress}: ${foundInterfaces.slice(0, 20).join(', ')}${foundInterfaces.length > 20 ? '...' : ''}`);
+            const errorMsg = error ? (error.message || 'Walk failed') : `Interface '${interfaceName}' not found`;
             cleanup({ data: null, success: false, error: errorMsg });
             return;
           }
@@ -927,7 +885,6 @@ export async function probeInterfaceTraffic(
         });
       }
     } catch (error: any) {
-      console.error(`[Traffic] Error probing ${interfaceName} on ${ipAddress}:`, error.message);
       cleanup({ data: null, success: false, error: error.message });
     }
   });
