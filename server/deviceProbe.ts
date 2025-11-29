@@ -265,7 +265,8 @@ async function probeMikrotikDevice(
   credentials?: any,
   detailedProbe: boolean = false,
   previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>,
-  needsSnmpIndexing: boolean = false  // Only do SNMP walks when device has monitored connections
+  needsSnmpIndexing: boolean = false,  // Only do SNMP walks when device has monitored connections
+  timeoutSeconds: number = 5  // Connection timeout in seconds
 ): Promise<DeviceProbeData> {
   const username = credentials?.username || 'admin';
   const password = credentials?.password || '';
@@ -276,7 +277,7 @@ async function probeMikrotikDevice(
     user: username,
     password: password,
     port: port,
-    timeout: 5,
+    timeout: timeoutSeconds,
   });
 
   // Attach error handler to prevent unhandled 'error' event crashes
@@ -673,7 +674,8 @@ export async function probeDevice(
   credentials?: any,
   detailedProbe: boolean = false,
   previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>,
-  needsSnmpIndexing: boolean = false  // Only true when device has monitored connections
+  needsSnmpIndexing: boolean = false,  // Only true when device has monitored connections
+  timeoutSeconds: number = 5  // Device probe timeout in seconds
 ): Promise<{ data: DeviceProbeData; success: boolean }> {
   if (!ipAddress) {
     return { data: {}, success: false };
@@ -682,7 +684,7 @@ export async function probeDevice(
   try {
     let data: DeviceProbeData;
     if (deviceType.startsWith('mikrotik_')) {
-      data = await probeMikrotikDevice(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing);
+      data = await probeMikrotikDevice(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing, timeoutSeconds);
     } else {
       data = await probeSnmpDevice(ipAddress, credentials);
     }

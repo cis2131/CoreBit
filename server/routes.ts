@@ -657,9 +657,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const credentials = await resolveCredentials(device);
       
       // Manual probe should always be detailed and get SNMP indices
-      // Add 20-second timeout to prevent hanging forever when SNMP doesn't respond
+      // Use device's probeTimeout (min 20s for manual probe to allow SNMP walks)
       const previousPorts = device.deviceData?.ports;
-      const MANUAL_PROBE_TIMEOUT = 20000; // 20 seconds for manual probe
+      const deviceTimeoutSeconds = Math.max(device.probeTimeout || 20, 20); // Min 20s for manual
+      const MANUAL_PROBE_TIMEOUT = deviceTimeoutSeconds * 1000;
       
       let probeResult: { success: boolean; data?: any; error?: string };
       try {
@@ -669,11 +670,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           credentials,
           true, // detailedProbe - user explicitly requested probe
           previousPorts,
-          true  // needsSnmpIndexing - always get indices on manual probe
+          true,  // needsSnmpIndexing - always get indices on manual probe
+          deviceTimeoutSeconds
         );
         
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('Probe timed out after 20 seconds')), MANUAL_PROBE_TIMEOUT);
+          setTimeout(() => reject(new Error(`Probe timed out after ${deviceTimeoutSeconds} seconds`)), MANUAL_PROBE_TIMEOUT);
         });
         
         probeResult = await Promise.race([probePromise, timeoutPromise]);
@@ -1305,8 +1307,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     let timeoutId: NodeJS.Timeout;
     let timedOut = false;
     
-    // Use per-device timeout if set, otherwise use default
-    const deviceTimeoutMs = device.probeTimeout ? device.probeTimeout * 1000 : PROBE_TIMEOUT_MS;
+    // Use per-device timeout if set, otherwise use default (6 seconds)
+    const deviceTimeoutSeconds = device.probeTimeout || 6;
+    const deviceTimeoutMs = deviceTimeoutSeconds * 1000;
     
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(() => {
@@ -1322,7 +1325,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // For Mikrotik devices, check if any ports transitioned from down to up
       if (device.type.startsWith('mikrotik_') && previousPorts.length > 0 && !isDetailedCycle) {
-        const quickProbe = await probeDevice(device.type, device.ipAddress, credentials, false, previousPorts, needsSnmpIndexing);
+        const quickProbe = await probeDevice(device.type, device.ipAddress, credentials, false, previousPorts, needsSnmpIndexing, deviceTimeoutSeconds);
         
         if (quickProbe.success && quickProbe.data.ports) {
           // Check for down→up transitions
@@ -1401,7 +1404,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         credentials,
         needsDetailedProbe,
         previousPorts,
-        needsSnmpIndexing
+        needsSnmpIndexing,
+        deviceTimeoutSeconds
       );
       
       if (timedOut) {
