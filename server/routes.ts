@@ -1349,6 +1349,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           
           if (statusChanged) {
+            // Log status change to console with timestamp
+            const timestamp = new Date().toISOString();
+            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → ${status}`);
+            
             // Create log entry for status change
             try {
               await storage.createLog({
@@ -1414,6 +1418,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Trigger notifications and logging on status change
       if (statusChanged) {
+        // Log status change to console with timestamp
+        const timestamp = new Date().toISOString();
+        console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → ${status}`);
+        
         // Create log entry for status change
         try {
           await storage.createLog({
@@ -1454,12 +1462,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       clearTimeout(timeoutId!);
       if (error.message === 'Probe timeout') {
-        console.warn(`[Probing] Timeout probing ${device.name} (${device.ipAddress})`);
+        // Fetch current device status from DB to avoid stale data
+        const currentDevice = await storage.getDevice(device.id);
         
-        // Update device status to offline on timeout
-        const oldStatus = device.status;
+        // Device was deleted during probe cycle - bail out
+        if (!currentDevice) {
+          return { device, success: false, timeout: true };
+        }
+        
+        const oldStatus = currentDevice.status;
+        
+        // Only update and log if status is actually changing
         if (oldStatus !== 'offline') {
           await storage.updateDevice(device.id, { status: 'offline' });
+          
+          // Log status change to console with timestamp
+          const timestamp = new Date().toISOString();
+          console.warn(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → offline (timeout)`);
           
           // Create log entry for status change
           try {
