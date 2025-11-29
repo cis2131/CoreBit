@@ -1476,6 +1476,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (oldStatus !== 'offline') {
           await storage.updateDevice(device.id, { status: 'offline' });
           
+          // IMPORTANT: Update the device object so downstream code doesn't overwrite with stale status
+          device.status = 'offline';
+          
           // Log status change to console with timestamp
           const timestamp = new Date().toISOString();
           console.warn(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → offline (timeout)`);
@@ -1508,6 +1511,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } catch (notifError: any) {
             console.error(`[Notification] Error sending timeout notifications for ${device.name}:`, notifError.message);
           }
+        } else {
+          // Device is already offline - just update the local object to match DB
+          device.status = 'offline';
         }
         
         return { device, success: false, timeout: true };
