@@ -14,10 +14,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff } from "lucide-react";
+import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw } from "lucide-react";
 import { Link } from "wouter";
 import { z } from "zod";
-import type { CredentialProfile, InsertCredentialProfile, Notification, InsertNotification } from "@shared/schema";
+import type { CredentialProfile, InsertCredentialProfile, Notification, InsertNotification, Backup } from "@shared/schema";
 
 const credentialFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -47,6 +47,325 @@ const notificationFormSchema = z.object({
 });
 
 type NotificationFormData = z.infer<typeof notificationFormSchema>;
+
+function BackupSection() {
+  const { toast } = useToast();
+  const [restoring, setRestoring] = useState(false);
+  const [deletingBackup, setDeletingBackup] = useState<Backup | null>(null);
+
+  const { data: backups = [], isLoading: backupsLoading } = useQuery<Backup[]>({
+    queryKey: ["/api/backups"],
+  });
+
+  const { data: backupSettings } = useQuery<{
+    schedule: { enabled: boolean; intervalHours: number };
+    retention: { maxBackups: number };
+  }>({
+    queryKey: ["/api/backup-settings"],
+  });
+
+  const createBackupMutation = useMutation({
+    mutationFn: async () => apiRequest("POST", "/api/backups", { type: "manual" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/backups"] });
+      toast({ description: "Backup created successfully" });
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to create backup" });
+    },
+  });
+
+  const deleteBackupMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest("DELETE", `/api/backups/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/backups"] });
+      toast({ description: "Backup deleted" });
+      setDeletingBackup(null);
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to delete backup" });
+    },
+  });
+
+  const restoreBackupMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest("POST", `/api/backups/${id}/restore`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/maps"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/credential-profiles"] });
+      toast({ description: "Backup restored successfully. Refresh the page to see changes." });
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to restore backup" });
+    },
+  });
+
+  const updateSettingsMutation = useMutation({
+    mutationFn: async (data: { schedule?: { enabled: boolean; intervalHours: number }; retention?: { maxBackups: number } }) =>
+      apiRequest("PATCH", "/api/backup-settings", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/backup-settings"] });
+      toast({ description: "Backup settings updated" });
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to update settings" });
+    },
+  });
+
+  const handleDownload = async (backup: Backup) => {
+    try {
+      const response = await fetch(`/api/backups/${backup.id}/download`);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = backup.filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      toast({ variant: "destructive", description: "Failed to download backup" });
+    }
+  };
+
+  const handleFileRestore = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setRestoring(true);
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      await apiRequest("POST", "/api/restore", data);
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/maps"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/credential-profiles"] });
+      toast({ description: "Backup restored successfully. Refresh the page to see changes." });
+    } catch (error) {
+      toast({ variant: "destructive", description: "Failed to restore from file" });
+    } finally {
+      setRestoring(false);
+      event.target.value = "";
+    }
+  };
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleString();
+  };
+
+  return (
+    <Card data-testid="card-backups">
+      <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
+        <div>
+          <CardTitle>Backup & Restore</CardTitle>
+          <CardDescription>
+            Create backups and restore your configuration
+          </CardDescription>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => document.getElementById("restore-file-input")?.click()}
+            disabled={restoring}
+            data-testid="button-restore-file"
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Restore from File
+          </Button>
+          <input
+            id="restore-file-input"
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={handleFileRestore}
+          />
+          <Button
+            onClick={() => createBackupMutation.mutate()}
+            disabled={createBackupMutation.isPending}
+            data-testid="button-create-backup"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            {createBackupMutation.isPending ? "Creating..." : "Create Backup"}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="space-y-4">
+          <h4 className="text-sm font-medium flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Scheduled Backups
+          </h4>
+          <div className="flex items-center justify-between p-4 border rounded-md">
+            <div className="flex items-center gap-4">
+              <Switch
+                checked={backupSettings?.schedule?.enabled || false}
+                onCheckedChange={(enabled) =>
+                  updateSettingsMutation.mutate({
+                    schedule: { enabled, intervalHours: backupSettings?.schedule?.intervalHours || 24 },
+                  })
+                }
+                data-testid="switch-scheduled-backup"
+              />
+              <div>
+                <div className="font-medium">Automatic Backups</div>
+                <div className="text-sm text-muted-foreground">
+                  {backupSettings?.schedule?.enabled
+                    ? `Every ${backupSettings.schedule.intervalHours} hours`
+                    : "Disabled"}
+                </div>
+              </div>
+            </div>
+            <Select
+              value={String(backupSettings?.schedule?.intervalHours || 24)}
+              onValueChange={(value) =>
+                updateSettingsMutation.mutate({
+                  schedule: { enabled: backupSettings?.schedule?.enabled || false, intervalHours: parseInt(value) },
+                })
+              }
+            >
+              <SelectTrigger className="w-32" data-testid="select-backup-interval">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">1 hour</SelectItem>
+                <SelectItem value="6">6 hours</SelectItem>
+                <SelectItem value="12">12 hours</SelectItem>
+                <SelectItem value="24">24 hours</SelectItem>
+                <SelectItem value="48">48 hours</SelectItem>
+                <SelectItem value="168">1 week</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center justify-between p-4 border rounded-md">
+            <div>
+              <div className="font-medium">Retention Policy</div>
+              <div className="text-sm text-muted-foreground">
+                Keep last {backupSettings?.retention?.maxBackups || 10} scheduled backups
+              </div>
+            </div>
+            <Select
+              value={String(backupSettings?.retention?.maxBackups || 10)}
+              onValueChange={(value) =>
+                updateSettingsMutation.mutate({
+                  retention: { maxBackups: parseInt(value) },
+                })
+              }
+            >
+              <SelectTrigger className="w-32" data-testid="select-retention">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="5">5 backups</SelectItem>
+                <SelectItem value="10">10 backups</SelectItem>
+                <SelectItem value="20">20 backups</SelectItem>
+                <SelectItem value="50">50 backups</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <h4 className="text-sm font-medium flex items-center gap-2">
+            <HardDrive className="h-4 w-4" />
+            Backup History
+          </h4>
+          {backupsLoading ? (
+            <div className="text-center py-8 text-muted-foreground">Loading backups...</div>
+          ) : backups.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No backups yet. Create one to get started.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {backups.map((backup) => (
+                <div
+                  key={backup.id}
+                  className="flex items-center justify-between p-4 border rounded-md hover-elevate"
+                  data-testid={`backup-item-${backup.id}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <HardDrive className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <div className="font-medium text-foreground flex items-center gap-2">
+                        {backup.filename}
+                        {backup.type === "scheduled" && (
+                          <span className="text-xs bg-muted px-2 py-0.5 rounded">Scheduled</span>
+                        )}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {formatDate(backup.createdAt)} · {formatSize(backup.sizeBytes)}
+                        {backup.metadata && (
+                          <span className="ml-2">
+                            · {backup.metadata.deviceCount} devices, {backup.metadata.mapCount} maps
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDownload(backup)}
+                      data-testid={`button-download-${backup.id}`}
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => restoreBackupMutation.mutate(backup.id)}
+                      disabled={restoreBackupMutation.isPending}
+                      data-testid={`button-restore-${backup.id}`}
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setDeletingBackup(backup)}
+                      data-testid={`button-delete-${backup.id}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </CardContent>
+
+      <AlertDialog open={!!deletingBackup} onOpenChange={(open) => !open && setDeletingBackup(null)}>
+        <AlertDialogContent data-testid="dialog-delete-backup-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Backup</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{deletingBackup?.filename}"? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-backup">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deletingBackup && deleteBackupMutation.mutate(deletingBackup.id)}
+              data-testid="button-confirm-delete-backup"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
 
 function NotificationDialog({ 
   notification, 
@@ -1080,6 +1399,8 @@ export default function Settings() {
               )}
             </CardContent>
           </Card>
+
+          <BackupSection />
         </div>
       </main>
 

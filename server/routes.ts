@@ -4,6 +4,15 @@ import { storage } from "./storage";
 import { probeDevice, determineDeviceStatus, probeInterfaceTraffic } from "./deviceProbe";
 import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, type Device, type Connection } from "@shared/schema";
 import { z } from "zod";
+import * as fs from "fs";
+import * as path from "path";
+
+const BACKUP_DIR = path.join(process.cwd(), "backups");
+
+// Ensure backup directory exists
+if (!fs.existsSync(BACKUP_DIR)) {
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+}
 
 // CIDR IP range expansion utilities
 function ipToLong(ip: string): number {
@@ -1708,6 +1717,494 @@ export async function registerRoutes(app: Express): Promise<Server> {
     runTrafficCycle();
     setInterval(runTrafficCycle, TRAFFIC_POLLING_INTERVAL);
   }
+  
+  // ============ BACKUP/RESTORE ROUTES ============
+  
+  // Create a backup of all data
+  app.post("/api/backups", async (req, res) => {
+    try {
+      const type = req.body.type || 'manual';
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `backup-${timestamp}.json`;
+      const filePath = path.join(BACKUP_DIR, filename);
+      
+      // Gather all data
+      const [
+        maps,
+        devices,
+        allPlacements,
+        allConnections,
+        credentialProfiles,
+        notifications,
+        scanProfiles,
+        settingsData,
+      ] = await Promise.all([
+        storage.getAllMaps(),
+        storage.getAllDevices(),
+        // Get placements for all maps
+        storage.getAllMaps().then(async maps => {
+          const placements = [];
+          for (const map of maps) {
+            const mapPlacements = await storage.getPlacementsByMapId(map.id);
+            placements.push(...mapPlacements);
+          }
+          return placements;
+        }),
+        // Get connections for all maps
+        storage.getAllMaps().then(async maps => {
+          const connections = [];
+          for (const map of maps) {
+            const mapConnections = await storage.getConnectionsByMapId(map.id);
+            connections.push(...mapConnections);
+          }
+          return connections;
+        }),
+        storage.getAllCredentialProfiles(),
+        storage.getAllNotifications(),
+        storage.getAllScanProfiles(),
+        // Get all settings
+        Promise.all([
+          storage.getSetting('polling_interval'),
+          storage.getSetting('backup_schedule'),
+          storage.getSetting('backup_retention'),
+        ]).then(([polling, schedule, retention]) => ({
+          polling_interval: polling,
+          backup_schedule: schedule,
+          backup_retention: retention,
+        })),
+      ]);
+      
+      // Get device notifications for each device
+      const deviceNotifications = [];
+      for (const device of devices) {
+        const dn = await storage.getDeviceNotifications(device.id);
+        deviceNotifications.push(...dn);
+      }
+      
+      const backupData = {
+        version: '1.0',
+        createdAt: new Date().toISOString(),
+        data: {
+          maps,
+          devices,
+          placements: allPlacements,
+          connections: allConnections,
+          credentialProfiles,
+          notifications,
+          deviceNotifications,
+          scanProfiles,
+          settings: settingsData,
+        },
+      };
+      
+      // Write to file
+      const jsonContent = JSON.stringify(backupData, null, 2);
+      fs.writeFileSync(filePath, jsonContent, 'utf8');
+      
+      const sizeBytes = Buffer.byteLength(jsonContent, 'utf8');
+      
+      // Create backup record
+      const backup = await storage.createBackup({
+        filename,
+        filePath,
+        sizeBytes,
+        type: type as 'manual' | 'scheduled',
+        status: 'completed',
+        metadata: {
+          deviceCount: devices.length,
+          mapCount: maps.length,
+          connectionCount: allConnections.length,
+          credentialProfileCount: credentialProfiles.length,
+          version: '1.0',
+        },
+      });
+      
+      console.log(`[Backup] Created ${type} backup: ${filename} (${(sizeBytes / 1024).toFixed(1)} KB)`);
+      
+      // Log the backup
+      await storage.createLog({
+        eventType: 'backup_created',
+        severity: 'info',
+        message: `${type === 'manual' ? 'Manual' : 'Scheduled'} backup created: ${filename}`,
+        metadata: { backupId: backup.id, sizeBytes },
+      });
+      
+      res.json(backup);
+    } catch (error: any) {
+      console.error('Error creating backup:', error);
+      res.status(500).json({ error: 'Failed to create backup', details: error.message });
+    }
+  });
+  
+  // List all backups
+  app.get("/api/backups", async (_req, res) => {
+    try {
+      const backups = await storage.getAllBackups();
+      res.json(backups);
+    } catch (error) {
+      console.error('Error fetching backups:', error);
+      res.status(500).json({ error: 'Failed to fetch backups' });
+    }
+  });
+  
+  // Download a backup file
+  app.get("/api/backups/:id/download", async (req, res) => {
+    try {
+      const backup = await storage.getBackup(req.params.id);
+      if (!backup) {
+        return res.status(404).json({ error: 'Backup not found' });
+      }
+      
+      if (!fs.existsSync(backup.filePath)) {
+        return res.status(404).json({ error: 'Backup file not found on disk' });
+      }
+      
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="${backup.filename}"`);
+      res.sendFile(backup.filePath);
+    } catch (error) {
+      console.error('Error downloading backup:', error);
+      res.status(500).json({ error: 'Failed to download backup' });
+    }
+  });
+  
+  // Delete a backup
+  app.delete("/api/backups/:id", async (req, res) => {
+    try {
+      const backup = await storage.getBackup(req.params.id);
+      if (!backup) {
+        return res.status(404).json({ error: 'Backup not found' });
+      }
+      
+      // Delete the file if it exists
+      if (fs.existsSync(backup.filePath)) {
+        fs.unlinkSync(backup.filePath);
+      }
+      
+      // Delete the database record
+      await storage.deleteBackup(req.params.id);
+      
+      console.log(`[Backup] Deleted backup: ${backup.filename}`);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting backup:', error);
+      res.status(500).json({ error: 'Failed to delete backup' });
+    }
+  });
+  
+  // Restore from a backup (by ID)
+  app.post("/api/backups/:id/restore", async (req, res) => {
+    try {
+      const backup = await storage.getBackup(req.params.id);
+      if (!backup) {
+        return res.status(404).json({ error: 'Backup not found' });
+      }
+      
+      if (!fs.existsSync(backup.filePath)) {
+        return res.status(404).json({ error: 'Backup file not found on disk' });
+      }
+      
+      const fileContent = fs.readFileSync(backup.filePath, 'utf8');
+      const backupData = JSON.parse(fileContent);
+      
+      await performRestore(backupData);
+      
+      console.log(`[Backup] Restored from backup: ${backup.filename}`);
+      
+      await storage.createLog({
+        eventType: 'backup_restored',
+        severity: 'info',
+        message: `Restored from backup: ${backup.filename}`,
+        metadata: { backupId: backup.id },
+      });
+      
+      res.json({ success: true, message: 'Backup restored successfully' });
+    } catch (error: any) {
+      console.error('Error restoring backup:', error);
+      res.status(500).json({ error: 'Failed to restore backup', details: error.message });
+    }
+  });
+  
+  // Restore from uploaded file
+  app.post("/api/restore", async (req, res) => {
+    try {
+      const backupData = req.body;
+      
+      if (!backupData || !backupData.data) {
+        return res.status(400).json({ error: 'Invalid backup data format' });
+      }
+      
+      await performRestore(backupData);
+      
+      console.log(`[Backup] Restored from uploaded file`);
+      
+      await storage.createLog({
+        eventType: 'backup_restored',
+        severity: 'info',
+        message: 'Restored from uploaded backup file',
+      });
+      
+      res.json({ success: true, message: 'Backup restored successfully' });
+    } catch (error: any) {
+      console.error('Error restoring backup:', error);
+      res.status(500).json({ error: 'Failed to restore backup', details: error.message });
+    }
+  });
+  
+  // Helper function to perform restore
+  async function performRestore(backupData: any) {
+    const { data } = backupData;
+    
+    // Clear traffic history before restore
+    trafficHistory.clear();
+    
+    // Restore in order to maintain referential integrity
+    // 1. Credential profiles first (referenced by devices)
+    if (data.credentialProfiles) {
+      for (const profile of data.credentialProfiles) {
+        try {
+          await storage.createCredentialProfile({
+            name: profile.name,
+            type: profile.type,
+            credentials: profile.credentials,
+          });
+        } catch (e) {
+          // Profile may already exist, skip
+        }
+      }
+    }
+    
+    // 2. Maps
+    if (data.maps) {
+      for (const map of data.maps) {
+        try {
+          await storage.createMap({
+            name: map.name,
+            description: map.description,
+            isDefault: map.isDefault,
+          });
+        } catch (e) {
+          // Map may already exist, skip
+        }
+      }
+    }
+    
+    // 3. Notifications
+    if (data.notifications) {
+      for (const notif of data.notifications) {
+        try {
+          await storage.createNotification({
+            name: notif.name,
+            url: notif.url,
+            method: notif.method,
+            messageTemplate: notif.messageTemplate,
+            enabled: notif.enabled,
+          });
+        } catch (e) {
+          // Skip if exists
+        }
+      }
+    }
+    
+    // 4. Devices (need credential profile IDs to be resolved)
+    const deviceIdMap = new Map<string, string>(); // old ID -> new ID
+    if (data.devices) {
+      for (const device of data.devices) {
+        try {
+          const newDevice = await storage.createDevice({
+            name: device.name,
+            type: device.type,
+            ipAddress: device.ipAddress,
+            status: device.status || 'unknown',
+            deviceData: device.deviceData,
+            customCredentials: device.customCredentials,
+            // Note: credential profile ID would need mapping
+          });
+          deviceIdMap.set(device.id, newDevice.id);
+        } catch (e) {
+          // Skip if exists
+        }
+      }
+    }
+    
+    // 5. Scan profiles
+    if (data.scanProfiles) {
+      for (const profile of data.scanProfiles) {
+        try {
+          await storage.createScanProfile({
+            name: profile.name,
+            ipRange: profile.ipRange,
+            credentialProfileIds: profile.credentialProfileIds,
+            probeTypes: profile.probeTypes,
+            isDefault: profile.isDefault,
+          });
+        } catch (e) {
+          // Skip if exists
+        }
+      }
+    }
+    
+    // 6. Settings
+    if (data.settings) {
+      for (const [key, value] of Object.entries(data.settings)) {
+        if (value !== undefined && value !== null) {
+          await storage.setSetting(key, value);
+        }
+      }
+    }
+  }
+  
+  // Get backup settings
+  app.get("/api/backup-settings", async (_req, res) => {
+    try {
+      const schedule = await storage.getSetting('backup_schedule') || { enabled: false, intervalHours: 24 };
+      const retention = await storage.getSetting('backup_retention') || { maxBackups: 10 };
+      res.json({ schedule, retention });
+    } catch (error) {
+      console.error('Error fetching backup settings:', error);
+      res.status(500).json({ error: 'Failed to fetch backup settings' });
+    }
+  });
+  
+  // Update backup settings
+  app.patch("/api/backup-settings", async (req, res) => {
+    try {
+      const { schedule, retention } = req.body;
+      
+      if (schedule) {
+        await storage.setSetting('backup_schedule', schedule);
+        // Restart scheduled backup timer
+        rescheduleBackups(schedule);
+      }
+      
+      if (retention) {
+        await storage.setSetting('backup_retention', retention);
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error updating backup settings:', error);
+      res.status(500).json({ error: 'Failed to update backup settings' });
+    }
+  });
+  
+  // Scheduled backup timer
+  let scheduledBackupTimer: NodeJS.Timeout | null = null;
+  
+  async function performScheduledBackup() {
+    console.log('[Backup] Running scheduled backup...');
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `backup-${timestamp}.json`;
+      const filePath = path.join(BACKUP_DIR, filename);
+      
+      // Gather all data (same as manual backup)
+      const [maps, devices, credentialProfiles, notifications, scanProfiles] = await Promise.all([
+        storage.getAllMaps(),
+        storage.getAllDevices(),
+        storage.getAllCredentialProfiles(),
+        storage.getAllNotifications(),
+        storage.getAllScanProfiles(),
+      ]);
+      
+      const allPlacements = [];
+      const allConnections = [];
+      for (const map of maps) {
+        const mapPlacements = await storage.getPlacementsByMapId(map.id);
+        const mapConnections = await storage.getConnectionsByMapId(map.id);
+        allPlacements.push(...mapPlacements);
+        allConnections.push(...mapConnections);
+      }
+      
+      const deviceNotifications = [];
+      for (const device of devices) {
+        const dn = await storage.getDeviceNotifications(device.id);
+        deviceNotifications.push(...dn);
+      }
+      
+      const backupData = {
+        version: '1.0',
+        createdAt: new Date().toISOString(),
+        data: {
+          maps,
+          devices,
+          placements: allPlacements,
+          connections: allConnections,
+          credentialProfiles,
+          notifications,
+          deviceNotifications,
+          scanProfiles,
+        },
+      };
+      
+      const jsonContent = JSON.stringify(backupData, null, 2);
+      fs.writeFileSync(filePath, jsonContent, 'utf8');
+      
+      const sizeBytes = Buffer.byteLength(jsonContent, 'utf8');
+      
+      await storage.createBackup({
+        filename,
+        filePath,
+        sizeBytes,
+        type: 'scheduled',
+        status: 'completed',
+        metadata: {
+          deviceCount: devices.length,
+          mapCount: maps.length,
+          connectionCount: allConnections.length,
+          credentialProfileCount: credentialProfiles.length,
+          version: '1.0',
+        },
+      });
+      
+      console.log(`[Backup] Scheduled backup created: ${filename} (${(sizeBytes / 1024).toFixed(1)} KB)`);
+      
+      // Apply retention policy
+      const retentionSettings = await storage.getSetting('backup_retention') || { maxBackups: 10 };
+      const allBackups = await storage.getAllBackups();
+      const scheduledBackups = allBackups.filter(b => b.type === 'scheduled');
+      
+      if (scheduledBackups.length > retentionSettings.maxBackups) {
+        // Delete oldest scheduled backups
+        const toDelete = scheduledBackups.slice(retentionSettings.maxBackups);
+        for (const backup of toDelete) {
+          if (fs.existsSync(backup.filePath)) {
+            fs.unlinkSync(backup.filePath);
+          }
+          await storage.deleteBackup(backup.id);
+          console.log(`[Backup] Deleted old scheduled backup: ${backup.filename}`);
+        }
+      }
+      
+    } catch (error: any) {
+      console.error('[Backup] Scheduled backup failed:', error.message);
+    }
+  }
+  
+  function rescheduleBackups(schedule: { enabled: boolean; intervalHours: number }) {
+    if (scheduledBackupTimer) {
+      clearInterval(scheduledBackupTimer);
+      scheduledBackupTimer = null;
+    }
+    
+    if (schedule.enabled && schedule.intervalHours > 0) {
+      const intervalMs = schedule.intervalHours * 60 * 60 * 1000;
+      console.log(`[Backup] Scheduling backups every ${schedule.intervalHours} hours`);
+      scheduledBackupTimer = setInterval(performScheduledBackup, intervalMs);
+    } else {
+      console.log('[Backup] Scheduled backups disabled');
+    }
+  }
+  
+  // Initialize scheduled backups on startup
+  async function initializeScheduledBackups() {
+    const schedule = await storage.getSetting('backup_schedule');
+    if (schedule) {
+      rescheduleBackups(schedule);
+    }
+  }
+  
+  initializeScheduledBackups();
   
   startPeriodicProbing();
   startTrafficPolling();
