@@ -1,301 +1,47 @@
 # Network Topology Manager - The Dude
 
-A modern web-based network management application that replicates Mikrotik's The Dude functionality. Features an interactive canvas for Mikrotik and SNMP device topology mapping with drag-and-drop, multi-map support, and automatic device probing.
+## Overview
 
-## Project Overview
+"The Dude" is a modern, web-based network management application designed to replicate and enhance Mikrotik's original "The Dude" functionality. It provides an interactive canvas for mapping network topology, managing Mikrotik and generic SNMP devices, and visualizing real-time device status.
 
-This application provides:
-- **Interactive Canvas**: Drag-and-drop network device placement with pan and zoom controls
-- **Device Management**: Mikrotik router/switch and generic SNMP device support
-- **Multi-Map Support**: Organize devices across different network segments
-- **Auto-Probing**: Mock Mikrotik API and SNMP integration for device discovery
-- **Real-time Visualization**: Device status indicators, connection topology, and search
+The project aims to offer a professional-grade tool for network administrators to efficiently monitor, map, and manage their network infrastructure. Key capabilities include drag-and-drop device placement, multi-map support for organizing network segments, and automated device probing for discovery and status updates.
 
-## Tech Stack
+## User Preferences
+
+I prefer clear, concise explanations and direct answers. For coding, I favor an iterative development approach with frequent, small commits. Please ask for confirmation before implementing major architectural changes or significant feature modifications. I value detailed explanations when new concepts or complex solutions are introduced.
+
+## System Architecture
+
+The application is built with a client-server architecture.
 
 **Frontend:**
-- React with TypeScript
-- Wouter for routing
-- TanStack Query for data fetching
-- Tailwind CSS + Shadcn UI components
-- Source Sans Pro & Roboto fonts
+-   **Technology:** React with TypeScript, Wouter for routing, TanStack Query for data fetching.
+-   **Styling:** Tailwind CSS with Shadcn UI components for a modern, professional network management aesthetic.
+-   **Typography:** Source Sans Pro (primary) and Roboto (UI) fonts.
+-   **UI/UX Decisions:** Features a fixed toolbar, collapsible panels, and an infinite canvas. Status indicators use Green (online), Yellow (warning), Red (offline), Gray (unknown) color scheme. Supports dark/light theme toggle, empty states, and loading indicators.
+-   **Canvas:** Interactive canvas with pan, zoom, grid background, flexible positioning (including negative coordinates), and snap-to-grid functionality. Device nodes display status indicators, and connection lines include interface descriptions. Search functionality highlights devices with a pulse animation.
 
 **Backend:**
-- Node.js + Express
-- PostgreSQL (via Neon) with Drizzle ORM
-- Mock device probing service (Mikrotik API & SNMP)
+-   **Technology:** Node.js with Express.
+-   **Database:** PostgreSQL (via Neon) managed with Drizzle ORM.
+-   **Core Logic:** Implements a mock Mikrotik API and SNMP probing service for device discovery and data collection.
 
-## Database Setup
+**System Design Choices:**
+-   **Global Device Model:** Devices are stored globally and can be placed on multiple maps via a `device_placements` junction table, allowing a single physical device to appear on different network topology maps.
+-   **Parallel Probing Service:** High-performance system for real-time device status updates, capable of probing 400+ devices within a 30-second interval using 80 concurrent probes. Includes timeout protection and optimized link speed detection for Mikrotik devices (quick and detailed probes).
+-   **Network Scanner:** Automated discovery of devices on IP ranges (CIDR/Range support), multi-credential support, auto-detection of device types, scan profile saving, and bulk device creation.
+-   **Traffic Monitoring:** Real-time traffic monitoring on connections using SNMP, requiring SNMP credentials. Optimizes polling with stored SNMP interface indexes for faster data retrieval and calculates traffic rates and utilization.
+-   **Backup & Restore:** Provides manual and scheduled backups with configurable retention policies. Supports downloading, uploading, and restoring full application data, including devices, maps, connections, credentials, and settings. Backup files are JSON-formatted and stored locally.
 
-The application uses PostgreSQL with seven main tables:
-- `maps` - Network topology maps
-- `devices` - Global network devices (independent of maps)
-- `device_placements` - Junction table linking devices to maps with positions
-- `connections` - Device-to-device connections (map-specific)
-- `credential_profiles` - Reusable credential profiles for device authentication
-- `scan_profiles` - Saved network scanner configurations
-- `settings` - Application settings (polling interval, etc.)
+**Technical Implementations:**
+-   TypeScript strict mode.
+-   React Query for data fetching and caching.
+-   Drizzle ORM for type-safe database queries.
+-   Zod for runtime validation.
 
-**Global Device Model**: Devices are stored globally and can be placed on multiple maps via the `device_placements` junction table. This allows the same physical device to appear on different network topology maps.
+## External Dependencies
 
-**Schema is automatically managed via Drizzle:**
-```bash
-npm run db:push  # Push schema changes to database
-```
-
-The DATABASE_URL environment variable is automatically configured by Replit.
-
-**⚠️ SECURITY NOTE**: Credentials are currently stored in plaintext in the database. For production deployment, implement encryption at rest using a solution like AWS KMS, HashiCorp Vault, or pgcrypto.
-
-## Getting Started
-
-1. **Install dependencies** (done automatically):
-```bash
-npm install
-```
-
-2. **Database migrations** (already applied):
-```bash
-npm run db:push
-```
-
-3. **Start the application**:
-```bash
-npm run dev
-```
-
-The application runs on port 5000 with:
-- Frontend: React SPA with Vite
-- Backend: Express REST API at /api/*
-- Database: PostgreSQL with Drizzle ORM
-
-## Core Features Implemented
-
-### Maps
-- Create/read/delete network topology maps
-- Switch between multiple maps
-- Organize devices by network segment
-
-### Devices
-- **Global device library**: Devices exist independently and can be placed on multiple maps
-- **Drag-and-drop from sidebar**: Drag devices from the left sidebar onto any map
-- **Add new devices**: Create devices via "Add Device" button in toolbar
-- Device types: Mikrotik Router, Mikrotik Switch, Generic SNMP, Server, Access Point
-- Real-time device probing with actual data:
-  - Model, version, uptime from Mikrotik API / SNMP
-  - Network ports with status and speed
-  - CPU and memory usage from device APIs
-  - Device status (online, warning, offline, unknown)
-- Parallel probing service (80 concurrent probes, 400+ device scale)
-- Search devices by name, IP, or type
-- Edit devices (global changes apply to all maps)
-- Delete from map (removes placement only) or delete globally (removes device everywhere)
-- Duplicate placement prevention (same device can't be placed twice on same map)
-
-### Canvas
-- Pan and zoom controls with mouse wheel zoom
-- Fit-to-canvas button (calculates bounding box of all devices including negative coordinates)
-- Grid background with auto-expanding workspace
-- **Flexible positioning**: Supports negative coordinates, allowing devices to be placed outside top/left boundaries
-- **Snap to grid**: Hold Shift while dragging to snap devices to 20px grid alignment
-- Device nodes with status indicators
-- Connection lines between devices with interface descriptions
-- Search highlighting with pulse animation
-
-### UI/UX
-- Professional network management aesthetic
-- Collapsible left sidebar with global device library
-- "Add Device" button in top toolbar
-- Dark/light theme toggle
-- Device properties panel
-- Empty states and loading indicators
-- Responsive design
-
-## API Endpoints
-
-**Maps:**
-- `GET /api/maps` - List all maps
-- `POST /api/maps` - Create new map
-- `DELETE /api/maps/:id` - Delete map
-
-**Devices (Global):**
-- `GET /api/devices` - List all devices
-- `POST /api/devices` - Create device (auto-probes for data)
-- `PATCH /api/devices/:id` - Update device
-- `DELETE /api/devices/:id` - Delete device globally (cascades placements)
-
-**Device Placements (Map-specific):**
-- `GET /api/placements/:mapId` - List device placements for map
-- `POST /api/placements` - Place device on map (validates no duplicates)
-- `PATCH /api/placements/:id` - Update placement position
-- `DELETE /api/placements/:id` - Remove device from map (auto-cleans connections)
-
-**Connections (Map-specific):**
-- `GET /api/connections/:mapId` - List connections for map
-- `POST /api/connections` - Create connection
-- `DELETE /api/connections/:id` - Delete connection
-
-## Design Guidelines
-
-- **Primary Color**: #2C3E50 (network blue)
-- **Secondary Color**: #34495E (slate)
-- **Typography**: Source Sans Pro (primary), Roboto (UI)
-- **Layout**: Fixed toolbar, collapsible panels, infinite canvas
-- **Status Colors**: Green (online), Yellow (warning), Red (offline), Gray (unknown)
-
-See `design_guidelines.md` for complete design specifications.
-
-## Development
-
-- TypeScript strict mode enabled
-- React Query for data fetching and caching
-- Drizzle ORM for type-safe database queries
-- Zod for runtime validation
-- All components use Shadcn UI primitives
-
-## Parallel Probing Architecture
-
-The application uses a high-performance parallel probing system designed to handle 400+ devices within a 30-second polling interval:
-
-**Configuration:**
-- 80 concurrent device probes
-- 6-second per-device timeout wrapper
-- 5-second Mikrotik API timeout
-- 4-second SNMP timeout with 0 retries
-
-**Features:**
-- Bounded-concurrency queue maintains exactly 80 active probes
-- Non-overlapping probe scheduling with re-entry guard
-- Timeout protection prevents hung probes from blocking the queue
-- Storage update guard prevents late-arriving completions from writing after timeout
-- Comprehensive telemetry: success rate, timeout count, error count, cycle duration
-
-**Performance:**
-- Worst-case: ceil(400/80) × 6s = 30 seconds for 400 offline devices
-- Typical case: Much faster for responsive devices (1-2s for online devices)
-- Scales linearly with device count up to the concurrency limit
-
-**Link Speed Detection (Mikrotik):**
-The system uses optimized two-tier link speed detection to handle 400+ device fleets efficiently:
-
-**Implementation:**
-- Quick probes (every cycle): Fast device status check without detailed interface monitoring
-- Detailed probes (every 10 cycles): Runs `/interface ethernet monitor` command to get actual link speeds
-- Smart caching: Speeds stored in `deviceData.ports` and reused between detailed probes
-- State change detection: Down→up link transitions trigger immediate detailed probe for fresh speed data
-
-**Performance characteristics:**
-- Quick cycle: ~1.1s for responsive devices (status check only)
-- Detailed cycle: ~2.9s per device (includes 3s `/interface ethernet monitor` overhead)
-- Frequency: Detailed monitoring every 10 cycles (~5 minutes with 30s polling interval)
-- Scalability: Prevents detailed monitoring from blocking the 400+ device fleet by running it selectively
-
-**Speed parsing:**
-- Primary field: RouterOS `speed` property (e.g., "1Gbps", "100Mbps")
-- Fallback: Legacy `rate` property for older firmware
-- Caching ensures speeds persist between detailed monitoring cycles
-
-## Network Scanner
-
-The network scanner allows automated discovery of devices on IP ranges:
-
-**Features:**
-- **CIDR/Range Support**: Scan using CIDR notation (192.168.1.0/24) or IP ranges (10.0.0.1-10.0.0.254)
-- **Multi-Credential**: Try multiple credential profiles in order until one succeeds
-- **Device Type Detection**: Auto-detect Mikrotik routers, SNMP devices, and servers
-- **Scan Profiles**: Save scan configurations for quick reuse
-- **Bulk Creation**: Select discovered devices and create them in batch
-
-**API Endpoints:**
-- `GET /api/scan-profiles` - List saved scan profiles
-- `POST /api/scan-profiles` - Create scan profile
-- `DELETE /api/scan-profiles/:id` - Delete scan profile
-- `POST /api/network-scan` - Execute network scan
-- `POST /api/devices/batch` - Batch create devices
-
-**Implementation:**
-- 40 concurrent IP scans with 3-second timeout per probe attempt
-- Sequential credential/probe-type iteration per IP (try all combinations)
-- Existing device detection to prevent duplicates
-- Results include device data (model, version, identity) from successful probes
-
-## Traffic Monitoring Architecture
-
-The application supports real-time traffic monitoring on connections via SNMP:
-
-**IMPORTANT: SNMP Credentials Required**
-- Traffic monitoring requires SNMP credentials (community or v3 params) to be configured in the device's credential profile
-- Mikrotik API credentials alone are NOT sufficient - you must also configure SNMP community string in the same credential profile
-- If SNMP credentials are not configured, the system will log a warning and fall back to slower SNMP walks instead of using stored indexes
-
-**SNMP Index Storage (Optimized Path):**
-- During device probing, if the device has monitored connections AND SNMP credentials, an SNMP walk fetches interface indexes
-- The ifIndex for each interface is stored in `device.deviceData.ports[].snmpIndex`
-- Traffic monitoring uses stored snmpIndex to construct OIDs directly (fast GET, ~1s)
-- Supports both SNMPv2c and SNMPv3 credentials
-
-**Polling Configuration:**
-- Independent 10-second traffic polling loop (separate from 30s device probing)
-- 40 concurrent traffic probes with 8-second timeout
-- Direct SNMP GET when index is stored/cached (~1s), SNMP WALK fallback (~8-25s)
-
-**Connection Caching:**
-- `monitorSnmpIndex` column stores cached SNMP interface index per connection
-- Index is cached from successful traffic probes for devices without stored port indexes
-- Stale index detection: noSuchName errors trigger cache invalidation
-
-**Traffic Metrics:**
-- 64-bit counters (ifHCInOctets/ifHCOutOctets) with fallback to 32-bit
-- Rate calculation: delta bytes / delta time between samples
-- Utilization: % of configured link speed (1000 = bits/s, not bytes/s)
-- Stale detection: 2-minute timeout clears rates and shows "Stale" badge
-
-**Performance:**
-- Fast path: ~1s per connection with stored/cached SNMP index (direct GET)
-- Slow path: ~8-25s per connection without index (ifDescr walk with EXACT name matching)
-- Index is stored on device ports after successful device probe (when SNMP credentials available)
-
-## Future Enhancements (Next Phase)
-
-- WebSocket for real-time device status updates (push vs. poll)
-- Device grouping and hierarchical organization
-- Export/import network topology configurations
-- Alert notifications for device status changes
-- Historical performance graphs (CPU/memory trends over time)
-
-## Project Structure
-
-```
-├── client/               # React frontend
-│   ├── src/
-│   │   ├── components/  # React components
-│   │   ├── pages/       # Page components
-│   │   ├── lib/         # Utilities and query client
-│   │   └── hooks/       # Custom React hooks
-├── server/              # Express backend
-│   ├── db.ts           # Database connection
-│   ├── storage.ts      # Data access layer
-│   ├── routes.ts       # API endpoints & probing service
-│   └── deviceProbe.ts  # Real Mikrotik & SNMP probing
-├── shared/             # Shared types and schemas
-│   └── schema.ts       # Drizzle schema and Zod validation
-└── design_guidelines.md # UI/UX specifications
-```
-
-## Recent Architecture Changes
-
-**Global Device Model (November 2025):**
-- Migrated from map-specific devices to global device library
-- Devices can now appear on multiple maps via `device_placements` junction table
-- Left sidebar shows all devices, draggable onto any map
-- Duplicate placement prevention ensures a device only appears once per map
-- Connection cleanup automatically removes connections when device is removed from map
-- Cache invalidation ensures real-time UI updates for placements and connections
-
-## Notes
-
-- Database is pre-provisioned with DATABASE_URL environment variable
-- Real device probing via Mikrotik API (node-routeros) and SNMP (net-snmp)
-- Canvas uses CSS transforms for pan/zoom operations
-- Device positions stored in `device_placements` table for persistence across maps
-- Parallel probing service automatically starts on application launch and probes all global devices
+-   **Database:** PostgreSQL (hosted on Neon).
+-   **Mikrotik API Integration:** Utilizes `node-routeros` for communication.
+-   **SNMP Integration:** Uses `net-snmp` for SNMP device probing and traffic monitoring.
+-   **Frontend Libraries:** React, Wouter, TanStack Query, Tailwind CSS, Shadcn UI.
