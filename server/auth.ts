@@ -28,9 +28,12 @@ export function setupSession(app: Express): void {
   const sessionSecret = process.env.SESSION_SECRET || 'dev-secret-change-in-production';
   const isProduction = process.env.NODE_ENV === 'production';
   
+  console.log(`[Auth] Setting up session (production: ${isProduction})`);
+  
   // Trust proxy in production (Replit runs behind a proxy)
   if (isProduction) {
     app.set('trust proxy', 1);
+    console.log('[Auth] Trust proxy enabled');
   }
   
   const PgSession = connectPgSimple(session);
@@ -38,25 +41,34 @@ export function setupSession(app: Express): void {
     connectionString: process.env.DATABASE_URL,
   });
 
-  app.use(
-    session({
-      store: new PgSession({
-        pool,
-        tableName: 'user_sessions',
-        createTableIfMissing: true,
-      }),
-      secret: sessionSecret,
-      resave: false,
-      saveUninitialized: false,
-      proxy: isProduction,
-      cookie: {
-        secure: isProduction,
-        httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000, // 24 hours
-        sameSite: 'lax',
-      },
-    })
-  );
+  const sessionConfig = {
+    store: new PgSession({
+      pool,
+      tableName: 'user_sessions',
+      createTableIfMissing: true,
+    }),
+    secret: sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    proxy: isProduction,
+    name: 'thedude.sid',
+    cookie: {
+      secure: isProduction,
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: 'lax' as const,
+      path: '/',
+    },
+  };
+  
+  console.log('[Auth] Session cookie config:', {
+    secure: sessionConfig.cookie.secure,
+    sameSite: sessionConfig.cookie.sameSite,
+    httpOnly: sessionConfig.cookie.httpOnly,
+    path: sessionConfig.cookie.path,
+  });
+
+  app.use(session(sessionConfig));
 }
 
 export interface AuthenticatedRequest extends Request {

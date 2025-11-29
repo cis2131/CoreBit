@@ -59,8 +59,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mutationFn: async ({ username, password }: { username: string; password: string }) => {
       return await apiRequest("POST", "/api/auth/login", { username, password });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/session"] });
+    onSuccess: (data) => {
+      // Directly set the session data from login response
+      // This allows immediate UI update regardless of cookie state
+      queryClient.setQueryData(["/api/auth/session"], data);
     },
   });
 

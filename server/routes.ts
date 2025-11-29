@@ -177,7 +177,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       req.session.username = user.username;
       req.session.role = user.role;
       
-      res.json({ user: getUserSafeData(user) });
+      // Explicitly save session before responding
+      req.session.save((err) => {
+        if (err) {
+          console.error('[Auth] Session save error:', err);
+          return res.status(500).json({ message: 'Failed to create session' });
+        }
+        console.log('[Auth] Session saved for user:', user.username, 'sessionID:', req.sessionID);
+        res.json({ user: getUserSafeData(user) });
+      });
     } catch (error) {
       console.error('Login error:', error);
       res.status(500).json({ message: 'Login failed' });
@@ -198,6 +206,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Get current session
   app.get("/api/auth/session", async (req, res) => {
+    console.log('[Auth] Session check - sessionID:', req.sessionID, 'userId:', req.session?.userId);
+    
     if (!req.session?.userId) {
       return res.status(401).json({ message: 'Not authenticated' });
     }
