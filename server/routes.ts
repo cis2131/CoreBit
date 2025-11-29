@@ -1455,6 +1455,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       clearTimeout(timeoutId!);
       if (error.message === 'Probe timeout') {
         console.warn(`[Probing] Timeout probing ${device.name} (${device.ipAddress})`);
+        
+        // Update device status to offline on timeout
+        const oldStatus = device.status;
+        if (oldStatus !== 'offline') {
+          await storage.updateDevice(device.id, { status: 'offline' });
+          
+          // Create log entry for status change
+          try {
+            await storage.createLog({
+              deviceId: device.id,
+              eventType: 'status_change',
+              severity: 'error',
+              message: `Device ${device.name} status changed from ${oldStatus} to offline (probe timeout)`,
+              oldStatus,
+              newStatus: 'offline',
+            });
+          } catch (logError: any) {
+            console.error(`[Logging] Error creating timeout log for ${device.name}:`, logError.message);
+          }
+          
+          // Send notifications for timeout
+          try {
+            const deviceNotifications = await storage.getDeviceNotifications(device.id);
+            if (deviceNotifications.length > 0) {
+              for (const dn of deviceNotifications) {
+                const notification = await storage.getNotification(dn.notificationId);
+                if (notification) {
+                  await sendNotification(notification, device, 'offline', oldStatus);
+                }
+              }
+            }
+          } catch (notifError: any) {
+            console.error(`[Notification] Error sending timeout notifications for ${device.name}:`, notifError.message);
+          }
+        }
+        
         return { device, success: false, timeout: true };
       }
       console.error(`[Probing] Failed to probe ${device.name}:`, error.message);
