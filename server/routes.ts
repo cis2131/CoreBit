@@ -1,11 +1,23 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { probeDevice, determineDeviceStatus, probeInterfaceTraffic } from "./deviceProbe";
-import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, type Device, type Connection } from "@shared/schema";
+import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, type Device, type Connection } from "@shared/schema";
 import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
+import { 
+  setupSession, 
+  requireAuth, 
+  requireRole, 
+  requireAdmin, 
+  canModify,
+  hashPassword, 
+  verifyPassword, 
+  seedDefaultAdmin,
+  getUserSafeData,
+  type AuthenticatedRequest 
+} from "./auth";
 
 const BACKUP_DIR = path.join(process.cwd(), "backups");
 
@@ -130,6 +142,211 @@ async function sendNotification(notification: any, device: any, newStatus: strin
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Setup session middleware
+  setupSession(app);
+  
+  // Seed default admin user
+  await seedDefaultAdmin();
+
+  // ========== AUTHENTICATION ROUTES ==========
+  
+  // Login
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      
+      if (!username || !password) {
+        return res.status(400).json({ message: 'Username and password are required' });
+      }
+      
+      const user = await storage.getUserByUsername(username);
+      if (!user) {
+        return res.status(401).json({ message: 'Invalid username or password' });
+      }
+      
+      const isValid = await verifyPassword(password, user.passwordHash);
+      if (!isValid) {
+        return res.status(401).json({ message: 'Invalid username or password' });
+      }
+      
+      // Update last login
+      await storage.updateUserLastLogin(user.id);
+      
+      // Set session
+      req.session.userId = user.id;
+      req.session.username = user.username;
+      req.session.role = user.role;
+      
+      res.json({ user: getUserSafeData(user) });
+    } catch (error) {
+      console.error('Login error:', error);
+      res.status(500).json({ message: 'Login failed' });
+    }
+  });
+  
+  // Logout
+  app.post("/api/auth/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('Logout error:', err);
+        return res.status(500).json({ message: 'Logout failed' });
+      }
+      res.clearCookie('connect.sid');
+      res.json({ message: 'Logged out successfully' });
+    });
+  });
+  
+  // Get current session
+  app.get("/api/auth/session", async (req, res) => {
+    if (!req.session?.userId) {
+      return res.status(401).json({ message: 'Not authenticated' });
+    }
+    
+    const user = await storage.getUser(req.session.userId);
+    if (!user) {
+      req.session.destroy(() => {});
+      return res.status(401).json({ message: 'User not found' });
+    }
+    
+    res.json({ user: getUserSafeData(user) });
+  });
+
+  // ========== USER MANAGEMENT ROUTES (Admin only) ==========
+  
+  // Get all users
+  app.get("/api/users", requireAdmin as any, async (_req, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      res.json(users.map(getUserSafeData));
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      res.status(500).json({ message: 'Failed to fetch users' });
+    }
+  });
+  
+  // Create user
+  app.post("/api/users", requireAdmin as any, async (req, res) => {
+    try {
+      const { password, ...userData } = req.body;
+      
+      if (!password || password.length < 4) {
+        return res.status(400).json({ message: 'Password must be at least 4 characters' });
+      }
+      
+      const existingUser = await storage.getUserByUsername(userData.username);
+      if (existingUser) {
+        return res.status(400).json({ message: 'Username already exists' });
+      }
+      
+      const passwordHash = await hashPassword(password);
+      const user = await storage.createUser({
+        ...userData,
+        passwordHash,
+      });
+      
+      res.status(201).json(getUserSafeData(user));
+    } catch (error) {
+      console.error('Error creating user:', error);
+      res.status(500).json({ message: 'Failed to create user' });
+    }
+  });
+  
+  // Update user
+  app.patch("/api/users/:id", requireAdmin as any, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { password, ...updateData } = req.body;
+      
+      // Prevent deleting the last admin
+      if (updateData.role && updateData.role !== 'admin') {
+        const users = await storage.getAllUsers();
+        const admins = users.filter(u => u.role === 'admin');
+        const targetUser = await storage.getUser(req.params.id);
+        if (targetUser?.role === 'admin' && admins.length <= 1) {
+          return res.status(400).json({ message: 'Cannot remove the last admin' });
+        }
+      }
+      
+      // If password provided, hash it
+      if (password) {
+        if (password.length < 4) {
+          return res.status(400).json({ message: 'Password must be at least 4 characters' });
+        }
+        updateData.passwordHash = await hashPassword(password);
+      }
+      
+      const user = await storage.updateUser(req.params.id, updateData);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      res.json(getUserSafeData(user));
+    } catch (error) {
+      console.error('Error updating user:', error);
+      res.status(500).json({ message: 'Failed to update user' });
+    }
+  });
+  
+  // Delete user
+  app.delete("/api/users/:id", requireAdmin as any, async (req: AuthenticatedRequest, res) => {
+    try {
+      // Prevent deleting yourself
+      if (req.user?.id === req.params.id) {
+        return res.status(400).json({ message: 'Cannot delete your own account' });
+      }
+      
+      // Prevent deleting the last admin
+      const users = await storage.getAllUsers();
+      const targetUser = await storage.getUser(req.params.id);
+      if (targetUser?.role === 'admin') {
+        const admins = users.filter(u => u.role === 'admin');
+        if (admins.length <= 1) {
+          return res.status(400).json({ message: 'Cannot delete the last admin' });
+        }
+      }
+      
+      await storage.deleteUser(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      res.status(500).json({ message: 'Failed to delete user' });
+    }
+  });
+  
+  // Change own password
+  app.post("/api/auth/change-password", requireAuth as any, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { currentPassword, newPassword } = req.body;
+      
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ message: 'Current and new password are required' });
+      }
+      
+      if (newPassword.length < 4) {
+        return res.status(400).json({ message: 'New password must be at least 4 characters' });
+      }
+      
+      const user = await storage.getUser(req.user!.id);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      const isValid = await verifyPassword(currentPassword, user.passwordHash);
+      if (!isValid) {
+        return res.status(401).json({ message: 'Current password is incorrect' });
+      }
+      
+      const passwordHash = await hashPassword(newPassword);
+      await storage.updateUser(user.id, { passwordHash });
+      
+      res.json({ message: 'Password changed successfully' });
+    } catch (error) {
+      console.error('Error changing password:', error);
+      res.status(500).json({ message: 'Failed to change password' });
+    }
+  });
+
+  // ========== MAP ROUTES ==========
+
   // Map routes
   app.get("/api/maps", async (_req, res) => {
     try {
