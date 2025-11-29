@@ -1324,11 +1324,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       let timeoutId: NodeJS.Timeout;
       let timedOut = false;
+      let probeCompleted = false; // Track if probe completed before timeout
       
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-          timedOut = true;
-          reject(new Error('Probe timeout'));
+          if (!probeCompleted) {
+            timedOut = true;
+            reject(new Error('Probe timeout'));
+          }
         }, deviceTimeoutMs);
       });
       
@@ -1337,9 +1340,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const previousPorts = device.deviceData?.ports || [];
       let needsDetailedProbe = isDetailedCycle;
       
+      // Helper function to safely update device - skips if timed out
+      const safeUpdateDevice = async (updates: any) => {
+        if (timedOut) return false;
+        try {
+          await storage.updateDevice(device.id, updates);
+          return true;
+        } catch (error: any) {
+          console.error(`[Probing] DB update failed for ${device.name}:`, error.message);
+          return false;
+        }
+      };
+      
       // For Mikrotik devices, check if any ports transitioned from down to up
       if (device.type.startsWith('mikrotik_') && previousPorts.length > 0 && !isDetailedCycle) {
         const quickProbe = await probeDevice(device.type, device.ipAddress, credentials, false, previousPorts, needsSnmpIndexing, deviceTimeoutSeconds);
+        
+        // Check timeout immediately after probe returns
+        if (timedOut) {
+          return { device, success: false, timeout: true };
+        }
         
         if (quickProbe.success && quickProbe.data.ports) {
           // Check for down→up transitions
@@ -1357,24 +1377,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // If we don't need detailed probe, use the quick probe result and return early
         if (!needsDetailedProbe && quickProbe.success) {
-          // Check if we timed out before updating - prevents race condition
-          if (timedOut) {
-            return { device, success: false, timeout: true };
-          }
-          
           const status = determineDeviceStatus(quickProbe.data, quickProbe.success);
           const oldStatus = device.status;
           const statusChanged = status !== oldStatus;
           
           if (status !== device.status || quickProbe.success) {
-            await storage.updateDevice(device.id, {
+            const updated = await safeUpdateDevice({
               status,
               deviceData: quickProbe.data,
               failureCount: 0, // Reset failure count on successful probe
             });
+            if (!updated && timedOut) {
+              return { device, success: false, timeout: true };
+            }
           }
           
-          if (statusChanged) {
+          if (statusChanged && !timedOut) {
             // Log status change to console with timestamp
             const timestamp = new Date().toISOString();
             console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → ${status}`);
@@ -1409,6 +1427,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
           
+          // Mark probe as completed before returning
+          probeCompleted = true;
           return { device, success: quickProbe.success, timeout: false };
         }
       }
@@ -1424,6 +1444,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         deviceTimeoutSeconds
       );
       
+      // Check timeout immediately after probe returns
       if (timedOut) {
         return { device, success: false, timeout: true };
       }
@@ -1433,15 +1454,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const statusChanged = status !== oldStatus;
       
       if (status !== device.status || probeResult.success) {
-        await storage.updateDevice(device.id, {
+        const updated = await safeUpdateDevice({
           status,
           deviceData: probeResult.success ? probeResult.data : (device.deviceData || undefined),
           failureCount: probeResult.success ? 0 : undefined, // Reset failure count on successful probe
         });
+        if (!updated && timedOut) {
+          return { device, success: false, timeout: true };
+        }
       }
       
       // Trigger notifications and logging on status change
-      if (statusChanged) {
+      if (statusChanged && !timedOut) {
         // Log status change to console with timestamp
         const timestamp = new Date().toISOString();
         console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → ${status}`);
@@ -1476,6 +1500,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      // Mark probe as completed before returning
+      probeCompleted = true;
       return { device, success: probeResult.success, timeout: false };
     })();
     
@@ -1656,7 +1682,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         currentPhase = 'device probing';
-        await processConcurrentQueue(devicesWithIp, CONCURRENT_PROBES, isDetailedCycle, devicesNeedingSnmp, probingDefaults);
+        const results = await processConcurrentQueue(devicesWithIp, CONCURRENT_PROBES, isDetailedCycle, devicesNeedingSnmp, probingDefaults);
+        
+        // Analyze probe results to detect mass failures
+        const totalProbed = results.length;
+        const successCount = results.filter(r => r.success).length;
+        const timeoutCount = results.filter(r => r.timeout).length;
+        const errorCount = results.filter(r => !r.success && !r.timeout && r.error).length;
+        const failureRate = totalProbed > 0 ? ((totalProbed - successCount) / totalProbed * 100).toFixed(1) : '0';
+        
+        const elapsed = Date.now() - startTime;
+        
+        // Log summary if there were any failures
+        if (totalProbed > 0 && successCount < totalProbed) {
+          // Log warning if more than 50% of devices failed - indicates potential systemic issue
+          if (successCount < totalProbed * 0.5) {
+            console.warn(`[Probing] MASS FAILURE DETECTED - Cycle #${probeCycle}: ${successCount}/${totalProbed} succeeded (${failureRate}% failure rate), ${timeoutCount} timeouts, ${errorCount} errors, took ${elapsed}ms`);
+            
+            // Log sample of failed devices for debugging
+            const failedDevices = results.filter(r => !r.success).slice(0, 5);
+            for (const fd of failedDevices) {
+              console.warn(`[Probing]   - ${fd.device.name} (${fd.device.ipAddress}): ${fd.timeout ? 'timeout' : fd.error || 'unknown error'}`);
+            }
+          } else {
+            // Normal failure logging
+            console.log(`[Probing] Cycle #${probeCycle}: ${successCount}/${totalProbed} devices online, ${timeoutCount} timeouts, took ${elapsed}ms`);
+          }
+        }
       } catch (error) {
         console.error('[Probing] Error in periodic probing:', error);
       } finally {
