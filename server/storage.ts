@@ -11,6 +11,8 @@ import {
   logs,
   scanProfiles,
   backups,
+  users,
+  portLocks,
   type Map, 
   type InsertMap,
   type Device,
@@ -30,7 +32,11 @@ import {
   type ScanProfile,
   type InsertScanProfile,
   type Backup,
-  type InsertBackup
+  type InsertBackup,
+  type User,
+  type InsertUser,
+  type PortLock,
+  type InsertPortLock
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNotNull } from "drizzle-orm";
@@ -105,6 +111,21 @@ export interface IStorage {
   getBackup(id: string): Promise<Backup | undefined>;
   createBackup(backup: InsertBackup): Promise<Backup>;
   deleteBackup(id: string): Promise<void>;
+
+  // Users
+  getAllUsers(): Promise<User[]>;
+  getUser(id: string): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUser(id: string, user: Partial<InsertUser>): Promise<User | undefined>;
+  updateUserLastLogin(id: string): Promise<void>;
+  deleteUser(id: string): Promise<void>;
+
+  // Port Locks
+  getPortLocks(deviceId: string): Promise<PortLock[]>;
+  getPortLock(deviceId: string, portName: string): Promise<PortLock | undefined>;
+  createPortLock(portLock: InsertPortLock): Promise<PortLock>;
+  deletePortLock(deviceId: string, portName: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -417,6 +438,76 @@ export class DatabaseStorage implements IStorage {
 
   async deleteBackup(id: string): Promise<void> {
     await db.delete(backups).where(eq(backups.id, id));
+  }
+
+  // Users
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(users.username);
+  }
+
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(insertUser)
+      .returning();
+    return user;
+  }
+
+  async updateUser(id: string, updateData: Partial<InsertUser>): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return user || undefined;
+  }
+
+  async updateUserLastLogin(id: string): Promise<void> {
+    await db
+      .update(users)
+      .set({ lastLoginAt: new Date() })
+      .where(eq(users.id, id));
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await db.delete(users).where(eq(users.id, id));
+  }
+
+  // Port Locks
+  async getPortLocks(deviceId: string): Promise<PortLock[]> {
+    return await db.select().from(portLocks).where(eq(portLocks.deviceId, deviceId));
+  }
+
+  async getPortLock(deviceId: string, portName: string): Promise<PortLock | undefined> {
+    const [lock] = await db
+      .select()
+      .from(portLocks)
+      .where(and(eq(portLocks.deviceId, deviceId), eq(portLocks.portName, portName)));
+    return lock || undefined;
+  }
+
+  async createPortLock(insertLock: InsertPortLock): Promise<PortLock> {
+    const [lock] = await db
+      .insert(portLocks)
+      .values(insertLock)
+      .returning();
+    return lock;
+  }
+
+  async deletePortLock(deviceId: string, portName: string): Promise<void> {
+    await db
+      .delete(portLocks)
+      .where(and(eq(portLocks.deviceId, deviceId), eq(portLocks.portName, portName)));
   }
 }
 
