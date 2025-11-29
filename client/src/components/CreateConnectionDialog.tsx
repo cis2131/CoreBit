@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Device } from '@shared/schema';
+import { Device, Connection } from '@shared/schema';
 import {
   Dialog,
   DialogContent,
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Link2 } from 'lucide-react';
 
 interface CreateConnectionDialogProps {
   open: boolean;
@@ -25,6 +26,8 @@ interface CreateConnectionDialogProps {
   targetDevice: Device | null;
   onConfirm: (sourcePort: string, targetPort: string) => void;
   initialSourcePort?: string;
+  connections?: Connection[];
+  allDevices?: Device[];
 }
 
 export function CreateConnectionDialog({
@@ -34,6 +37,8 @@ export function CreateConnectionDialog({
   targetDevice,
   onConfirm,
   initialSourcePort,
+  connections = [],
+  allDevices = [],
 }: CreateConnectionDialogProps) {
   const [sourcePort, setSourcePort] = useState('');
   const [targetPort, setTargetPort] = useState('');
@@ -56,6 +61,70 @@ export function CreateConnectionDialog({
 
   const sourcePorts = (sourceDevice?.deviceData?.ports as any[]) || [];
   const targetPorts = (targetDevice?.deviceData?.ports as any[]) || [];
+
+  // Find existing connection for a port on a device
+  const findConnectionForPort = (deviceId: string, portName: string): { connection: Connection; otherDeviceName: string; otherPortName: string } | null => {
+    for (const conn of connections) {
+      if (conn.sourceDeviceId === deviceId && conn.sourcePort === portName) {
+        const otherDevice = allDevices.find(d => d.id === conn.targetDeviceId);
+        return {
+          connection: conn,
+          otherDeviceName: otherDevice?.name || 'Unknown',
+          otherPortName: conn.targetPort || 'Unknown',
+        };
+      }
+      if (conn.targetDeviceId === deviceId && conn.targetPort === portName) {
+        const otherDevice = allDevices.find(d => d.id === conn.sourceDeviceId);
+        return {
+          connection: conn,
+          otherDeviceName: otherDevice?.name || 'Unknown',
+          otherPortName: conn.sourcePort || 'Unknown',
+        };
+      }
+    }
+    return null;
+  };
+
+  // Status dot component
+  const StatusDot = ({ status }: { status: string }) => {
+    const isUp = status?.toLowerCase() === 'up';
+    return (
+      <span
+        className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${
+          isUp ? 'bg-green-500' : 'bg-muted-foreground/50'
+        }`}
+      />
+    );
+  };
+
+  // Port item renderer
+  const renderPortItem = (port: any, deviceId: string, showInDropdown: boolean) => {
+    const portName = port.defaultName || port.name;
+    const connectionInfo = findConnectionForPort(deviceId, portName);
+    
+    return (
+      <div className="flex flex-col items-start gap-0.5">
+        <div className="flex items-center gap-2">
+          <StatusDot status={port.status} />
+          <span className="font-medium">
+            {port.name}
+            {port.speed ? ` (${port.speed})` : ''}
+          </span>
+        </div>
+        {port.description && (
+          <div className="text-xs text-muted-foreground ml-4">
+            {port.description}
+          </div>
+        )}
+        {connectionInfo && showInDropdown && (
+          <div className="flex items-center gap-1 text-xs text-blue-500 ml-4">
+            <Link2 className="h-3 w-3" />
+            <span>→ {connectionInfo.otherDeviceName} ({connectionInfo.otherPortName})</span>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -83,15 +152,11 @@ export function CreateConnectionDialog({
                     const port = sourcePorts.find((p: any) => (p.defaultName || p.name) === sourcePort);
                     if (!port) return sourcePort;
                     return (
-                      <div className="flex flex-col items-start gap-0.5 py-1">
-                        <div className="font-medium">
+                      <div className="flex items-center gap-2 py-1">
+                        <StatusDot status={port.status} />
+                        <span className="font-medium">
                           {port.name} {port.speed ? `(${port.speed})` : ''}
-                        </div>
-                        {port.description && (
-                          <div className="text-xs text-muted-foreground line-clamp-1">
-                            {port.description}
-                          </div>
-                        )}
+                        </span>
                       </div>
                     );
                   })()}
@@ -105,16 +170,7 @@ export function CreateConnectionDialog({
                       value={port.defaultName || port.name}
                       className="h-auto py-2"
                     >
-                      <div className="flex flex-col items-start gap-0.5">
-                        <div className="font-medium">
-                          {port.name} - {port.status}{port.speed ? ` (${port.speed})` : ''}
-                        </div>
-                        {port.description && (
-                          <div className="text-xs text-muted-foreground">
-                            {port.description}
-                          </div>
-                        )}
-                      </div>
+                      {renderPortItem(port, sourceDevice?.id || '', true)}
                     </SelectItem>
                   ))
                 ) : (
@@ -140,15 +196,11 @@ export function CreateConnectionDialog({
                     const port = targetPorts.find((p: any) => (p.defaultName || p.name) === targetPort);
                     if (!port) return targetPort;
                     return (
-                      <div className="flex flex-col items-start gap-0.5 py-1">
-                        <div className="font-medium">
+                      <div className="flex items-center gap-2 py-1">
+                        <StatusDot status={port.status} />
+                        <span className="font-medium">
                           {port.name} {port.speed ? `(${port.speed})` : ''}
-                        </div>
-                        {port.description && (
-                          <div className="text-xs text-muted-foreground line-clamp-1">
-                            {port.description}
-                          </div>
-                        )}
+                        </span>
                       </div>
                     );
                   })()}
@@ -162,16 +214,7 @@ export function CreateConnectionDialog({
                       value={port.defaultName || port.name}
                       className="h-auto py-2"
                     >
-                      <div className="flex flex-col items-start gap-0.5">
-                        <div className="font-medium">
-                          {port.name} - {port.status}{port.speed ? ` (${port.speed})` : ''}
-                        </div>
-                        {port.description && (
-                          <div className="text-xs text-muted-foreground">
-                            {port.description}
-                          </div>
-                        )}
-                      </div>
+                      {renderPortItem(port, targetDevice?.id || '', true)}
                     </SelectItem>
                   ))
                 ) : (

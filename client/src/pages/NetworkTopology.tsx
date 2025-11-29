@@ -646,6 +646,8 @@ export default function NetworkTopology() {
         targetDevice={targetDevice || null}
         onConfirm={handleConnectionCreate}
         initialSourcePort={initialSourcePort}
+        connections={connections}
+        allDevices={allDevices}
       />
     </div>
   );
