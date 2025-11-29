@@ -22,14 +22,17 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
-import { Search, Plus, Network, Moon, Sun, Link2, Settings, MoreVertical, Pencil, Trash2, FileText, Radar } from 'lucide-react';
+import { Search, Plus, Network, Moon, Sun, Link2, Settings, MoreVertical, Pencil, Trash2, FileText, Radar, User, LogOut, Shield, Eye, Crown } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { Link } from 'wouter';
 import { DeviceStatusInfo } from '@/components/DeviceStatusInfo';
 import { NetworkScanner } from '@/components/NetworkScanner';
+import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
 
 interface TopToolbarProps {
   maps: Map[];
@@ -67,8 +70,35 @@ export function TopToolbar({
   const [newMapDescription, setNewMapDescription] = useState('');
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const { theme, setTheme } = useTheme();
+  const { user, logout, isAdmin, canModify } = useAuth();
+  const { toast } = useToast();
   
   const currentMap = maps.find(m => m.id === currentMapId);
+  
+  const getRoleIcon = (role: string) => {
+    switch (role) {
+      case 'admin': return <Crown className="h-4 w-4 text-yellow-500" />;
+      case 'superuser': return <Shield className="h-4 w-4 text-blue-500" />;
+      case 'viewer': return <Eye className="h-4 w-4 text-muted-foreground" />;
+      default: return <User className="h-4 w-4" />;
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      toast({
+        title: "Logged out",
+        description: "You have been logged out successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to log out",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleCreateMap = () => {
     if (newMapName.trim()) {
@@ -262,6 +292,35 @@ export function TopToolbar({
         >
           {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </Button>
+
+        {user && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2" data-testid="button-user-menu">
+                {getRoleIcon(user.role)}
+                <span className="hidden md:inline">{user.displayName || user.username}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <div className="px-2 py-1.5 text-sm">
+                <div className="font-medium">{user.displayName || user.username}</div>
+                <div className="text-xs text-muted-foreground capitalize flex items-center gap-1">
+                  {getRoleIcon(user.role)}
+                  {user.role}
+                </div>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={handleLogout}
+                className="text-destructive cursor-pointer"
+                data-testid="button-logout"
+              >
+                <LogOut className="h-4 w-4 mr-2" />
+                Sign Out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       <NetworkScanner
