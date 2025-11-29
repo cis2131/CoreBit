@@ -164,6 +164,23 @@ export const scanProfiles = pgTable("scan_profiles", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const backups = pgTable("backups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  filename: text("filename").notNull(),
+  filePath: text("file_path").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  type: text("type").notNull().$type<'manual' | 'scheduled'>(),
+  status: text("status").notNull().default("completed").$type<'pending' | 'completed' | 'failed'>(),
+  metadata: jsonb("metadata").$type<{
+    deviceCount?: number;
+    mapCount?: number;
+    connectionCount?: number;
+    credentialProfileCount?: number;
+    version?: string;
+  }>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const mapsRelations = relations(maps, ({ many }) => ({
   devicePlacements: many(devicePlacements),
   connections: many(connections),
@@ -313,6 +330,21 @@ export const insertScanProfileSchema = createInsertSchema(scanProfiles).omit({
   isDefault: z.boolean().optional(),
 });
 
+export const insertBackupSchema = createInsertSchema(backups).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  type: z.enum(['manual', 'scheduled']),
+  status: z.enum(['pending', 'completed', 'failed']).optional(),
+  metadata: z.object({
+    deviceCount: z.number().optional(),
+    mapCount: z.number().optional(),
+    connectionCount: z.number().optional(),
+    credentialProfileCount: z.number().optional(),
+    version: z.string().optional(),
+  }).optional(),
+});
+
 export type Map = typeof maps.$inferSelect;
 export type InsertMap = z.infer<typeof insertMapSchema>;
 export type Device = typeof devices.$inferSelect;
@@ -331,3 +363,5 @@ export type Log = typeof logs.$inferSelect;
 export type InsertLog = z.infer<typeof insertLogSchema>;
 export type ScanProfile = typeof scanProfiles.$inferSelect;
 export type InsertScanProfile = z.infer<typeof insertScanProfileSchema>;
+export type Backup = typeof backups.$inferSelect;
+export type InsertBackup = z.infer<typeof insertBackupSchema>;

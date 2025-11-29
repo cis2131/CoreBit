@@ -10,6 +10,7 @@ import {
   notificationHistory,
   logs,
   scanProfiles,
+  backups,
   type Map, 
   type InsertMap,
   type Device,
@@ -27,7 +28,9 @@ import {
   type Log,
   type InsertLog,
   type ScanProfile,
-  type InsertScanProfile
+  type InsertScanProfile,
+  type Backup,
+  type InsertBackup
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNotNull } from "drizzle-orm";
@@ -96,6 +99,12 @@ export interface IStorage {
   createScanProfile(profile: InsertScanProfile): Promise<ScanProfile>;
   updateScanProfile(id: string, profile: Partial<InsertScanProfile>): Promise<ScanProfile | undefined>;
   deleteScanProfile(id: string): Promise<void>;
+
+  // Backups
+  getAllBackups(): Promise<Backup[]>;
+  getBackup(id: string): Promise<Backup | undefined>;
+  createBackup(backup: InsertBackup): Promise<Backup>;
+  deleteBackup(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -386,6 +395,28 @@ export class DatabaseStorage implements IStorage {
 
   async deleteScanProfile(id: string): Promise<void> {
     await db.delete(scanProfiles).where(eq(scanProfiles.id, id));
+  }
+
+  // Backups
+  async getAllBackups(): Promise<Backup[]> {
+    return await db.select().from(backups).orderBy(desc(backups.createdAt));
+  }
+
+  async getBackup(id: string): Promise<Backup | undefined> {
+    const [backup] = await db.select().from(backups).where(eq(backups.id, id));
+    return backup || undefined;
+  }
+
+  async createBackup(insertBackup: InsertBackup): Promise<Backup> {
+    const [backup] = await db
+      .insert(backups)
+      .values(insertBackup)
+      .returning();
+    return backup;
+  }
+
+  async deleteBackup(id: string): Promise<void> {
+    await db.delete(backups).where(eq(backups.id, id));
   }
 }
 
