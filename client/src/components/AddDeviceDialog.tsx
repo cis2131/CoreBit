@@ -272,6 +272,7 @@ export function AddDeviceDialog({
                         placeholder="admin"
                         value={mikrotikUsername}
                         onChange={(e) => setMikrotikUsername(e.target.value)}
+                        autoComplete="off"
                         data-testid="input-custom-username"
                       />
                     </div>
@@ -282,6 +283,7 @@ export function AddDeviceDialog({
                         placeholder="••••••••"
                         value={mikrotikPassword}
                         onChange={(e) => setMikrotikPassword(e.target.value)}
+                        autoComplete="new-password"
                         data-testid="input-custom-password"
                       />
                     </div>
@@ -334,6 +336,7 @@ export function AddDeviceDialog({
                             placeholder="snmpuser"
                             value={snmpUsername}
                             onChange={(e) => setSnmpUsername(e.target.value)}
+                            autoComplete="off"
                             data-testid="input-snmp-username"
                           />
                         </div>
@@ -357,6 +360,7 @@ export function AddDeviceDialog({
                               placeholder="••••••••"
                               value={snmpAuthKey}
                               onChange={(e) => setSnmpAuthKey(e.target.value)}
+                              autoComplete="new-password"
                               data-testid="input-snmp-auth-key"
                             />
                           </div>
@@ -381,6 +385,7 @@ export function AddDeviceDialog({
                               placeholder="••••••••"
                               value={snmpPrivKey}
                               onChange={(e) => setSnmpPrivKey(e.target.value)}
+                              autoComplete="new-password"
                               data-testid="input-snmp-priv-key"
                             />
                           </div>

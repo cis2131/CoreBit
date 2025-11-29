@@ -544,6 +544,7 @@ function UserManagementSection() {
                           {...field}
                           disabled={!!editingUser}
                           placeholder="Enter username"
+                          autoComplete="off"
                           data-testid="input-user-username"
                         />
                       </FormControl>
@@ -561,6 +562,7 @@ function UserManagementSection() {
                         <Input
                           {...field}
                           placeholder="Enter display name"
+                          autoComplete="off"
                           data-testid="input-user-displayname"
                         />
                       </FormControl>
@@ -579,6 +581,7 @@ function UserManagementSection() {
                           {...field}
                           type="password"
                           placeholder={editingUser ? "Enter new password" : "Enter password"}
+                          autoComplete="new-password"
                           data-testid="input-user-password"
                         />
                       </FormControl>
@@ -1124,7 +1127,7 @@ function CredentialProfileDialog({
                       <FormItem>
                         <FormLabel>Username</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="admin" data-testid="input-username" />
+                          <Input {...field} placeholder="admin" autoComplete="off" data-testid="input-username" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -1138,7 +1141,7 @@ function CredentialProfileDialog({
                       <FormItem>
                         <FormLabel>Password</FormLabel>
                         <FormControl>
-                          <Input {...field} type="password" placeholder="••••••••" data-testid="input-password" />
+                          <Input {...field} type="password" placeholder="••••••••" autoComplete="new-password" data-testid="input-password" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -1219,7 +1222,7 @@ function CredentialProfileDialog({
                           <FormItem>
                             <FormLabel>SNMPv3 Username</FormLabel>
                             <FormControl>
-                              <Input {...field} placeholder="snmpuser" data-testid="input-mikrotik-snmp-username" />
+                              <Input {...field} placeholder="snmpuser" autoComplete="off" data-testid="input-mikrotik-snmp-username" />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -1256,7 +1259,7 @@ function CredentialProfileDialog({
                             <FormItem>
                               <FormLabel>Auth Key</FormLabel>
                               <FormControl>
-                                <Input {...field} type="password" placeholder="••••••••" data-testid="input-mikrotik-snmp-auth-key" />
+                                <Input {...field} type="password" placeholder="••••••••" autoComplete="new-password" data-testid="input-mikrotik-snmp-auth-key" />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -1294,7 +1297,7 @@ function CredentialProfileDialog({
                             <FormItem>
                               <FormLabel>Privacy Key</FormLabel>
                               <FormControl>
-                                <Input {...field} type="password" placeholder="••••••••" data-testid="input-mikrotik-snmp-priv-key" />
+                                <Input {...field} type="password" placeholder="••••••••" autoComplete="new-password" data-testid="input-mikrotik-snmp-priv-key" />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -1357,7 +1360,7 @@ function CredentialProfileDialog({
                         <FormItem>
                           <FormLabel>SNMPv3 Username</FormLabel>
                           <FormControl>
-                            <Input {...field} placeholder="snmpuser" data-testid="input-snmp-username" />
+                            <Input {...field} placeholder="snmpuser" autoComplete="off" data-testid="input-snmp-username" />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -1394,7 +1397,7 @@ function CredentialProfileDialog({
                           <FormItem>
                             <FormLabel>Auth Key</FormLabel>
                             <FormControl>
-                              <Input {...field} type="password" placeholder="••••••••" data-testid="input-snmp-auth-key" />
+                              <Input {...field} type="password" placeholder="••••••••" autoComplete="new-password" data-testid="input-snmp-auth-key" />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -1432,7 +1435,7 @@ function CredentialProfileDialog({
                           <FormItem>
                             <FormLabel>Privacy Key</FormLabel>
                             <FormControl>
-                              <Input {...field} type="password" placeholder="••••••••" data-testid="input-snmp-priv-key" />
+                              <Input {...field} type="password" placeholder="••••••••" autoComplete="new-password" data-testid="input-snmp-priv-key" />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
