@@ -1481,6 +1481,8 @@ export default function Settings() {
   const [deletingNotification, setDeletingNotification] = useState<Notification | undefined>();
   const [notificationDialogOpen, setNotificationDialogOpen] = useState(false);
   const [pollingInterval, setPollingInterval] = useState("30");
+  const [defaultProbeTimeout, setDefaultProbeTimeout] = useState("6");
+  const [defaultOfflineThreshold, setDefaultOfflineThreshold] = useState("1");
 
   // Only admins can access settings
   if (!isAdmin) {
@@ -1546,6 +1548,24 @@ export default function Settings() {
     },
   });
 
+  const { data: defaultProbeTimeoutData } = useQuery<{ key: string; value: number }>({
+    queryKey: ["/api/settings", "default_probe_timeout"],
+    queryFn: async () => {
+      const response = await fetch("/api/settings/default_probe_timeout");
+      if (!response.ok) return { key: "default_probe_timeout", value: 6 };
+      return response.json();
+    },
+  });
+
+  const { data: defaultOfflineThresholdData } = useQuery<{ key: string; value: number }>({
+    queryKey: ["/api/settings", "default_offline_threshold"],
+    queryFn: async () => {
+      const response = await fetch("/api/settings/default_offline_threshold");
+      if (!response.ok) return { key: "default_offline_threshold", value: 1 };
+      return response.json();
+    },
+  });
+
   const deleteProfileMutation = useMutation({
     mutationFn: async (id: string) => 
       apiRequest("DELETE", `/api/credential-profiles/${id}`),
@@ -1593,6 +1613,36 @@ export default function Settings() {
     },
   });
 
+  const updateDefaultTimeoutMutation = useMutation({
+    mutationFn: async (value: number) => 
+      apiRequest("PUT", `/api/settings/default_probe_timeout`, { value }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings", "default_probe_timeout"] });
+      toast({ description: "Default probe timeout updated successfully" });
+    },
+    onError: () => {
+      toast({ 
+        variant: "destructive",
+        description: "Failed to update default probe timeout" 
+      });
+    },
+  });
+
+  const updateDefaultThresholdMutation = useMutation({
+    mutationFn: async (value: number) => 
+      apiRequest("PUT", `/api/settings/default_offline_threshold`, { value }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings", "default_offline_threshold"] });
+      toast({ description: "Default offline threshold updated successfully" });
+    },
+    onError: () => {
+      toast({ 
+        variant: "destructive",
+        description: "Failed to update default offline threshold" 
+      });
+    },
+  });
+
   const handleEdit = (profile: CredentialProfile) => {
     setEditingProfile(profile);
     setDialogOpen(true);
@@ -1619,6 +1669,20 @@ export default function Settings() {
 
   const handleUpdatePolling = () => {
     updatePollingMutation.mutate(pollingInterval);
+  };
+
+  const handleUpdateDefaultTimeout = () => {
+    const value = parseInt(defaultProbeTimeout);
+    if (value >= 1 && value <= 120) {
+      updateDefaultTimeoutMutation.mutate(value);
+    }
+  };
+
+  const handleUpdateDefaultThreshold = () => {
+    const value = parseInt(defaultOfflineThreshold);
+    if (value >= 1 && value <= 10) {
+      updateDefaultThresholdMutation.mutate(value);
+    }
   };
 
   return (
@@ -1667,6 +1731,67 @@ export default function Settings() {
                   onClick={handleUpdatePolling}
                   disabled={updatePollingMutation.isPending}
                   data-testid="button-save-polling"
+                >
+                  Save
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card data-testid="card-probing-defaults">
+            <CardHeader>
+              <CardTitle>Probing Defaults</CardTitle>
+              <CardDescription>
+                Default settings for device probing. Per-device settings override these values.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-end gap-4">
+                <div className="flex-1 max-w-xs">
+                  <Label htmlFor="default-probe-timeout">Default Probe Timeout (seconds)</Label>
+                  <Input
+                    id="default-probe-timeout"
+                    type="number"
+                    min="1"
+                    max="120"
+                    value={defaultProbeTimeout}
+                    onChange={(e) => setDefaultProbeTimeout(e.target.value)}
+                    placeholder={String(defaultProbeTimeoutData?.value || 6)}
+                    data-testid="input-default-probe-timeout"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Time to wait for device response (1-120 seconds)
+                  </p>
+                </div>
+                <Button 
+                  onClick={handleUpdateDefaultTimeout}
+                  disabled={updateDefaultTimeoutMutation.isPending}
+                  data-testid="button-save-default-timeout"
+                >
+                  Save
+                </Button>
+              </div>
+              <div className="flex items-end gap-4">
+                <div className="flex-1 max-w-xs">
+                  <Label htmlFor="default-offline-threshold">Default Offline Threshold (cycles)</Label>
+                  <Input
+                    id="default-offline-threshold"
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={defaultOfflineThreshold}
+                    onChange={(e) => setDefaultOfflineThreshold(e.target.value)}
+                    placeholder={String(defaultOfflineThresholdData?.value || 1)}
+                    data-testid="input-default-offline-threshold"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Failed probe cycles before marking device offline (1-10)
+                  </p>
+                </div>
+                <Button 
+                  onClick={handleUpdateDefaultThreshold}
+                  disabled={updateDefaultThresholdMutation.isPending}
+                  data-testid="button-save-default-threshold"
                 >
                   Save
                 </Button>

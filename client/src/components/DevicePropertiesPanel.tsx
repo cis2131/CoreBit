@@ -66,6 +66,27 @@ export function DevicePropertiesPanel({
     enabled: !!device.credentialProfileId,
   });
 
+  const { data: defaultProbeTimeoutData } = useQuery<{ key: string; value: number }>({
+    queryKey: ['/api/settings', 'default_probe_timeout'],
+    queryFn: async () => {
+      const response = await fetch('/api/settings/default_probe_timeout');
+      if (!response.ok) return { key: 'default_probe_timeout', value: 6 };
+      return response.json();
+    },
+  });
+
+  const { data: defaultOfflineThresholdData } = useQuery<{ key: string; value: number }>({
+    queryKey: ['/api/settings', 'default_offline_threshold'],
+    queryFn: async () => {
+      const response = await fetch('/api/settings/default_offline_threshold');
+      if (!response.ok) return { key: 'default_offline_threshold', value: 1 };
+      return response.json();
+    },
+  });
+
+  const globalDefaultTimeout = defaultProbeTimeoutData?.value || 6;
+  const globalDefaultThreshold = defaultOfflineThresholdData?.value || 1;
+
   const { data: notifications = [] } = useQuery<Notification[]>({
     queryKey: ['/api/notifications'],
   });
@@ -465,7 +486,7 @@ export function DevicePropertiesPanel({
                     type="number"
                     min={1}
                     max={120}
-                    placeholder="6"
+                    placeholder={String(globalDefaultTimeout)}
                     value={timeoutValue}
                     onChange={(e) => setTimeoutValue(e.target.value)}
                     onBlur={handleTimeoutBlur}
@@ -473,10 +494,12 @@ export function DevicePropertiesPanel({
                     data-testid="input-probe-timeout"
                     disabled={!canModify}
                   />
-                  <span className="text-sm text-muted-foreground">seconds (default: 6)</span>
+                  <span className="text-sm text-muted-foreground">
+                    seconds {device.probeTimeout ? '(custom)' : `(global: ${globalDefaultTimeout}s)`}
+                  </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Increase for devices with slow API connections
+                  Leave empty to use global default from Settings
                 </p>
               </div>
               
@@ -492,7 +515,7 @@ export function DevicePropertiesPanel({
                     type="number"
                     min={1}
                     max={10}
-                    placeholder="1"
+                    placeholder={String(globalDefaultThreshold)}
                     value={thresholdValue}
                     onChange={(e) => setThresholdValue(e.target.value)}
                     onBlur={handleThresholdBlur}
@@ -500,14 +523,16 @@ export function DevicePropertiesPanel({
                     data-testid="input-offline-threshold"
                     disabled={!canModify}
                   />
-                  <span className="text-sm text-muted-foreground">cycles (default: 1)</span>
+                  <span className="text-sm text-muted-foreground">
+                    cycles {device.offlineThreshold ? '(custom)' : `(global: ${globalDefaultThreshold})`}
+                  </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Failed probe cycles before marking device offline
+                  Leave empty to use global default from Settings
                 </p>
                 {device.failureCount ? (
                   <p className="text-xs text-yellow-600">
-                    Current failures: {device.failureCount}/{device.offlineThreshold || 1}
+                    Current failures: {device.failureCount}/{device.offlineThreshold || globalDefaultThreshold}
                   </p>
                 ) : null}
               </div>

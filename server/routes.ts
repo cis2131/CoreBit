@@ -1294,7 +1294,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Parallel probing with bounded concurrency
   // For 400+ devices in 30s window: 80 concurrent * 6s timeout = ~400 devices in 30s worst-case
   const CONCURRENT_PROBES = 80; // Scaled for 400+ devices
-  const PROBE_TIMEOUT_MS = 6000; // Per-device timeout
+  
+  // Global probing defaults (fetched from settings before each probe cycle)
+  interface ProbingDefaults {
+    defaultProbeTimeout: number;  // seconds
+    defaultOfflineThreshold: number;  // cycles
+  }
   
   interface ProbeResult {
     device: any;
@@ -1303,10 +1308,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     error?: string;
   }
   
-  async function probeDeviceWithTimeout(device: any, credentials: any, isDetailedCycle: boolean = false, needsSnmpIndexing: boolean = false): Promise<ProbeResult> {
-    // Use per-device timeout if set, otherwise use default (6 seconds)
-    const deviceTimeoutSeconds = device.probeTimeout || 6;
+  async function probeDeviceWithTimeout(device: any, credentials: any, isDetailedCycle: boolean = false, needsSnmpIndexing: boolean = false, defaults?: ProbingDefaults): Promise<ProbeResult> {
+    // Use per-device timeout if set, otherwise use global default, then fallback to 6 seconds
+    const globalDefaultTimeout = defaults?.defaultProbeTimeout || 6;
+    const deviceTimeoutSeconds = device.probeTimeout || globalDefaultTimeout;
     const deviceTimeoutMs = deviceTimeoutSeconds * 1000;
+    
+    // Use per-device offline threshold if set, otherwise use global default, then fallback to 1
+    const globalDefaultThreshold = defaults?.defaultOfflineThreshold || 1;
+    const effectiveOfflineThreshold = device.offlineThreshold || globalDefaultThreshold;
     
     // Try probe with retry on timeout
     const maxAttempts = 2;
@@ -1495,13 +1505,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           const oldStatus = currentDevice.status;
           const currentFailureCount = (currentDevice.failureCount || 0) + 1;
-          const offlineThreshold = currentDevice.offlineThreshold || 1; // Default: mark offline immediately
           
           // Increment failure count
           await storage.updateDevice(device.id, { failureCount: currentFailureCount });
           
-          // Check if we've reached the offline threshold
-          if (currentFailureCount >= offlineThreshold) {
+          // Check if we've reached the offline threshold (use effectiveOfflineThreshold from function start)
+          if (currentFailureCount >= effectiveOfflineThreshold) {
             // Only update and log if status is actually changing
             if (oldStatus !== 'offline') {
               await storage.updateDevice(device.id, { status: 'offline', failureCount: currentFailureCount });
@@ -1511,7 +1520,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               
               // Log status change to console with timestamp
               const timestamp = new Date().toISOString();
-              console.warn(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → offline (timeout after ${currentFailureCount}/${offlineThreshold} failed cycles)`);
+              console.warn(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → offline (timeout after ${currentFailureCount}/${effectiveOfflineThreshold} failed cycles)`);
               
               // Create log entry for status change
               try {
@@ -1548,7 +1557,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } else {
             // Not yet reached threshold - log the failure count
             const timestamp = new Date().toISOString();
-            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): timeout (${currentFailureCount}/${offlineThreshold} failures, not yet offline)`);
+            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): timeout (${currentFailureCount}/${effectiveOfflineThreshold} failures, not yet offline)`);
           }
           
           return { device, success: false, timeout: true };
@@ -1564,7 +1573,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return { device, success: false, timeout: true };
   }
   
-  async function processConcurrentQueue(devices: any[], concurrency: number, isDetailedCycle: boolean = false, devicesNeedingSnmp: Set<string> = new Set()): Promise<ProbeResult[]> {
+  async function processConcurrentQueue(devices: any[], concurrency: number, isDetailedCycle: boolean = false, devicesNeedingSnmp: Set<string> = new Set(), defaults?: ProbingDefaults): Promise<ProbeResult[]> {
     const results: ProbeResult[] = [];
     const queue = [...devices];
     const active: Promise<void>[] = [];
@@ -1579,7 +1588,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const promise = (async () => {
           try {
             const credentials = await resolveCredentials(device);
-            const result = await probeDeviceWithTimeout(device, credentials, isDetailedCycle, needsSnmpIndexing);
+            const result = await probeDeviceWithTimeout(device, credentials, isDetailedCycle, needsSnmpIndexing, defaults);
             results.push(result);
           } catch (error: any) {
             results.push({ device, success: false, timeout: false, error: error.message });
@@ -1623,6 +1632,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isDetailedCycle = probeCycle % DETAILED_PROBE_INTERVAL === 0;
       
       try {
+        // Fetch global probing defaults at start of each cycle
+        const defaultTimeoutSetting = await storage.getSetting('default_probe_timeout');
+        const defaultThresholdSetting = await storage.getSetting('default_offline_threshold');
+        const probingDefaults: ProbingDefaults = {
+          defaultProbeTimeout: typeof defaultTimeoutSetting === 'number' ? defaultTimeoutSetting : 6,
+          defaultOfflineThreshold: typeof defaultThresholdSetting === 'number' ? defaultThresholdSetting : 1,
+        };
+        
         currentPhase = 'fetching devices';
         const allDevices = await storage.getAllDevices();
         const devicesWithIp = allDevices.filter(d => d.ipAddress);
@@ -1639,7 +1656,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         currentPhase = 'device probing';
-        await processConcurrentQueue(devicesWithIp, CONCURRENT_PROBES, isDetailedCycle, devicesNeedingSnmp);
+        await processConcurrentQueue(devicesWithIp, CONCURRENT_PROBES, isDetailedCycle, devicesNeedingSnmp, probingDefaults);
       } catch (error) {
         console.error('[Probing] Error in periodic probing:', error);
       } finally {
