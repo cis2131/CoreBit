@@ -1951,107 +1951,242 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  // Helper function to perform restore
+  // Helper function to perform restore with full data integrity
   async function performRestore(backupData: any) {
-    const { data } = backupData;
+    const { data, version } = backupData;
+    
+    // Basic validation
+    if (!data) {
+      throw new Error('Invalid backup: missing data field');
+    }
     
     // Clear traffic history before restore
     trafficHistory.clear();
     
-    // Restore in order to maintain referential integrity
+    // Clear existing data in reverse dependency order
+    // 1. Clear connections (depends on placements)
+    // 2. Clear placements (depends on devices, maps)
+    // 3. Clear device notifications (depends on devices, notifications)
+    // 4. Clear devices (depends on credential profiles)
+    // 5. Clear maps
+    // 6. Clear notifications
+    // 7. Clear scan profiles
+    // 8. Clear credential profiles
+    
+    console.log('[Restore] Clearing existing data...');
+    
+    // We need to clear data - use storage methods to get and delete each
+    const existingMaps = await storage.getAllMaps();
+    for (const map of existingMaps) {
+      // Clear connections and placements for this map
+      const connections = await storage.getConnectionsByMapId(map.id);
+      for (const conn of connections) {
+        await storage.deleteConnection(conn.id);
+      }
+      const placements = await storage.getPlacementsByMapId(map.id);
+      for (const placement of placements) {
+        await storage.deletePlacement(placement.id);
+      }
+      await storage.deleteMap(map.id);
+    }
+    
+    const existingDevices = await storage.getAllDevices();
+    for (const device of existingDevices) {
+      // Clear device notifications
+      const deviceNotifs = await storage.getDeviceNotifications(device.id);
+      for (const dn of deviceNotifs) {
+        await storage.deleteDeviceNotification(dn.id);
+      }
+      await storage.deleteDevice(device.id);
+    }
+    
+    const existingNotifications = await storage.getAllNotifications();
+    for (const notif of existingNotifications) {
+      await storage.deleteNotification(notif.id);
+    }
+    
+    const existingScanProfiles = await storage.getAllScanProfiles();
+    for (const profile of existingScanProfiles) {
+      await storage.deleteScanProfile(profile.id);
+    }
+    
+    const existingCredentialProfiles = await storage.getAllCredentialProfiles();
+    for (const profile of existingCredentialProfiles) {
+      await storage.deleteCredentialProfile(profile.id);
+    }
+    
+    console.log('[Restore] Restoring data...');
+    
+    // Create ID mapping tables
+    const credentialProfileIdMap = new Map<string, string>(); // old ID -> new ID
+    const mapIdMap = new Map<string, string>();
+    const deviceIdMap = new Map<string, string>();
+    const notificationIdMap = new Map<string, string>();
+    
     // 1. Credential profiles first (referenced by devices)
     if (data.credentialProfiles) {
       for (const profile of data.credentialProfiles) {
-        try {
-          await storage.createCredentialProfile({
-            name: profile.name,
-            type: profile.type,
-            credentials: profile.credentials,
-          });
-        } catch (e) {
-          // Profile may already exist, skip
-        }
+        const newProfile = await storage.createCredentialProfile({
+          name: profile.name,
+          type: profile.type,
+          credentials: profile.credentials,
+        });
+        credentialProfileIdMap.set(profile.id, newProfile.id);
       }
     }
     
     // 2. Maps
     if (data.maps) {
       for (const map of data.maps) {
-        try {
-          await storage.createMap({
-            name: map.name,
-            description: map.description,
-            isDefault: map.isDefault,
-          });
-        } catch (e) {
-          // Map may already exist, skip
-        }
+        const newMap = await storage.createMap({
+          name: map.name,
+          description: map.description,
+          isDefault: map.isDefault,
+        });
+        mapIdMap.set(map.id, newMap.id);
       }
     }
     
     // 3. Notifications
     if (data.notifications) {
       for (const notif of data.notifications) {
-        try {
-          await storage.createNotification({
-            name: notif.name,
-            url: notif.url,
-            method: notif.method,
-            messageTemplate: notif.messageTemplate,
-            enabled: notif.enabled,
-          });
-        } catch (e) {
-          // Skip if exists
-        }
+        const newNotif = await storage.createNotification({
+          name: notif.name,
+          url: notif.url,
+          method: notif.method,
+          messageTemplate: notif.messageTemplate,
+          enabled: notif.enabled,
+        });
+        notificationIdMap.set(notif.id, newNotif.id);
       }
     }
     
-    // 4. Devices (need credential profile IDs to be resolved)
-    const deviceIdMap = new Map<string, string>(); // old ID -> new ID
+    // 4. Devices (with credential profile ID mapping)
     if (data.devices) {
       for (const device of data.devices) {
-        try {
-          const newDevice = await storage.createDevice({
-            name: device.name,
-            type: device.type,
-            ipAddress: device.ipAddress,
-            status: device.status || 'unknown',
-            deviceData: device.deviceData,
-            customCredentials: device.customCredentials,
-            // Note: credential profile ID would need mapping
+        const newDevice = await storage.createDevice({
+          name: device.name,
+          type: device.type,
+          ipAddress: device.ipAddress,
+          status: device.status || 'unknown',
+          deviceData: device.deviceData,
+          customCredentials: device.customCredentials,
+          credentialProfileId: device.credentialProfileId 
+            ? credentialProfileIdMap.get(device.credentialProfileId) 
+            : undefined,
+        });
+        deviceIdMap.set(device.id, newDevice.id);
+      }
+    }
+    
+    // 5. Placements (with device and map ID mapping)
+    if (data.placements) {
+      for (const placement of data.placements) {
+        const newDeviceId = deviceIdMap.get(placement.deviceId);
+        const newMapId = mapIdMap.get(placement.mapId);
+        if (newDeviceId && newMapId) {
+          await storage.createPlacement({
+            deviceId: newDeviceId,
+            mapId: newMapId,
+            x: placement.x,
+            y: placement.y,
           });
-          deviceIdMap.set(device.id, newDevice.id);
-        } catch (e) {
-          // Skip if exists
         }
       }
     }
     
-    // 5. Scan profiles
+    // 6. Connections (with placement/device and map ID mapping)
+    if (data.connections) {
+      // Need to get the new placements to map connections
+      const allNewPlacements = [];
+      for (const map of data.maps || []) {
+        const newMapId = mapIdMap.get(map.id);
+        if (newMapId) {
+          const placements = await storage.getPlacementsByMapId(newMapId);
+          allNewPlacements.push(...placements);
+        }
+      }
+      
+      for (const conn of data.connections) {
+        const newMapId = mapIdMap.get(conn.mapId);
+        const newSourceDeviceId = deviceIdMap.get(conn.sourceDeviceId);
+        const newTargetDeviceId = deviceIdMap.get(conn.targetDeviceId);
+        
+        if (newMapId && newSourceDeviceId && newTargetDeviceId) {
+          // Find matching placements
+          const sourcePlacement = allNewPlacements.find(
+            p => p.deviceId === newSourceDeviceId && p.mapId === newMapId
+          );
+          const targetPlacement = allNewPlacements.find(
+            p => p.deviceId === newTargetDeviceId && p.mapId === newMapId
+          );
+          
+          if (sourcePlacement && targetPlacement) {
+            await storage.createConnection({
+              mapId: newMapId,
+              sourcePlacementId: sourcePlacement.id,
+              targetPlacementId: targetPlacement.id,
+              sourceDeviceId: newSourceDeviceId,
+              targetDeviceId: newTargetDeviceId,
+              sourceInterface: conn.sourceInterface,
+              targetInterface: conn.targetInterface,
+              monitorInterface: conn.monitorInterface,
+              monitorSnmpIndex: conn.monitorSnmpIndex,
+              linkSpeed: conn.linkSpeed,
+            });
+          }
+        }
+      }
+    }
+    
+    // 7. Device notifications (with device and notification ID mapping)
+    if (data.deviceNotifications) {
+      for (const dn of data.deviceNotifications) {
+        const newDeviceId = deviceIdMap.get(dn.deviceId);
+        const newNotificationId = notificationIdMap.get(dn.notificationId);
+        if (newDeviceId && newNotificationId) {
+          await storage.createDeviceNotification({
+            deviceId: newDeviceId,
+            notificationId: newNotificationId,
+          });
+        }
+      }
+    }
+    
+    // 8. Scan profiles
     if (data.scanProfiles) {
       for (const profile of data.scanProfiles) {
-        try {
-          await storage.createScanProfile({
-            name: profile.name,
-            ipRange: profile.ipRange,
-            credentialProfileIds: profile.credentialProfileIds,
-            probeTypes: profile.probeTypes,
-            isDefault: profile.isDefault,
-          });
-        } catch (e) {
-          // Skip if exists
-        }
+        // Map credential profile IDs
+        const mappedCredentialIds = (profile.credentialProfileIds || [])
+          .map((id: string) => credentialProfileIdMap.get(id))
+          .filter(Boolean);
+        
+        await storage.createScanProfile({
+          name: profile.name,
+          ipRange: profile.ipRange,
+          credentialProfileIds: mappedCredentialIds,
+          probeTypes: profile.probeTypes,
+          isDefault: profile.isDefault,
+        });
       }
     }
     
-    // 6. Settings
+    // 9. Settings
     if (data.settings) {
       for (const [key, value] of Object.entries(data.settings)) {
         if (value !== undefined && value !== null) {
           await storage.setSetting(key, value);
         }
       }
+      
+      // Restart scheduled backups with restored settings
+      if (data.settings.backup_schedule) {
+        rescheduleBackups(data.settings.backup_schedule);
+      }
     }
+    
+    console.log('[Restore] Restore completed successfully');
+    console.log(`[Restore] Restored: ${data.devices?.length || 0} devices, ${data.maps?.length || 0} maps, ${data.connections?.length || 0} connections`);
   }
   
   // Get backup settings
