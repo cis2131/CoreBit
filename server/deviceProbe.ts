@@ -465,6 +465,7 @@ export async function probeMikrotikWithPool(
   let conn: any = null;
   let fromPool = false;
   let aborted = false;
+  let wasSuccessful = false;
   
   // Set up abort handler to immediately release connection when caller times out
   const onAbort = () => {
@@ -614,7 +615,7 @@ export async function probeMikrotikWithPool(
       };
     });
 
-    return {
+    const result: DeviceProbeData = {
       model: board,
       version: `RouterOS ${version}`,
       systemIdentity: identityName,
@@ -623,6 +624,8 @@ export async function probeMikrotikWithPool(
       cpuUsagePct,
       memoryUsagePct,
     };
+    wasSuccessful = true;
+    return result;
   } catch (error: any) {
     // Check if this was an abort - don't log as error
     if (aborted || error.message === 'Probe aborted') {
@@ -639,8 +642,8 @@ export async function probeMikrotikWithPool(
     // Release connection in finally block (if not already released by abort handler)
     if (conn) {
       if (fromPool) {
-        // Release pooled connection back to pool
-        mikrotikPool.releaseConnection(ipAddress, { username, password, apiPort: port }, conn, fromPool);
+        // Release pooled connection back to pool, indicating if probe was successful
+        mikrotikPool.releaseConnection(ipAddress, { username, password, apiPort: port }, conn, fromPool, wasSuccessful);
       } else {
         // Close non-pooled connection
         try {

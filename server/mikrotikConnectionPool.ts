@@ -7,6 +7,7 @@ interface PooledConnection {
   username: string;
   password: string;
   lastUsed: number;
+  lastSuccessfulCommand: number;
   lastError: number;
   errorCount: number;
   isConnected: boolean;
@@ -39,7 +40,7 @@ class MikrotikConnectionPool {
       console.log('[MikrotikPool] Persistent connections disabled, closing all connections');
       this.closeAllConnections();
     } else if (!wasEnabled && enabled) {
-      console.log('[MikrotikPool] Persistent connections enabled (closeOnDone:false, keepalive:true)');
+      console.log('[MikrotikPool] Persistent connections enabled with keepalive');
     }
   }
 
@@ -182,24 +183,24 @@ class MikrotikConnectionPool {
         }
       }
       
-      // Check if connection is healthy with a quick test
+      // Check if connection is connected and not stale
+      // Stale if no successful command in last 30 seconds (keepalive should ping every 5s)
       if (pooled.isConnected) {
-        try {
-          const testPromise = pooled.conn.write('/system/identity/print');
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Health check timeout')), 3000)
-          );
-          await Promise.race([testPromise, timeoutPromise]);
-          
-          pooled.inUse = true;
-          pooled.lastUsed = Date.now();
-          return { conn: pooled.conn, isNewConnection: false, fromPool: true };
-        } catch (e) {
-          console.log(`[MikrotikPool] Connection to ${ipAddress} stale, reconnecting...`);
+        const now = Date.now();
+        const timeSinceLastSuccess = now - pooled.lastSuccessfulCommand;
+        
+        // If more than 30 seconds since last successful command, connection may be stale
+        if (timeSinceLastSuccess > 30000) {
+          console.log(`[MikrotikPool] Connection to ${ipAddress} stale (${Math.round(timeSinceLastSuccess/1000)}s since last success), reconnecting...`);
           pooled.isConnected = false;
           try {
             pooled.conn.close();
           } catch (closeErr) {}
+          // Fall through to create new connection
+        } else {
+          pooled.inUse = true;
+          pooled.lastUsed = now;
+          return { conn: pooled.conn, isNewConnection: false, fromPool: true };
         }
       }
       
@@ -211,15 +212,16 @@ class MikrotikConnectionPool {
     }
     
     // Create new persistent connection with keepalive enabled
+    // node-routeros keepalive sends commands at (timeout/2) interval
+    // Use 10s timeout so keepalive pings every 5 seconds, keeping session alive
     const conn = new RouterOSAPI({
       host: ipAddress,
       user: username,
       password: password,
       port: port,
-      timeout: timeoutSeconds,
-      keepalive: true,      // Enable built-in keepalive pings
-      closeOnDone: false,   // Keep connection open after commands
-    } as any);
+      timeout: 10, // 10s timeout = keepalive ping every 5 seconds
+      keepalive: true,
+    });
     
     const newPooled: PooledConnection = {
       conn,
@@ -228,6 +230,7 @@ class MikrotikConnectionPool {
       username,
       password,
       lastUsed: Date.now(),
+      lastSuccessfulCommand: Date.now(),
       lastError: 0,
       errorCount: 0,
       isConnected: false,
@@ -270,7 +273,8 @@ class MikrotikConnectionPool {
     ipAddress: string,
     credentials: { username?: string; password?: string; apiPort?: number },
     conn: RouterOSAPI,
-    fromPool: boolean
+    fromPool: boolean,
+    wasSuccessful: boolean = false
   ) {
     if (!fromPool || !this.enabled) {
       // Non-pooled connections should be closed
@@ -291,6 +295,10 @@ class MikrotikConnectionPool {
     if (pooled && pooled.conn === conn) {
       pooled.inUse = false;
       pooled.lastUsed = Date.now();
+      if (wasSuccessful) {
+        pooled.lastSuccessfulCommand = Date.now();
+        pooled.errorCount = 0; // Reset error count on success
+      }
       // Connection stays open with keepalive maintaining it
     }
   }
