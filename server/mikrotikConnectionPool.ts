@@ -1,12 +1,5 @@
 import { RouterOSAPI } from 'node-routeros';
 
-// Waiter for connection availability
-interface ConnectionWaiter {
-  resolve: () => void;
-  reject: (err: Error) => void;
-  abortSignal?: AbortSignal;
-}
-
 interface PooledConnection {
   conn: RouterOSAPI;
   ipAddress: string;
@@ -19,7 +12,6 @@ interface PooledConnection {
   isConnecting: boolean;
   connectionPromise: Promise<boolean> | null;
   inUse: boolean;  // Track if connection is currently being used for a probe
-  waiters: ConnectionWaiter[];  // Queue of waiters for this connection
 }
 
 class MikrotikConnectionPool {
@@ -69,7 +61,7 @@ class MikrotikConnectionPool {
     const toRemove: string[] = [];
     
     this.connections.forEach((pooled, key) => {
-      if (now - pooled.lastUsed > this.maxIdleTime) {
+      if (now - pooled.lastUsed > this.maxIdleTime && !pooled.inUse) {
         console.log(`[MikrotikPool] Closing idle connection to ${pooled.ipAddress}`);
         this.closeConnection(pooled);
         toRemove.push(key);
@@ -84,6 +76,7 @@ class MikrotikConnectionPool {
       pooled.isConnected = false;
       pooled.conn.close();
     } catch (e) {
+      // Ignore close errors
     }
   }
 
@@ -100,20 +93,15 @@ class MikrotikConnectionPool {
   async getConnection(
     ipAddress: string,
     credentials: { username?: string; password?: string; apiPort?: number },
-    timeoutSeconds: number = 6,
-    abortSignal?: AbortSignal
+    timeoutSeconds: number = 6
   ): Promise<{ conn: RouterOSAPI; isNewConnection: boolean; fromPool: boolean }> {
     const username = credentials?.username || 'admin';
     const password = credentials?.password || '';
     const port = credentials?.apiPort || 8728;
     const key = this.getConnectionKey(ipAddress, port, username);
     
-    // Check if already aborted
-    if (abortSignal?.aborted) {
-      throw new Error('Connection aborted');
-    }
-    
     if (!this.enabled) {
+      // Non-pooled connection
       const conn = new RouterOSAPI({
         host: ipAddress,
         user: username,
@@ -131,107 +119,73 @@ class MikrotikConnectionPool {
     let pooled = this.connections.get(key);
     
     if (pooled) {
+      // Wait for connection to be released if in use (simple polling with short intervals)
+      const maxWaitTime = 5000; // Maximum 5 seconds to wait
+      const pollInterval = 50; // Check every 50ms
+      const startWait = Date.now();
+      
+      while (pooled.inUse && (Date.now() - startWait) < maxWaitTime) {
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      }
+      
+      // Still in use after waiting - connection is stuck, create new temporary one
+      if (pooled.inUse) {
+        console.warn(`[MikrotikPool] Connection to ${ipAddress} stuck in use for ${maxWaitTime}ms, using temporary connection`);
+        const conn = new RouterOSAPI({
+          host: ipAddress,
+          user: username,
+          password: password,
+          port: port,
+          timeout: timeoutSeconds,
+        });
+        (conn as any).on('error', () => {});
+        await conn.connect();
+        return { conn, isNewConnection: true, fromPool: false };
+      }
+      
       pooled.lastUsed = Date.now();
       
-      // If connection is currently in use by another probe, wait for it to be released
-      // Uses promise-based waiting instead of polling for efficiency
-      if (pooled.inUse) {
-        const waitStartTime = Date.now();
-        
-        // Create a promise that resolves when connection becomes available
-        await new Promise<void>((resolve, reject) => {
-          const waiter: ConnectionWaiter = { resolve, reject, abortSignal };
-          pooled!.waiters.push(waiter);
-          
-          // Set up abort handling
-          if (abortSignal) {
-            const onAbort = () => {
-              // Remove this waiter from the queue
-              const idx = pooled!.waiters.indexOf(waiter);
-              if (idx >= 0) {
-                pooled!.waiters.splice(idx, 1);
-              }
-              reject(new Error('Connection wait aborted'));
-            };
-            
-            if (abortSignal.aborted) {
-              onAbort();
-            } else {
-              abortSignal.addEventListener('abort', onAbort, { once: true });
-            }
-          }
-          
-          // Also set a maximum wait time as fallback (10 seconds)
-          setTimeout(() => {
-            const idx = pooled!.waiters.indexOf(waiter);
-            if (idx >= 0) {
-              pooled!.waiters.splice(idx, 1);
-              reject(new Error('Connection wait timeout'));
-            }
-          }, 10000);
-        });
-        
-        const waitedMs = Date.now() - waitStartTime;
-        
-        // Connection became available - check if it's still healthy
-        if (pooled.isConnected && !pooled.inUse) {
-          console.log(`[MikrotikPool] Connection to ${ipAddress} became available after ${waitedMs}ms, reusing`);
-          pooled.inUse = true;
-          pooled.lastUsed = Date.now();
-          return { conn: pooled.conn, isNewConnection: false, fromPool: true };
-        } else {
-          // Connection was released but is now disconnected, will reconnect below
-          console.log(`[MikrotikPool] Connection to ${ipAddress} released but disconnected, reconnecting...`);
-        }
-      }
-      
+      // Wait for ongoing connection attempt if any
       if (pooled.isConnecting && pooled.connectionPromise) {
-        const success = await pooled.connectionPromise;
-        if (success && pooled.isConnected && !pooled.inUse) {
-          pooled.inUse = true;
-          return { conn: pooled.conn, isNewConnection: false, fromPool: true };
+        try {
+          await pooled.connectionPromise;
+        } catch (e) {
+          // Connection attempt failed, will try to reconnect below
         }
       }
       
-      if (pooled.isConnected && !pooled.inUse) {
-        // Skip health check if connection was used recently (within 60 seconds)
-        // This reduces overhead and avoids unnecessary reconnects
-        const recentlyUsed = (Date.now() - pooled.lastUsed) < 60000;
-        
-        if (recentlyUsed) {
-          // Trust recent connection, skip health check
-          pooled.inUse = true;
-          pooled.lastUsed = Date.now();
-          return { conn: pooled.conn, isNewConnection: false, fromPool: true };
-        }
-        
+      // Check if connection is healthy
+      if (pooled.isConnected) {
+        // Test connection with a quick command
         try {
-          // Health check with timeout for idle connections
-          const healthCheckPromise = pooled.conn.write('/system/identity/print');
+          const testPromise = pooled.conn.write('/system/identity/print');
           const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Health check timeout')), 3000)
+            setTimeout(() => reject(new Error('Health check timeout')), 2000)
           );
-          await Promise.race([healthCheckPromise, timeoutPromise]);
+          await Promise.race([testPromise, timeoutPromise]);
+          
+          // Connection is healthy, use it
           pooled.inUse = true;
           pooled.lastUsed = Date.now();
           return { conn: pooled.conn, isNewConnection: false, fromPool: true };
         } catch (e) {
+          // Connection is stale, mark as disconnected and reconnect
           console.log(`[MikrotikPool] Connection to ${ipAddress} stale, reconnecting...`);
           pooled.isConnected = false;
-          pooled.inUse = false;
-          // Close the stale connection
           try {
             pooled.conn.close();
           } catch (closeErr) {}
         }
       }
       
+      // Check if in error cooldown
       const now = Date.now();
       if (pooled.errorCount >= this.maxErrorCount && (now - pooled.lastError) < this.reconnectDelay) {
         throw new Error(`Connection to ${ipAddress} in cooldown after ${pooled.errorCount} errors`);
       }
     }
     
+    // Create new connection
     const conn = new RouterOSAPI({
       host: ipAddress,
       user: username,
@@ -240,12 +194,12 @@ class MikrotikConnectionPool {
       timeout: timeoutSeconds,
     });
     
+    // Handle connection errors and close events
     (conn as any).on('error', (err: any) => {
       const p = this.connections.get(key);
       if (p && p.conn === conn) {
         const errMsg = err?.message || 'unknown';
-        // Only mark connection as disconnected for real connection errors, not command timeouts
-        // Timeout errors are expected during probing and don't mean the connection is broken
+        // Check for real connection errors vs command timeouts
         const isConnectionError = errMsg.includes('ECONNRESET') || 
                                   errMsg.includes('ECONNREFUSED') || 
                                   errMsg.includes('ETIMEDOUT') ||
@@ -254,11 +208,12 @@ class MikrotikConnectionPool {
         
         if (isConnectionError) {
           p.isConnected = false;
+          p.inUse = false;
           p.errorCount++;
           p.lastError = Date.now();
           console.warn(`[MikrotikPool] Connection lost for ${ipAddress}: ${errMsg}`);
         } else {
-          // Command timeout or other non-fatal error - log but don't disconnect
+          // Command timeout - log but don't mark as disconnected
           console.log(`[MikrotikPool] Command error for ${ipAddress}: ${errMsg}`);
         }
       }
@@ -268,6 +223,7 @@ class MikrotikConnectionPool {
       const p = this.connections.get(key);
       if (p && p.conn === conn) {
         p.isConnected = false;
+        p.inUse = false;
         console.log(`[MikrotikPool] Connection to ${ipAddress} closed`);
       }
     });
@@ -283,8 +239,7 @@ class MikrotikConnectionPool {
       isConnected: false,
       isConnecting: true,
       connectionPromise: null,
-      inUse: true,  // Mark as in use immediately since we're about to return it
-      waiters: [],  // Initialize empty waiter queue
+      inUse: true,  // Mark as in use since we're about to return it
     };
     
     const connectPromise = (async () => {
@@ -299,6 +254,7 @@ class MikrotikConnectionPool {
       } catch (e: any) {
         newPooled.isConnecting = false;
         newPooled.isConnected = false;
+        newPooled.inUse = false;
         newPooled.errorCount++;
         newPooled.lastError = Date.now();
         console.error(`[MikrotikPool] Failed to connect to ${ipAddress}:${port}: ${e.message}`);
@@ -323,6 +279,7 @@ class MikrotikConnectionPool {
       try {
         conn.close();
       } catch (e) {
+        // Ignore close errors
       }
       return;
     }
@@ -336,12 +293,6 @@ class MikrotikConnectionPool {
     if (pooled && pooled.conn === conn) {
       pooled.inUse = false;
       pooled.lastUsed = Date.now();
-      
-      // Notify the next waiter that the connection is available
-      if (pooled.waiters.length > 0) {
-        const waiter = pooled.waiters.shift()!;
-        waiter.resolve();
-      }
     }
   }
 
@@ -356,24 +307,12 @@ class MikrotikConnectionPool {
     const pooled = this.connections.get(key);
     if (pooled) {
       pooled.isConnected = false;
-      pooled.inUse = false;  // Clear the in-use flag on failure
+      pooled.inUse = false;
       pooled.errorCount++;
       pooled.lastError = Date.now();
       
-      // Notify the next waiter that the connection is available (even though it's disconnected)
-      // They will handle reconnection if needed
-      if (pooled.waiters.length > 0) {
-        const waiter = pooled.waiters.shift()!;
-        waiter.resolve();
-      }
-      
       if (pooled.errorCount >= this.maxErrorCount) {
         console.warn(`[MikrotikPool] Too many errors for ${ipAddress}, removing from pool`);
-        // Reject all remaining waiters
-        while (pooled.waiters.length > 0) {
-          const waiter = pooled.waiters.shift()!;
-          waiter.reject(new Error('Connection removed from pool due to errors'));
-        }
         this.closeConnection(pooled);
         this.connections.delete(key);
       }

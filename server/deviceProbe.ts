@@ -455,7 +455,8 @@ export async function probeMikrotikWithPool(
   detailedProbe: boolean = false,
   previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>,
   needsSnmpIndexing: boolean = false,
-  timeoutSeconds: number = 5
+  timeoutSeconds: number = 5,
+  abortSignal?: AbortSignal
 ): Promise<DeviceProbeData> {
   const username = credentials?.username || 'admin';
   const password = credentials?.password || '';
@@ -463,6 +464,24 @@ export async function probeMikrotikWithPool(
   
   let conn: any = null;
   let fromPool = false;
+  let aborted = false;
+  
+  // Set up abort handler to immediately release connection when caller times out
+  const onAbort = () => {
+    aborted = true;
+    if (conn && fromPool) {
+      // Immediately release the connection when aborted
+      mikrotikPool.releaseConnection(ipAddress, { username, password, apiPort: port }, conn, fromPool);
+      conn = null; // Prevent double-release in finally
+    }
+  };
+  
+  if (abortSignal) {
+    if (abortSignal.aborted) {
+      throw new Error('Probe aborted');
+    }
+    abortSignal.addEventListener('abort', onAbort, { once: true });
+  }
   
   try {
     const poolResult = await mikrotikPool.getConnection(ipAddress, {
@@ -605,10 +624,19 @@ export async function probeMikrotikWithPool(
       memoryUsagePct,
     };
   } catch (error: any) {
+    // Check if this was an abort - don't log as error
+    if (aborted || error.message === 'Probe aborted') {
+      throw error;
+    }
     console.error(`[Mikrotik Pool] Failed to connect to ${ipAddress}:`, error.message);
     throw new Error(`Cannot connect to Mikrotik device: ${error.message}`);
   } finally {
-    // Always release connection in finally block to ensure cleanup
+    // Remove abort listener if set
+    if (abortSignal) {
+      abortSignal.removeEventListener('abort', onAbort);
+    }
+    
+    // Release connection in finally block (if not already released by abort handler)
     if (conn) {
       if (fromPool) {
         // Release pooled connection back to pool
@@ -855,7 +883,8 @@ export async function probeDevice(
   detailedProbe: boolean = false,
   previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>,
   needsSnmpIndexing: boolean = false,  // Only true when device has monitored connections
-  timeoutSeconds: number = 5  // Device probe timeout in seconds
+  timeoutSeconds: number = 5,  // Device probe timeout in seconds
+  abortSignal?: AbortSignal
 ): Promise<{ data: DeviceProbeData; success: boolean }> {
   if (!ipAddress) {
     return { data: {}, success: false };
@@ -866,7 +895,7 @@ export async function probeDevice(
     if (deviceType.startsWith('mikrotik_')) {
       // Use connection pool when enabled, otherwise use standard per-probe connection
       if (mikrotikPool.isEnabled()) {
-        data = await probeMikrotikWithPool(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing, timeoutSeconds);
+        data = await probeMikrotikWithPool(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing, timeoutSeconds, abortSignal);
       } else {
         data = await probeMikrotikDevice(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing, timeoutSeconds);
       }
