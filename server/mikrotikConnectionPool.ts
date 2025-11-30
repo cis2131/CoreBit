@@ -23,9 +23,19 @@ class MikrotikConnectionPool {
   private readonly maxErrorCount = 3;
   private readonly reconnectDelay = 5000;
   private cleanupInterval: NodeJS.Timeout | null = null;
+  private stalenessThresholdMs: number = 120000; // Default 2 minutes, will be set based on polling interval
 
   constructor() {
     this.startCleanupTimer();
+  }
+
+  // Set staleness threshold based on polling interval
+  // Should be at least 2x the polling interval to avoid reconnecting during normal probe cycles
+  setStalenessThreshold(pollingIntervalMs: number) {
+    // Use 3x polling interval to ensure we don't reconnect healthy sessions
+    // Probe cycles can take slightly longer than the interval
+    this.stalenessThresholdMs = pollingIntervalMs * 3;
+    console.log(`[MikrotikPool] Staleness threshold set to ${this.stalenessThresholdMs / 1000}s (3x polling interval)`);
   }
 
   private getConnectionKey(ipAddress: string, port: number, username: string): string {
@@ -184,14 +194,14 @@ class MikrotikConnectionPool {
       }
       
       // Check if connection is connected and not stale
-      // Stale if no successful command in last 30 seconds (keepalive should ping every 5s)
+      // Stale if no successful command within the staleness threshold
       if (pooled.isConnected) {
         const now = Date.now();
         const timeSinceLastSuccess = now - pooled.lastSuccessfulCommand;
         
-        // If more than 30 seconds since last successful command, connection may be stale
-        if (timeSinceLastSuccess > 30000) {
-          console.log(`[MikrotikPool] Connection to ${ipAddress} stale (${Math.round(timeSinceLastSuccess/1000)}s since last success), reconnecting...`);
+        // If more than threshold since last successful command, connection may be stale
+        if (timeSinceLastSuccess > this.stalenessThresholdMs) {
+          console.log(`[MikrotikPool] Connection to ${ipAddress} stale (${Math.round(timeSinceLastSuccess/1000)}s since last success, threshold ${this.stalenessThresholdMs/1000}s), reconnecting...`);
           pooled.isConnected = false;
           try {
             pooled.conn.close();

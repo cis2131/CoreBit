@@ -1682,8 +1682,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           mikrotikKeepConnections: typeof keepConnectionsSetting === 'boolean' ? keepConnectionsSetting : false,
         };
         
-        // Update connection pool enabled state
+        // Update connection pool enabled state and staleness threshold
         mikrotikPool.setEnabled(probingDefaults.mikrotikKeepConnections);
+        mikrotikPool.setStalenessThreshold(intervalMs);
         
         currentPhase = 'fetching devices';
         const allDevices = await storage.getAllDevices();
