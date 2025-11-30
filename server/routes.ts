@@ -1394,6 +1394,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               status,
               deviceData: quickProbe.data,
               failureCount: 0, // Reset failure count on successful probe
+              lastSeen: new Date(), // Update last seen timestamp on successful probe
             });
             if (!updated && timedOut) {
               return { device, success: false, timeout: true };
@@ -1467,6 +1468,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status,
           deviceData: probeResult.success ? probeResult.data : (device.deviceData || undefined),
           failureCount: probeResult.success ? 0 : undefined, // Reset failure count on successful probe
+          lastSeen: probeResult.success ? new Date() : undefined, // Update last seen timestamp on successful probe
         });
         if (!updated && timedOut) {
           return { device, success: false, timeout: true };
