@@ -455,21 +455,27 @@ export async function probeMikrotikWithPool(
   detailedProbe: boolean = false,
   previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>,
   needsSnmpIndexing: boolean = false,
-  timeoutSeconds: number = 5
+  timeoutSeconds: number = 5,
+  abortSignal?: AbortSignal
 ): Promise<DeviceProbeData> {
   const username = credentials?.username || 'admin';
   const password = credentials?.password || '';
   const port = credentials?.apiPort || 8728;
   
-  let conn: any;
+  let conn: any = null;
   let fromPool = false;
   
   try {
+    // Check if already aborted
+    if (abortSignal?.aborted) {
+      throw new Error('Probe aborted');
+    }
+    
     const poolResult = await mikrotikPool.getConnection(ipAddress, {
       username,
       password,
       apiPort: port,
-    }, timeoutSeconds);
+    }, timeoutSeconds, abortSignal);
     
     conn = poolResult.conn;
     fromPool = poolResult.fromPool;
@@ -595,9 +601,6 @@ export async function probeMikrotikWithPool(
       };
     });
 
-    // Release connection back to pool (or close if not pooled)
-    mikrotikPool.releaseConnection(ipAddress, { username, password, apiPort: port }, conn, fromPool);
-
     return {
       model: board,
       version: `RouterOS ${version}`,
@@ -608,9 +611,27 @@ export async function probeMikrotikWithPool(
       memoryUsagePct,
     };
   } catch (error: any) {
+    // Check if this was an abort - don't log as error
+    if (error.message === 'Probe aborted' || error.message === 'Connection aborted' || error.message === 'Connection wait aborted') {
+      throw error;
+    }
     console.error(`[Mikrotik Pool] Failed to connect to ${ipAddress}:`, error.message);
-    mikrotikPool.markConnectionFailed(ipAddress, { username: credentials?.username, apiPort: credentials?.apiPort });
     throw new Error(`Cannot connect to Mikrotik device: ${error.message}`);
+  } finally {
+    // Always release connection in finally block to ensure cleanup
+    if (conn) {
+      if (fromPool) {
+        // Release pooled connection back to pool
+        mikrotikPool.releaseConnection(ipAddress, { username, password, apiPort: port }, conn, fromPool);
+      } else {
+        // Close non-pooled connection
+        try {
+          conn.close();
+        } catch (e) {
+          // Ignore close errors
+        }
+      }
+    }
   }
 }
 
