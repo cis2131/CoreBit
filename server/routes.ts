@@ -1648,21 +1648,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
   
   // Start periodic device probing (configurable interval)
-  let isProbing = false; // Guard against overlapping runs
   let currentPhase = ''; // Track what phase we're in for debugging
   let probeCycle = 0; // Track probe cycles for detailed probing
   const DETAILED_PROBE_INTERVAL = 10; // Run detailed probe every 10 cycles (~5 minutes with 30s polling)
   
   async function startPeriodicProbing() {
-    const pollingInterval = await storage.getSetting('polling_interval') || 30;
-    const intervalMs = parseInt(pollingInterval) * 1000;
+    // Use a completion-aware loop instead of setInterval to prevent skipped cycles
+    // This ensures the next cycle starts immediately after the previous one completes
+    // (with appropriate delay to respect the polling interval)
     
-    setInterval(async () => {
-      if (isProbing) {
-        return;
-      }
+    async function runProbeCycle() {
+      // Fetch polling interval at start of each cycle (allows runtime changes)
+      const pollingInterval = await storage.getSetting('polling_interval') || 30;
+      const intervalMs = parseInt(pollingInterval) * 1000;
       
-      isProbing = true;
       currentPhase = 'init';
       probeCycle++;
       const startTime = Date.now();
@@ -1784,13 +1783,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.log(`[Probing] Cycle #${probeCycle}: ${successCount}/${totalProbed} devices online, ${timeoutCount} timeouts, took ${elapsed}ms`);
           }
         }
+        // Log cycle completion with timing info
+        if (elapsed > intervalMs) {
+          console.warn(`[Probing] Cycle #${probeCycle} overran interval: took ${elapsed}ms vs ${intervalMs}ms target`);
+        }
       } catch (error) {
         console.error('[Probing] Error in periodic probing:', error);
       } finally {
         currentPhase = '';
-        isProbing = false;
+        
+        // Schedule next cycle: wait remaining time if cycle was fast, or start immediately if it was slow
+        const elapsed = Date.now() - startTime;
+        const waitTime = Math.max(0, intervalMs - elapsed);
+        
+        if (waitTime > 0) {
+          setTimeout(runProbeCycle, waitTime);
+        } else {
+          // Cycle took longer than interval - start next one immediately
+          // Use setImmediate to prevent stack overflow on very fast cycles
+          setImmediate(runProbeCycle);
+        }
       }
-    }, intervalMs);
+    }
+    
+    // Start the first cycle after a short delay to let the server initialize
+    setTimeout(runProbeCycle, 5000);
   }
   
   // Traffic monitoring for connections with monitorInterface set
