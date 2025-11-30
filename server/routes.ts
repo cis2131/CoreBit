@@ -1806,8 +1806,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
     
-    // Start the first cycle after a short delay to let the server initialize
-    setTimeout(runProbeCycle, 5000);
+    // Initialize all devices to "online" status on server startup (without notifications)
+    // This prevents false "device offline" notifications when the server restarts
+    async function initializeDeviceStatus() {
+      try {
+        const allDevices = await storage.getAllDevices();
+        const devicesWithIp = allDevices.filter(d => d.ipAddress);
+        let initializedCount = 0;
+        
+        for (const device of devicesWithIp) {
+          // Set device to online and clear lastSeen so staleness check doesn't trigger immediately
+          // The first probe cycle will establish the actual status and lastSeen
+          await storage.updateDevice(device.id, { 
+            status: 'online',
+            lastSeen: null  // Clear lastSeen so staleness check is skipped until first successful probe
+          });
+          initializedCount++;
+        }
+        
+        if (initializedCount > 0) {
+          console.log(`[Probing] Server startup: initialized ${initializedCount} device(s) to online status (no notifications)`);
+        }
+        console.log(`[Probing] Ready to probe ${devicesWithIp.length} device(s)`);
+      } catch (error) {
+        console.error('[Probing] Error initializing device status:', error);
+      }
+    }
+    
+    // Initialize devices, then start the first probe cycle
+    initializeDeviceStatus().then(() => {
+      setTimeout(runProbeCycle, 5000);
+    });
   }
   
   // Traffic monitoring for connections with monitorInterface set
