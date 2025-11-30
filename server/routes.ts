@@ -1,7 +1,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { probeDevice, determineDeviceStatus, probeInterfaceTraffic } from "./deviceProbe";
+import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probeMikrotikWithPool } from "./deviceProbe";
+import { mikrotikPool } from "./mikrotikConnectionPool";
 import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, type Device, type Connection } from "@shared/schema";
 import { z } from "zod";
 import * as fs from "fs";
@@ -1293,12 +1294,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Parallel probing with bounded concurrency
   // For 400+ devices in 30s window: 80 concurrent * 6s timeout = ~400 devices in 30s worst-case
-  const CONCURRENT_PROBES = 80; // Scaled for 400+ devices
+  const DEFAULT_CONCURRENT_PROBES = 80; // Default, can be overridden by settings
   
   // Global probing defaults (fetched from settings before each probe cycle)
   interface ProbingDefaults {
     defaultProbeTimeout: number;  // seconds
     defaultOfflineThreshold: number;  // cycles
+    concurrentProbeThreads: number;  // number of concurrent probes
+    mikrotikKeepConnections: boolean;  // use persistent connections for Mikrotik devices
   }
   
   interface ProbeResult {
@@ -1661,10 +1664,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Fetch global probing defaults at start of each cycle
         const defaultTimeoutSetting = await storage.getSetting('default_probe_timeout');
         const defaultThresholdSetting = await storage.getSetting('default_offline_threshold');
+        const concurrentThreadsSetting = await storage.getSetting('concurrent_probe_threads');
+        const keepConnectionsSetting = await storage.getSetting('mikrotik_keep_connections');
+        
         const probingDefaults: ProbingDefaults = {
           defaultProbeTimeout: typeof defaultTimeoutSetting === 'number' ? defaultTimeoutSetting : 6,
           defaultOfflineThreshold: typeof defaultThresholdSetting === 'number' ? defaultThresholdSetting : 1,
+          concurrentProbeThreads: typeof concurrentThreadsSetting === 'number' ? concurrentThreadsSetting : DEFAULT_CONCURRENT_PROBES,
+          mikrotikKeepConnections: typeof keepConnectionsSetting === 'boolean' ? keepConnectionsSetting : false,
         };
+        
+        // Update connection pool enabled state
+        mikrotikPool.setEnabled(probingDefaults.mikrotikKeepConnections);
         
         currentPhase = 'fetching devices';
         const allDevices = await storage.getAllDevices();
@@ -1682,7 +1693,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         currentPhase = 'device probing';
-        const results = await processConcurrentQueue(devicesWithIp, CONCURRENT_PROBES, isDetailedCycle, devicesNeedingSnmp, probingDefaults);
+        const results = await processConcurrentQueue(devicesWithIp, probingDefaults.concurrentProbeThreads, isDetailedCycle, devicesNeedingSnmp, probingDefaults);
         
         // Analyze probe results to detect mass failures
         const totalProbed = results.length;

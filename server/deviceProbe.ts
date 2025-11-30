@@ -445,6 +445,175 @@ async function probeMikrotikDevice(
   }
 }
 
+// Import for pool-based probing
+import { mikrotikPool } from './mikrotikConnectionPool';
+
+// Probe Mikrotik device using the connection pool (for persistent connections)
+export async function probeMikrotikWithPool(
+  ipAddress: string,
+  credentials?: any,
+  detailedProbe: boolean = false,
+  previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>,
+  needsSnmpIndexing: boolean = false,
+  timeoutSeconds: number = 5
+): Promise<DeviceProbeData> {
+  const username = credentials?.username || 'admin';
+  const password = credentials?.password || '';
+  const port = credentials?.apiPort || 8728;
+  
+  let conn: any;
+  let fromPool = false;
+  
+  try {
+    const poolResult = await mikrotikPool.getConnection(ipAddress, {
+      username,
+      password,
+      apiPort: port,
+    }, timeoutSeconds);
+    
+    conn = poolResult.conn;
+    fromPool = poolResult.fromPool;
+    
+    // Fetch basic info and interfaces in parallel
+    const [identity, resources, interfaces] = await Promise.all([
+      conn.write('/system/identity/print').catch(() => []),
+      conn.write('/system/resource/print').catch(() => []),
+      conn.write('/interface/print').catch(() => []),
+    ]);
+
+    const identityName = identity[0]?.name || 'Unknown';
+    const board = resources[0]?.['board-name'] || 'Unknown Model';
+    const version = resources[0]?.version || 'Unknown';
+    const uptime = resources[0]?.uptime || '0s';
+    
+    const interfacesList = interfaces as any[];
+    
+    // Build a map from .id to interface name from the regular print
+    const idToName: { [id: string]: string } = {};
+    for (const iface of interfacesList) {
+      if (iface['.id'] && iface.name) {
+        idToName[iface['.id']] = iface.name;
+      }
+    }
+    
+    // Fetch SNMP ifIndex for each interface via SNMP walk (only if device needs SNMP indexing)
+    interface SnmpIndexMap {
+      [interfaceName: string]: number;
+    }
+    const snmpIndexMap: SnmpIndexMap = {};
+    
+    if (needsSnmpIndexing) {
+      const hasSnmpCredentials = credentials?.snmpCommunity || credentials?.snmpVersion === '3';
+      if (hasSnmpCredentials && ipAddress) {
+        try {
+          const indexResult = await fetchSnmpInterfaceIndexes(ipAddress, credentials);
+          if (indexResult.success && indexResult.data) {
+            Object.assign(snmpIndexMap, indexResult.data);
+          }
+        } catch (e) {
+          // SNMP index fetch failed - traffic monitoring will use slower walks
+        }
+      }
+    }
+    
+    // Extract real CPU and memory usage from Mikrotik resources
+    const cpuLoad = resources[0]?.['cpu-load'];
+    const totalMemory = parseInt(resources[0]?.['total-memory'] || '0');
+    const freeMemory = parseInt(resources[0]?.['free-memory'] || '0');
+    
+    let cpuUsagePct: number | undefined;
+    let memoryUsagePct: number | undefined;
+    
+    if (cpuLoad !== undefined) {
+      cpuUsagePct = parseInt(cpuLoad.toString());
+    }
+    
+    if (totalMemory > 0 && freeMemory >= 0) {
+      const usedMemory = totalMemory - freeMemory;
+      memoryUsagePct = Math.round((usedMemory / totalMemory) * 100);
+    }
+
+    // Get actual link speeds if doing detailed probe
+    let speedMap: { [name: string]: string } = {};
+    if (detailedProbe) {
+      try {
+        const etherInterfaces = await conn.write('/interface/ethernet/print').catch(() => []);
+        
+        for (const ethIface of etherInterfaces as any[]) {
+          try {
+            const monitorResult = await conn.write('/interface/ethernet/monitor', [
+              '=numbers=' + ethIface.name,
+              '=once='
+            ]).catch(() => []);
+            
+            if (monitorResult[0]?.speed) {
+              speedMap[ethIface.name] = monitorResult[0].speed;
+            } else if (monitorResult[0]?.rate) {
+              speedMap[ethIface.name] = monitorResult[0].rate;
+            }
+          } catch (err: any) {
+            // Individual interface monitoring failure - continue with others
+          }
+        }
+      } catch (err: any) {
+        // Detailed monitoring failed - ports will use cached speeds
+      }
+    }
+
+    const ports = (interfaces as any[]).map((iface: any) => {
+      const ifaceName = iface.name || 'unknown';
+      const defaultName = iface['default-name'] || undefined;
+      const currentStatus = iface.running === 'true' || iface.running === true ? 'up' : 'down';
+      
+      let speed: string | undefined;
+      
+      if (speedMap[ifaceName]) {
+        speed = speedMap[ifaceName];
+      } else if (previousPorts) {
+        const prevPort = previousPorts.find(p => 
+          (defaultName && p.defaultName === defaultName) || p.name === ifaceName
+        );
+        if (prevPort?.speed) {
+          speed = prevPort.speed;
+        }
+      }
+      
+      let snmpIndex: number | undefined;
+      if (snmpIndexMap[ifaceName]) {
+        snmpIndex = snmpIndexMap[ifaceName];
+      } else if (defaultName && snmpIndexMap[defaultName]) {
+        snmpIndex = snmpIndexMap[defaultName];
+      }
+      
+      return {
+        name: ifaceName,
+        defaultName,
+        status: currentStatus,
+        speed,
+        description: iface.comment || undefined,
+        snmpIndex,
+      };
+    });
+
+    // Release connection back to pool (or close if not pooled)
+    mikrotikPool.releaseConnection(ipAddress, { username, password, apiPort: port }, conn, fromPool);
+
+    return {
+      model: board,
+      version: `RouterOS ${version}`,
+      systemIdentity: identityName,
+      uptime,
+      ports,
+      cpuUsagePct,
+      memoryUsagePct,
+    };
+  } catch (error: any) {
+    console.error(`[Mikrotik Pool] Failed to connect to ${ipAddress}:`, error.message);
+    mikrotikPool.markConnectionFailed(ipAddress, { username: credentials?.username, apiPort: credentials?.apiPort });
+    throw new Error(`Cannot connect to Mikrotik device: ${error.message}`);
+  }
+}
+
 async function probeSnmpDevice(
   ipAddress: string,
   credentials?: any
@@ -684,7 +853,12 @@ export async function probeDevice(
   try {
     let data: DeviceProbeData;
     if (deviceType.startsWith('mikrotik_')) {
-      data = await probeMikrotikDevice(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing, timeoutSeconds);
+      // Use connection pool when enabled, otherwise use standard per-probe connection
+      if (mikrotikPool.isEnabled()) {
+        data = await probeMikrotikWithPool(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing, timeoutSeconds);
+      } else {
+        data = await probeMikrotikDevice(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing, timeoutSeconds);
+      }
     } else {
       data = await probeSnmpDevice(ipAddress, credentials);
     }
