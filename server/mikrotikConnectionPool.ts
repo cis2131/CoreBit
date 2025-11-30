@@ -144,14 +144,26 @@ class MikrotikConnectionPool {
       }
       
       if (pooled.isConnected && !pooled.inUse) {
+        // Skip health check if connection was used recently (within 60 seconds)
+        // This reduces overhead and avoids unnecessary reconnects
+        const recentlyUsed = (Date.now() - pooled.lastUsed) < 60000;
+        
+        if (recentlyUsed) {
+          // Trust recent connection, skip health check
+          pooled.inUse = true;
+          pooled.lastUsed = Date.now();
+          return { conn: pooled.conn, isNewConnection: false, fromPool: true };
+        }
+        
         try {
-          // Health check with timeout to avoid hanging on stale connections
+          // Health check with timeout for idle connections
           const healthCheckPromise = pooled.conn.write('/system/identity/print');
           const timeoutPromise = new Promise((_, reject) => 
             setTimeout(() => reject(new Error('Health check timeout')), 3000)
           );
           await Promise.race([healthCheckPromise, timeoutPromise]);
           pooled.inUse = true;
+          pooled.lastUsed = Date.now();
           return { conn: pooled.conn, isNewConnection: false, fromPool: true };
         } catch (e) {
           console.log(`[MikrotikPool] Connection to ${ipAddress} stale, reconnecting...`);
@@ -181,10 +193,24 @@ class MikrotikConnectionPool {
     (conn as any).on('error', (err: any) => {
       const p = this.connections.get(key);
       if (p && p.conn === conn) {
-        p.isConnected = false;
-        p.errorCount++;
-        p.lastError = Date.now();
-        console.warn(`[MikrotikPool] Connection error for ${ipAddress}: ${err?.message || 'unknown'}`);
+        const errMsg = err?.message || 'unknown';
+        // Only mark connection as disconnected for real connection errors, not command timeouts
+        // Timeout errors are expected during probing and don't mean the connection is broken
+        const isConnectionError = errMsg.includes('ECONNRESET') || 
+                                  errMsg.includes('ECONNREFUSED') || 
+                                  errMsg.includes('ETIMEDOUT') ||
+                                  errMsg.includes('socket') ||
+                                  errMsg.includes('closed');
+        
+        if (isConnectionError) {
+          p.isConnected = false;
+          p.errorCount++;
+          p.lastError = Date.now();
+          console.warn(`[MikrotikPool] Connection lost for ${ipAddress}: ${errMsg}`);
+        } else {
+          // Command timeout or other non-fatal error - log but don't disconnect
+          console.log(`[MikrotikPool] Command error for ${ipAddress}: ${errMsg}`);
+        }
       }
     });
     
