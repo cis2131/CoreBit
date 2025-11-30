@@ -105,8 +105,38 @@ export function DevicePropertiesPanel({
     },
   });
 
+  const { data: pollingIntervalData } = useQuery<{ key: string; value: number }>({
+    queryKey: ['/api/settings', 'polling_interval'],
+    queryFn: async () => {
+      const response = await fetch('/api/settings/polling_interval');
+      if (!response.ok) return { key: 'polling_interval', value: 30 };
+      return response.json();
+    },
+  });
+
   const globalDefaultTimeout = defaultProbeTimeoutData?.value || 6;
   const globalDefaultThreshold = defaultOfflineThresholdData?.value || 1;
+  const pollingInterval = pollingIntervalData?.value || 30;
+
+  // Calculate lastSeen staleness color based on polling interval
+  const getLastSeenColor = (lastSeenDate: Date): { color: string; label: string } => {
+    const now = new Date();
+    const diffMs = now.getTime() - lastSeenDate.getTime();
+    const diffSecs = diffMs / 1000;
+    
+    // Thresholds based on polling interval
+    const freshThreshold = pollingInterval * 1.5;  // Within 1.5x = fresh (green)
+    const staleThreshold = pollingInterval * 3;    // Within 3x = stale (orange)
+    // Beyond 3x = very stale (red)
+    
+    if (diffSecs <= freshThreshold) {
+      return { color: 'text-green-600 dark:text-green-400', label: 'Recent' };
+    } else if (diffSecs <= staleThreshold) {
+      return { color: 'text-orange-500 dark:text-orange-400', label: 'Stale' };
+    } else {
+      return { color: 'text-red-500 dark:text-red-400', label: 'Very stale' };
+    }
+  };
 
   const { data: notifications = [] } = useQuery<Notification[]>({
     queryKey: ['/api/notifications'],
@@ -275,9 +305,15 @@ export function DevicePropertiesPanel({
               {device.lastSeen && (
                 <div>
                   <p className="text-muted-foreground text-xs">Last Seen</p>
-                  <p className="font-medium text-foreground" data-testid="text-property-last-seen">
-                    {formatLastSeen(new Date(device.lastSeen))}
-                  </p>
+                  {(() => {
+                    const lastSeenDate = new Date(device.lastSeen);
+                    const { color } = getLastSeenColor(lastSeenDate);
+                    return (
+                      <p className={`font-medium ${color}`} data-testid="text-property-last-seen">
+                        {formatLastSeen(lastSeenDate)}
+                      </p>
+                    );
+                  })()}
                 </div>
               )}
             </CardContent>
