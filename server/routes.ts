@@ -1689,6 +1689,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const allDevices = await storage.getAllDevices();
         const devicesWithIp = allDevices.filter(d => d.ipAddress);
         
+        // Check for stale devices - mark offline if not seen for 2x polling interval
+        const stalenessThresholdMs = intervalMs * 2;
+        const now = Date.now();
+        let staleCount = 0;
+        
+        for (const device of devicesWithIp) {
+          if (device.lastSeen && device.status !== 'offline') {
+            const lastSeenTime = new Date(device.lastSeen).getTime();
+            const timeSinceLastSeen = now - lastSeenTime;
+            
+            if (timeSinceLastSeen > stalenessThresholdMs) {
+              // Device hasn't been seen for too long - mark as offline
+              const oldStatus = device.status;
+              await storage.updateDevice(device.id, { status: 'offline' });
+              device.status = 'offline'; // Update local copy too
+              staleCount++;
+              
+              console.log(`[${new Date().toISOString()}] [Probing] ${device.name} (${device.ipAddress}): marked offline (stale - last seen ${Math.round(timeSinceLastSeen / 1000)}s ago)`);
+              
+              // Log status change
+              try {
+                await storage.createLog({
+                  deviceId: device.id,
+                  eventType: 'status_change',
+                  severity: 'error',
+                  message: `Device ${device.name} marked offline (stale - not seen for ${Math.round(timeSinceLastSeen / 1000)} seconds)`,
+                  oldStatus,
+                  newStatus: 'offline',
+                });
+              } catch (error: any) {
+                console.error(`[Logging] Error creating stale log for ${device.name}:`, error.message);
+              }
+              
+              // Send notifications for stale device going offline
+              try {
+                const deviceNotifications = await storage.getDeviceNotifications(device.id);
+                if (deviceNotifications.length > 0) {
+                  for (const dn of deviceNotifications) {
+                    const notification = await storage.getNotification(dn.notificationId);
+                    if (notification) {
+                      await sendNotification(notification, device, 'offline', oldStatus);
+                    }
+                  }
+                }
+              } catch (error: any) {
+                console.error(`[Notification] Error sending stale notifications for ${device.name}:`, error.message);
+              }
+            }
+          }
+        }
+        
+        if (staleCount > 0) {
+          console.log(`[Probing] Marked ${staleCount} stale device(s) as offline before cycle #${probeCycle}`);
+        }
+        
         // Build set of device IDs that have monitored connections (need SNMP indexing)
         const monitoredConnections = await storage.getMonitoredConnections();
         const devicesNeedingSnmp = new Set<string>();
