@@ -455,8 +455,7 @@ export async function probeMikrotikWithPool(
   detailedProbe: boolean = false,
   previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>,
   needsSnmpIndexing: boolean = false,
-  timeoutSeconds: number = 5,
-  abortSignal?: AbortSignal
+  timeoutSeconds: number = 5
 ): Promise<DeviceProbeData> {
   const username = credentials?.username || 'admin';
   const password = credentials?.password || '';
@@ -466,16 +465,11 @@ export async function probeMikrotikWithPool(
   let fromPool = false;
   
   try {
-    // Check if already aborted
-    if (abortSignal?.aborted) {
-      throw new Error('Probe aborted');
-    }
-    
     const poolResult = await mikrotikPool.getConnection(ipAddress, {
       username,
       password,
       apiPort: port,
-    }, timeoutSeconds, abortSignal);
+    }, timeoutSeconds);
     
     conn = poolResult.conn;
     fromPool = poolResult.fromPool;
@@ -611,10 +605,6 @@ export async function probeMikrotikWithPool(
       memoryUsagePct,
     };
   } catch (error: any) {
-    // Check if this was an abort - don't log as error
-    if (error.message === 'Probe aborted' || error.message === 'Connection aborted' || error.message === 'Connection wait aborted') {
-      throw error;
-    }
     console.error(`[Mikrotik Pool] Failed to connect to ${ipAddress}:`, error.message);
     throw new Error(`Cannot connect to Mikrotik device: ${error.message}`);
   } finally {
@@ -865,8 +855,7 @@ export async function probeDevice(
   detailedProbe: boolean = false,
   previousPorts?: Array<{ name: string; defaultName?: string; status: string; speed?: string }>,
   needsSnmpIndexing: boolean = false,  // Only true when device has monitored connections
-  timeoutSeconds: number = 5,  // Device probe timeout in seconds
-  abortSignal?: AbortSignal
+  timeoutSeconds: number = 5  // Device probe timeout in seconds
 ): Promise<{ data: DeviceProbeData; success: boolean }> {
   if (!ipAddress) {
     return { data: {}, success: false };
@@ -877,7 +866,7 @@ export async function probeDevice(
     if (deviceType.startsWith('mikrotik_')) {
       // Use connection pool when enabled, otherwise use standard per-probe connection
       if (mikrotikPool.isEnabled()) {
-        data = await probeMikrotikWithPool(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing, timeoutSeconds, abortSignal);
+        data = await probeMikrotikWithPool(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing, timeoutSeconds);
       } else {
         data = await probeMikrotikDevice(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing, timeoutSeconds);
       }

@@ -1329,15 +1329,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let timedOut = false;
       let probeCompleted = false; // Track if probe completed before timeout
       
-      // Create AbortController for this attempt
-      const abortController = new AbortController();
-      
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
           if (!probeCompleted) {
             timedOut = true;
-            // Abort the probe to release connection immediately
-            abortController.abort();
             reject(new Error('Probe timeout'));
           }
         }, deviceTimeoutMs);
@@ -1362,7 +1357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // For Mikrotik devices, check if any ports transitioned from down to up
       if (device.type.startsWith('mikrotik_') && previousPorts.length > 0 && !isDetailedCycle) {
-        const quickProbe = await probeDevice(device.type, device.ipAddress, credentials, false, previousPorts, needsSnmpIndexing, deviceTimeoutSeconds, abortController.signal);
+        const quickProbe = await probeDevice(device.type, device.ipAddress, credentials, false, previousPorts, needsSnmpIndexing, deviceTimeoutSeconds);
         
         // Check timeout immediately after probe returns
         if (timedOut) {
@@ -1449,8 +1444,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         needsDetailedProbe,
         previousPorts,
         needsSnmpIndexing,
-        deviceTimeoutSeconds,
-        abortController.signal
+        deviceTimeoutSeconds
       );
       
       // Check timeout immediately after probe returns
