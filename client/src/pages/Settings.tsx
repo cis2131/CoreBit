@@ -1483,6 +1483,8 @@ export default function Settings() {
   const [pollingInterval, setPollingInterval] = useState("30");
   const [defaultProbeTimeout, setDefaultProbeTimeout] = useState("6");
   const [defaultOfflineThreshold, setDefaultOfflineThreshold] = useState("1");
+  const [concurrentProbeThreads, setConcurrentProbeThreads] = useState("80");
+  const [mikrotikKeepConnections, setMikrotikKeepConnections] = useState(false);
 
   // Only admins can access settings
   if (!isAdmin) {
@@ -1566,6 +1568,37 @@ export default function Settings() {
     },
   });
 
+  const { data: concurrentProbeThreadsData } = useQuery<{ key: string; value: number }>({
+    queryKey: ["/api/settings", "concurrent_probe_threads"],
+    queryFn: async () => {
+      const response = await fetch("/api/settings/concurrent_probe_threads");
+      if (!response.ok) return { key: "concurrent_probe_threads", value: 80 };
+      return response.json();
+    },
+  });
+
+  const { data: mikrotikKeepConnectionsData } = useQuery<{ key: string; value: boolean }>({
+    queryKey: ["/api/settings", "mikrotik_keep_connections"],
+    queryFn: async () => {
+      const response = await fetch("/api/settings/mikrotik_keep_connections");
+      if (!response.ok) return { key: "mikrotik_keep_connections", value: false };
+      return response.json();
+    },
+  });
+
+  // Sync state with fetched data
+  useEffect(() => {
+    if (concurrentProbeThreadsData?.value !== undefined) {
+      setConcurrentProbeThreads(String(concurrentProbeThreadsData.value));
+    }
+  }, [concurrentProbeThreadsData]);
+
+  useEffect(() => {
+    if (mikrotikKeepConnectionsData?.value !== undefined) {
+      setMikrotikKeepConnections(mikrotikKeepConnectionsData.value);
+    }
+  }, [mikrotikKeepConnectionsData]);
+
   const deleteProfileMutation = useMutation({
     mutationFn: async (id: string) => 
       apiRequest("DELETE", `/api/credential-profiles/${id}`),
@@ -1643,6 +1676,36 @@ export default function Settings() {
     },
   });
 
+  const updateConcurrentThreadsMutation = useMutation({
+    mutationFn: async (value: number) => 
+      apiRequest("PUT", `/api/settings/concurrent_probe_threads`, { value }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings", "concurrent_probe_threads"] });
+      toast({ description: "Concurrent probe threads updated successfully" });
+    },
+    onError: () => {
+      toast({ 
+        variant: "destructive",
+        description: "Failed to update concurrent probe threads" 
+      });
+    },
+  });
+
+  const updateKeepConnectionsMutation = useMutation({
+    mutationFn: async (value: boolean) => 
+      apiRequest("PUT", `/api/settings/mikrotik_keep_connections`, { value }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings", "mikrotik_keep_connections"] });
+      toast({ description: `Mikrotik persistent connections ${mikrotikKeepConnections ? 'disabled' : 'enabled'}` });
+    },
+    onError: () => {
+      toast({ 
+        variant: "destructive",
+        description: "Failed to update connection setting" 
+      });
+    },
+  });
+
   const handleEdit = (profile: CredentialProfile) => {
     setEditingProfile(profile);
     setDialogOpen(true);
@@ -1683,6 +1746,18 @@ export default function Settings() {
     if (value >= 1 && value <= 10) {
       updateDefaultThresholdMutation.mutate(value);
     }
+  };
+
+  const handleUpdateConcurrentThreads = () => {
+    const value = parseInt(concurrentProbeThreads);
+    if (value >= 1 && value <= 200) {
+      updateConcurrentThreadsMutation.mutate(value);
+    }
+  };
+
+  const handleToggleKeepConnections = (checked: boolean) => {
+    setMikrotikKeepConnections(checked);
+    updateKeepConnectionsMutation.mutate(checked);
   };
 
   return (
@@ -1795,6 +1870,49 @@ export default function Settings() {
                 >
                   Save
                 </Button>
+              </div>
+              <div className="flex items-end gap-4">
+                <div className="flex-1 max-w-xs">
+                  <Label htmlFor="concurrent-probe-threads">Concurrent Probe Threads</Label>
+                  <Input
+                    id="concurrent-probe-threads"
+                    type="number"
+                    min="1"
+                    max="200"
+                    value={concurrentProbeThreads}
+                    onChange={(e) => setConcurrentProbeThreads(e.target.value)}
+                    placeholder={String(concurrentProbeThreadsData?.value || 80)}
+                    data-testid="input-concurrent-probe-threads"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Number of devices to probe simultaneously (1-200). Lower values may reduce mass failures.
+                  </p>
+                </div>
+                <Button 
+                  onClick={handleUpdateConcurrentThreads}
+                  disabled={updateConcurrentThreadsMutation.isPending}
+                  data-testid="button-save-concurrent-threads"
+                >
+                  Save
+                </Button>
+              </div>
+              <div className="flex items-center justify-between p-4 border rounded-md">
+                <div className="flex-1">
+                  <Label htmlFor="mikrotik-keep-connections" className="text-base font-medium">
+                    Mikrotik: Keep Connections Open
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Maintain persistent API connections to Mikrotik devices instead of connecting/disconnecting each probe cycle. 
+                    Can reduce false positives caused by connection drops.
+                  </p>
+                </div>
+                <Switch
+                  id="mikrotik-keep-connections"
+                  checked={mikrotikKeepConnections}
+                  onCheckedChange={handleToggleKeepConnections}
+                  disabled={updateKeepConnectionsMutation.isPending}
+                  data-testid="switch-mikrotik-keep-connections"
+                />
               </div>
             </CardContent>
           </Card>
