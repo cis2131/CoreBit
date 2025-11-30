@@ -11,6 +11,7 @@ interface PooledConnection {
   isConnected: boolean;
   isConnecting: boolean;
   connectionPromise: Promise<boolean> | null;
+  inUse: boolean;  // Track if connection is currently being used for a probe
 }
 
 class MikrotikConnectionPool {
@@ -118,20 +119,48 @@ class MikrotikConnectionPool {
     if (pooled) {
       pooled.lastUsed = Date.now();
       
+      // If connection is currently in use by another probe, fall back to non-pooled connection
+      // Mikrotik API doesn't support concurrent commands on the same connection
+      if (pooled.inUse) {
+        console.log(`[MikrotikPool] Connection to ${ipAddress} in use, creating temporary connection`);
+        const tempConn = new RouterOSAPI({
+          host: ipAddress,
+          user: username,
+          password: password,
+          port: port,
+          timeout: timeoutSeconds,
+        });
+        (tempConn as any).on('error', () => {});
+        await tempConn.connect();
+        return { conn: tempConn, isNewConnection: true, fromPool: false };
+      }
+      
       if (pooled.isConnecting && pooled.connectionPromise) {
         const success = await pooled.connectionPromise;
-        if (success && pooled.isConnected) {
+        if (success && pooled.isConnected && !pooled.inUse) {
+          pooled.inUse = true;
           return { conn: pooled.conn, isNewConnection: false, fromPool: true };
         }
       }
       
-      if (pooled.isConnected) {
+      if (pooled.isConnected && !pooled.inUse) {
         try {
-          await pooled.conn.write('/system/identity/print');
+          // Health check with timeout to avoid hanging on stale connections
+          const healthCheckPromise = pooled.conn.write('/system/identity/print');
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Health check timeout')), 3000)
+          );
+          await Promise.race([healthCheckPromise, timeoutPromise]);
+          pooled.inUse = true;
           return { conn: pooled.conn, isNewConnection: false, fromPool: true };
         } catch (e) {
           console.log(`[MikrotikPool] Connection to ${ipAddress} stale, reconnecting...`);
           pooled.isConnected = false;
+          pooled.inUse = false;
+          // Close the stale connection
+          try {
+            pooled.conn.close();
+          } catch (closeErr) {}
         }
       }
       
@@ -178,21 +207,24 @@ class MikrotikConnectionPool {
       isConnected: false,
       isConnecting: true,
       connectionPromise: null,
+      inUse: true,  // Mark as in use immediately since we're about to return it
     };
     
     const connectPromise = (async () => {
       try {
+        console.log(`[MikrotikPool] Connecting to ${ipAddress}:${port}...`);
         await conn.connect();
         newPooled.isConnected = true;
         newPooled.isConnecting = false;
         newPooled.errorCount = 0;
-        console.log(`[MikrotikPool] New persistent connection to ${ipAddress}`);
+        console.log(`[MikrotikPool] Connected to ${ipAddress}:${port} (persistent)`);
         return true;
       } catch (e: any) {
         newPooled.isConnecting = false;
         newPooled.isConnected = false;
         newPooled.errorCount++;
         newPooled.lastError = Date.now();
+        console.error(`[MikrotikPool] Failed to connect to ${ipAddress}:${port}: ${e.message}`);
         throw e;
       }
     })();
@@ -218,6 +250,16 @@ class MikrotikConnectionPool {
       return;
     }
     
+    // Mark the pooled connection as no longer in use
+    const username = credentials?.username || 'admin';
+    const port = credentials?.apiPort || 8728;
+    const key = this.getConnectionKey(ipAddress, port, username);
+    const pooled = this.connections.get(key);
+    
+    if (pooled && pooled.conn === conn) {
+      pooled.inUse = false;
+      pooled.lastUsed = Date.now();
+    }
   }
 
   markConnectionFailed(
@@ -231,6 +273,7 @@ class MikrotikConnectionPool {
     const pooled = this.connections.get(key);
     if (pooled) {
       pooled.isConnected = false;
+      pooled.inUse = false;  // Clear the in-use flag on failure
       pooled.errorCount++;
       pooled.lastError = Date.now();
       
