@@ -1588,6 +1588,24 @@ export default function Settings() {
 
   // Sync state with fetched data
   useEffect(() => {
+    if (pollingIntervalData?.value !== undefined) {
+      setPollingInterval(String(pollingIntervalData.value));
+    }
+  }, [pollingIntervalData]);
+
+  useEffect(() => {
+    if (defaultProbeTimeoutData?.value !== undefined) {
+      setDefaultProbeTimeout(String(defaultProbeTimeoutData.value));
+    }
+  }, [defaultProbeTimeoutData]);
+
+  useEffect(() => {
+    if (defaultOfflineThresholdData?.value !== undefined) {
+      setDefaultOfflineThreshold(String(defaultOfflineThresholdData.value));
+    }
+  }, [defaultOfflineThresholdData]);
+
+  useEffect(() => {
     if (concurrentProbeThreadsData?.value !== undefined) {
       setConcurrentProbeThreads(String(concurrentProbeThreadsData.value));
     }
