@@ -1,5 +1,6 @@
 import { Device } from '@shared/schema';
 import { Server, Router, Wifi, HardDrive, Activity, Cpu, MemoryStick, Clock, ExternalLink } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface DeviceNodeProps {
   device: Device & { position: { x: number; y: number } };
@@ -110,37 +111,42 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
           data-testid={`status-indicator-${device.status}`}
         />
 
-        {/* Map link icon - shows when device has a linked map */}
-        {device.linkedMapId && onMapLinkClick && (
-          <button
-            className="absolute top-2 right-8 p-1 rounded hover-elevate transition-colors"
-            onClick={(e) => {
-              e.stopPropagation();
-              onMapLinkClick(device.linkedMapId!);
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-            title="Go to linked map"
-            data-testid={`button-go-linked-map-${device.id}`}
-          >
-            <ExternalLink className="h-4 w-4 text-primary" />
-          </button>
-        )}
-
         {/* Main content */}
         <div className="p-3">
-          {/* Top row: Icon + Name */}
-          <div className="flex items-start gap-3 mb-2">
+          {/* Top row: Icon + Name + Map Link */}
+          <div className="flex items-center gap-3 mb-2">
             {/* Icon */}
-            <div className="flex-shrink-0 mt-0.5">
+            <div className="flex-shrink-0">
               <Icon className="h-6 w-6 text-foreground" />
             </div>
 
             {/* Device name */}
-            <div className="flex-1 min-w-0 pr-6">
+            <div className="flex-1 min-w-0">
               <h3 className="text-lg font-bold text-foreground truncate" data-testid={`text-device-name-${device.id}`}>
                 {device.name}
               </h3>
             </div>
+
+            {/* Map link button - shows when device has a linked map */}
+            {device.linkedMapId && onMapLinkClick && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 flex-shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMapLinkClick(device.linkedMapId!);
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                title="Go to linked map"
+                data-testid={`button-go-linked-map-${device.id}`}
+              >
+                <ExternalLink className="h-4 w-4" />
+              </Button>
+            )}
+
+            {/* Spacer for status indicator */}
+            <div className="w-4 flex-shrink-0" />
           </div>
 
           {/* Subtitle (model) */}
