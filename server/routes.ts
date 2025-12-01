@@ -1738,10 +1738,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const allDevices = await storage.getAllDevices();
         const devicesWithIp = allDevices.filter(d => d.ipAddress);
         
-        // Check for stale devices - mark offline if not seen for 2x polling interval
+        // Check for stale devices - only mark offline if BOTH stale threshold exceeded AND ping fails
         const stalenessThresholdMs = intervalMs * 2;
         const now = Date.now();
         let staleCount = 0;
+        let staleStillPingableCount = 0;
         
         for (const device of devicesWithIp) {
           if (device.lastSeen && device.status !== 'offline') {
@@ -1749,13 +1750,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const timeSinceLastSeen = now - lastSeenTime;
             
             if (timeSinceLastSeen > stalenessThresholdMs) {
-              // Device hasn't been seen for too long - mark as offline
+              // Device hasn't been seen for too long - verify ping before marking offline
+              const pingResult = await pingDevice(device.ipAddress!);
+              
+              if (pingResult.success) {
+                // Ping still succeeds - keep in stale state, don't mark offline
+                staleStillPingableCount++;
+                console.log(`[${new Date().toISOString()}] [Probing] ${device.name} (${device.ipAddress}): stale threshold exceeded (${Math.round(timeSinceLastSeen / 1000)}s) but ping succeeded (RTT: ${pingResult.rtt}ms) - staying stale`);
+                continue; // Skip marking offline
+              }
+              
+              // Ping failed - now mark as truly offline
               const oldStatus = device.status;
               await storage.updateDevice(device.id, { status: 'offline' });
               device.status = 'offline'; // Update local copy too
               staleCount++;
               
-              console.log(`[${new Date().toISOString()}] [Probing] ${device.name} (${device.ipAddress}): marked offline (stale - last seen ${Math.round(timeSinceLastSeen / 1000)}s ago)`);
+              console.log(`[${new Date().toISOString()}] [Probing] ${device.name} (${device.ipAddress}): marked offline (stale ${Math.round(timeSinceLastSeen / 1000)}s, ping failed)`);
               
               // Log status change
               try {
@@ -1763,7 +1774,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   deviceId: device.id,
                   eventType: 'status_change',
                   severity: 'error',
-                  message: `Device ${device.name} marked offline (stale - not seen for ${Math.round(timeSinceLastSeen / 1000)} seconds)`,
+                  message: `Device ${device.name} marked offline (stale ${Math.round(timeSinceLastSeen / 1000)}s and ping failed)`,
                   oldStatus,
                   newStatus: 'offline',
                 });
@@ -1771,7 +1782,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 console.error(`[Logging] Error creating stale log for ${device.name}:`, error.message);
               }
               
-              // Send notifications for stale device going offline
+              // Send notifications for stale device going offline (only when ping also failed)
               try {
                 const deviceNotifications = await storage.getDeviceNotifications(device.id);
                 if (deviceNotifications.length > 0) {
@@ -1789,8 +1800,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         
-        if (staleCount > 0) {
-          console.log(`[Probing] Marked ${staleCount} stale device(s) as offline before cycle #${probeCycle}`);
+        if (staleCount > 0 || staleStillPingableCount > 0) {
+          if (staleCount > 0 && staleStillPingableCount > 0) {
+            console.log(`[Probing] Stale check before cycle #${probeCycle}: ${staleCount} marked offline (ping failed), ${staleStillPingableCount} still pingable (staying stale)`);
+          } else if (staleCount > 0) {
+            console.log(`[Probing] Marked ${staleCount} stale device(s) as offline (ping failed) before cycle #${probeCycle}`);
+          } else {
+            console.log(`[Probing] ${staleStillPingableCount} stale device(s) still pingable before cycle #${probeCycle} - not marking offline`);
+          }
         }
         
         // Build set of device IDs that have monitored connections (need SNMP indexing)
