@@ -29,6 +29,7 @@ interface DevicePropertiesPanelProps {
 const statusLabels = {
   online: { label: 'Online', color: 'bg-green-500' },
   warning: { label: 'Warning', color: 'bg-yellow-500' },
+  stale: { label: 'Stale', color: 'bg-orange-500' },
   offline: { label: 'Offline', color: 'bg-red-500' },
   unknown: { label: 'Unknown', color: 'bg-gray-400' },
 };

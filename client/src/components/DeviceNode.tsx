@@ -20,6 +20,7 @@ const deviceIcons = {
 const statusColors = {
   online: 'bg-green-500',
   warning: 'bg-yellow-500',
+  stale: 'bg-orange-500',
   offline: 'bg-red-500',
   unknown: 'bg-gray-400',
 };

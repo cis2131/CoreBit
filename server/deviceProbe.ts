@@ -1,6 +1,7 @@
 import { RouterOSAPI } from 'node-routeros';
 import * as snmp from 'net-snmp';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
+import { isIP } from 'net';
 
 // Helper function to walk an SNMP table and return OID → value mapping
 // Uses subtree() with maxRepetitions=1 for compatibility with various devices
@@ -1142,11 +1143,21 @@ function parseCounter(value: any): number | null {
 
 export async function pingDevice(ipAddress: string, timeoutSeconds: number = 3): Promise<{ success: boolean; rtt?: number }> {
   return new Promise((resolve) => {
-    const pingCmd = process.platform === 'win32'
-      ? `ping -n 1 -w ${timeoutSeconds * 1000} ${ipAddress}`
-      : `ping -c 1 -W ${timeoutSeconds} ${ipAddress}`;
+    // Validate IP address to prevent command injection
+    if (!isIP(ipAddress)) {
+      console.warn(`[Ping] Invalid IP address format: ${ipAddress}`);
+      resolve({ success: false });
+      return;
+    }
     
-    exec(pingCmd, { timeout: (timeoutSeconds + 1) * 1000 }, (error, stdout, stderr) => {
+    // Use execFile with argument array for security (no shell interpolation)
+    const isWindows = process.platform === 'win32';
+    const pingPath = isWindows ? 'ping' : '/bin/ping';
+    const pingArgs = isWindows
+      ? ['-n', '1', '-w', String(timeoutSeconds * 1000), ipAddress]
+      : ['-c', '1', '-W', String(timeoutSeconds), ipAddress];
+    
+    execFile(pingPath, pingArgs, { timeout: (timeoutSeconds + 1) * 1000 }, (error, stdout, stderr) => {
       if (error) {
         resolve({ success: false });
         return;

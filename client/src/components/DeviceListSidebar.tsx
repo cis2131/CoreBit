@@ -28,6 +28,8 @@ function getStatusColor(status: string): string {
       return 'bg-green-500';
     case 'warning':
       return 'bg-yellow-500';
+    case 'stale':
+      return 'bg-orange-500';
     case 'offline':
       return 'bg-red-500';
     default:
