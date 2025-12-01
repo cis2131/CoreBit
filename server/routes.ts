@@ -1460,8 +1460,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return { device, success: false, timeout: true };
       }
       
-      const status = determineDeviceStatus(probeResult.data, probeResult.success);
+      let status = determineDeviceStatus(probeResult.data, probeResult.success);
       const oldStatus = device.status;
+      
+      // Ping fallback: if probe failed and status would be offline, try ping first
+      // If ping succeeds, use 'stale' status instead of 'offline' (no alarm)
+      if (status === 'offline' && defaults?.pingFallbackEnabled && device.ipAddress) {
+        try {
+          const pingResult = await pingDevice(device.ipAddress, 3);
+          if (pingResult.success) {
+            status = 'stale';
+            const timestamp = new Date().toISOString();
+            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): API failed but ping succeeded (RTT: ${pingResult.rtt || 'n/a'}ms) - marking as stale`);
+          }
+        } catch (pingError: any) {
+          console.warn(`[Probing] Ping fallback failed for ${device.name}:`, pingError.message);
+        }
+      }
+      
       const statusChanged = status !== oldStatus;
       
       if (status !== device.status || probeResult.success) {
@@ -1487,8 +1503,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await storage.createLog({
             deviceId: device.id,
             eventType: 'status_change',
-            severity: status === 'offline' ? 'error' : status === 'warning' ? 'warning' : 'info',
-            message: `Device ${device.name} status changed from ${oldStatus} to ${status}`,
+            severity: status === 'offline' ? 'error' : status === 'stale' ? 'warning' : status === 'warning' ? 'warning' : 'info',
+            message: status === 'stale' 
+              ? `Device ${device.name} status changed from ${oldStatus} to stale (API unreachable but responds to ping)`
+              : `Device ${device.name} status changed from ${oldStatus} to ${status}`,
             oldStatus,
             newStatus: status,
           });
@@ -1496,19 +1514,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error(`[Logging] Error creating log for ${device.name}:`, error.message);
         }
 
-        // Send notifications
-        try {
-          const deviceNotifications = await storage.getDeviceNotifications(device.id);
-          if (deviceNotifications.length > 0) {
-            for (const dn of deviceNotifications) {
-              const notification = await storage.getNotification(dn.notificationId);
-              if (notification) {
-                await sendNotification(notification, device, status, oldStatus);
+        // Send notifications only for offline status (not stale - that's the point of ping fallback)
+        if (status !== 'stale') {
+          try {
+            const deviceNotifications = await storage.getDeviceNotifications(device.id);
+            if (deviceNotifications.length > 0) {
+              for (const dn of deviceNotifications) {
+                const notification = await storage.getNotification(dn.notificationId);
+                if (notification) {
+                  await sendNotification(notification, device, status, oldStatus);
+                }
               }
             }
+          } catch (error: any) {
+            console.error(`[Notification] Error sending notifications for ${device.name}:`, error.message);
           }
-        } catch (error: any) {
-          console.error(`[Notification] Error sending notifications for ${device.name}:`, error.message);
         }
       }
       
