@@ -1728,9 +1728,9 @@ export default function Settings() {
   const updateKeepConnectionsMutation = useMutation({
     mutationFn: async (value: boolean) => 
       apiRequest("PUT", `/api/settings/mikrotik_keep_connections`, { value }),
-    onSuccess: () => {
+    onSuccess: (_data, value) => {
       queryClient.invalidateQueries({ queryKey: ["/api/settings", "mikrotik_keep_connections"] });
-      toast({ description: `Mikrotik persistent connections ${mikrotikKeepConnections ? 'disabled' : 'enabled'}` });
+      toast({ description: `Mikrotik persistent connections ${value ? 'enabled' : 'disabled'}` });
     },
     onError: () => {
       toast({ 
@@ -1743,9 +1743,9 @@ export default function Settings() {
   const updatePingFallbackMutation = useMutation({
     mutationFn: async (value: boolean) => 
       apiRequest("PUT", `/api/settings/ping_fallback_enabled`, { value }),
-    onSuccess: () => {
+    onSuccess: (_data, value) => {
       queryClient.invalidateQueries({ queryKey: ["/api/settings", "ping_fallback_enabled"] });
-      toast({ description: `Ping fallback ${pingFallbackEnabled ? 'disabled' : 'enabled'}` });
+      toast({ description: `Ping fallback ${value ? 'enabled' : 'disabled'}` });
     },
     onError: () => {
       toast({ 
