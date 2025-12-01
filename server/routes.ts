@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probeMikrotikWithPool } from "./deviceProbe";
+import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probeMikrotikWithPool, pingDevice } from "./deviceProbe";
 import { mikrotikPool } from "./mikrotikConnectionPool";
 import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, type Device, type Connection } from "@shared/schema";
 import { z } from "zod";
@@ -1302,6 +1302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     defaultOfflineThreshold: number;  // cycles
     concurrentProbeThreads: number;  // number of concurrent probes
     mikrotikKeepConnections: boolean;  // use persistent connections for Mikrotik devices
+    pingFallbackEnabled: boolean;  // if true, ping device when API fails - if ping succeeds, mark as 'stale' instead of 'offline'
   }
   
   interface ProbeResult {
@@ -1548,48 +1549,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // Check if we've reached the offline threshold (use effectiveOfflineThreshold from function start)
           if (currentFailureCount >= effectiveOfflineThreshold) {
+            // Ping fallback: if enabled, ping the device before marking offline
+            // If ping succeeds, mark as 'stale' instead of 'offline' (no alarm)
+            let useStaleStatus = false;
+            if (defaults?.pingFallbackEnabled && device.ipAddress) {
+              try {
+                const pingResult = await pingDevice(device.ipAddress, 3);
+                if (pingResult.success) {
+                  useStaleStatus = true;
+                  const timestamp = new Date().toISOString();
+                  console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): API failed but ping succeeded (RTT: ${pingResult.rtt || 'n/a'}ms) - marking as stale`);
+                }
+              } catch (pingError: any) {
+                console.warn(`[Probing] Ping fallback failed for ${device.name}:`, pingError.message);
+              }
+            }
+            
+            const targetStatus = useStaleStatus ? 'stale' : 'offline';
+            
             // Only update and log if status is actually changing
-            if (oldStatus !== 'offline') {
-              await storage.updateDevice(device.id, { status: 'offline', failureCount: currentFailureCount });
+            if (oldStatus !== targetStatus) {
+              await storage.updateDevice(device.id, { status: targetStatus, failureCount: currentFailureCount });
               
               // IMPORTANT: Update the device object so downstream code doesn't overwrite with stale status
-              device.status = 'offline';
+              device.status = targetStatus;
               
               // Log status change to console with timestamp
               const timestamp = new Date().toISOString();
-              console.warn(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → offline (timeout after ${currentFailureCount}/${effectiveOfflineThreshold} failed cycles)`);
+              if (useStaleStatus) {
+                console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → stale (API unreachable but device responds to ping)`);
+              } else {
+                console.warn(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → offline (timeout after ${currentFailureCount}/${effectiveOfflineThreshold} failed cycles)`);
+              }
               
               // Create log entry for status change
               try {
                 await storage.createLog({
                   deviceId: device.id,
                   eventType: 'status_change',
-                  severity: 'error',
-                  message: `Device ${device.name} status changed from ${oldStatus} to offline (probe timeout after ${currentFailureCount} failed cycles)`,
+                  severity: useStaleStatus ? 'warning' : 'error',
+                  message: useStaleStatus 
+                    ? `Device ${device.name} status changed from ${oldStatus} to stale (API unreachable but responds to ping)`
+                    : `Device ${device.name} status changed from ${oldStatus} to offline (probe timeout after ${currentFailureCount} failed cycles)`,
                   oldStatus,
-                  newStatus: 'offline',
+                  newStatus: targetStatus,
                 });
               } catch (logError: any) {
                 console.error(`[Logging] Error creating timeout log for ${device.name}:`, logError.message);
               }
               
-              // Send notifications for timeout
-              try {
-                const deviceNotifications = await storage.getDeviceNotifications(device.id);
-                if (deviceNotifications.length > 0) {
-                  for (const dn of deviceNotifications) {
-                    const notification = await storage.getNotification(dn.notificationId);
-                    if (notification) {
-                      await sendNotification(notification, device, 'offline', oldStatus);
+              // Only send notifications for offline status (not stale - that's the whole point of ping fallback)
+              if (!useStaleStatus) {
+                try {
+                  const deviceNotifications = await storage.getDeviceNotifications(device.id);
+                  if (deviceNotifications.length > 0) {
+                    for (const dn of deviceNotifications) {
+                      const notification = await storage.getNotification(dn.notificationId);
+                      if (notification) {
+                        await sendNotification(notification, device, 'offline', oldStatus);
+                      }
                     }
                   }
+                } catch (notifError: any) {
+                  console.error(`[Notification] Error sending timeout notifications for ${device.name}:`, notifError.message);
                 }
-              } catch (notifError: any) {
-                console.error(`[Notification] Error sending timeout notifications for ${device.name}:`, notifError.message);
               }
             } else {
-              // Device is already offline - just update the local object to match DB
-              device.status = 'offline';
+              // Device is already in target status - just update the local object to match DB
+              device.status = targetStatus;
             }
           } else {
             // Not yet reached threshold - log the failure count
@@ -1673,12 +1700,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const defaultThresholdSetting = await storage.getSetting('default_offline_threshold');
         const concurrentThreadsSetting = await storage.getSetting('concurrent_probe_threads');
         const keepConnectionsSetting = await storage.getSetting('mikrotik_keep_connections');
+        const pingFallbackSetting = await storage.getSetting('ping_fallback_enabled');
         
         const probingDefaults: ProbingDefaults = {
           defaultProbeTimeout: typeof defaultTimeoutSetting === 'number' ? defaultTimeoutSetting : 6,
           defaultOfflineThreshold: typeof defaultThresholdSetting === 'number' ? defaultThresholdSetting : 1,
           concurrentProbeThreads: typeof concurrentThreadsSetting === 'number' ? concurrentThreadsSetting : DEFAULT_CONCURRENT_PROBES,
           mikrotikKeepConnections: typeof keepConnectionsSetting === 'boolean' ? keepConnectionsSetting : false,
+          pingFallbackEnabled: typeof pingFallbackSetting === 'boolean' ? pingFallbackSetting : false,
         };
         
         // Update connection pool enabled state and staleness threshold
