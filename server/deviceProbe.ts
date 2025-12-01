@@ -1,5 +1,6 @@
 import { RouterOSAPI } from 'node-routeros';
 import * as snmp from 'net-snmp';
+import { exec } from 'child_process';
 
 // Helper function to walk an SNMP table and return OID → value mapping
 // Uses subtree() with maxRepetitions=1 for compatibility with various devices
@@ -1137,4 +1138,24 @@ function parseCounter(value: any): number | null {
   // Handle number or string
   const num = parseInt(value.toString(), 10);
   return isNaN(num) ? null : num;
+}
+
+export async function pingDevice(ipAddress: string, timeoutSeconds: number = 3): Promise<{ success: boolean; rtt?: number }> {
+  return new Promise((resolve) => {
+    const pingCmd = process.platform === 'win32'
+      ? `ping -n 1 -w ${timeoutSeconds * 1000} ${ipAddress}`
+      : `ping -c 1 -W ${timeoutSeconds} ${ipAddress}`;
+    
+    exec(pingCmd, { timeout: (timeoutSeconds + 1) * 1000 }, (error, stdout, stderr) => {
+      if (error) {
+        resolve({ success: false });
+        return;
+      }
+      
+      const rttMatch = stdout.match(/time[=<](\d+(?:\.\d+)?)\s*ms/i);
+      const rtt = rttMatch ? parseFloat(rttMatch[1]) : undefined;
+      
+      resolve({ success: true, rtt });
+    });
+  });
 }
