@@ -113,14 +113,14 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
         {/* Map link icon - shows when device has a linked map */}
         {device.linkedMapId && onMapLinkClick && (
           <button
-            className="absolute top-2 right-8 p-1 rounded hover:bg-accent transition-colors"
+            className="absolute top-2 right-8 p-1 rounded hover-elevate transition-colors"
             onClick={(e) => {
               e.stopPropagation();
               onMapLinkClick(device.linkedMapId!);
             }}
             onMouseDown={(e) => e.stopPropagation()}
             title="Go to linked map"
-            data-testid={`button-map-link-${device.id}`}
+            data-testid={`button-go-linked-map-${device.id}`}
           >
             <ExternalLink className="h-4 w-4 text-primary" />
           </button>

@@ -536,6 +536,11 @@ export default function NetworkTopology() {
               onDraggingComplete={() => setDraggingDeviceId(null)}
               focusDeviceId={focusDeviceId}
               onFocusComplete={() => setFocusDeviceId(null)}
+              onMapLinkClick={(mapId) => {
+                setCurrentMapId(mapId);
+                setSelectedDeviceId(null);
+                setSelectedConnectionId(null);
+              }}
             />
           ) : (
             <div className="h-full flex items-center justify-center bg-white dark:bg-gray-950">
@@ -558,6 +563,11 @@ export default function NetworkTopology() {
                 setSelectedDeviceId(deviceId);
                 setSelectedPlacementId(device.placementId);
               }
+            }}
+            onNavigateToMap={(mapId) => {
+              setCurrentMapId(mapId);
+              setSelectedDeviceId(null);
+              setSelectedConnectionId(null);
             }}
             onStartConnectionFromPort={handleStartConnectionFromPort}
             canModify={canModify}

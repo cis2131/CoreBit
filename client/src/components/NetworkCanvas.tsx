@@ -21,6 +21,7 @@ interface NetworkCanvasProps {
   onDraggingComplete: () => void;
   focusDeviceId?: string | null;
   onFocusComplete?: () => void;
+  onMapLinkClick?: (mapId: string) => void;
 }
 
 export function NetworkCanvas({
@@ -39,6 +40,7 @@ export function NetworkCanvas({
   onDraggingComplete,
   focusDeviceId,
   onFocusComplete,
+  onMapLinkClick,
 }: NetworkCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -465,6 +467,7 @@ export function NetworkCanvas({
                   setDeviceWasDragged(false);
                 }}
                 onDragStart={(e) => handleDeviceDragStart(device.id, e)}
+                onMapLinkClick={onMapLinkClick}
               />
             );
           })}
