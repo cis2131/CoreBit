@@ -6,8 +6,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock } from 'lucide-react';
 
 interface DeviceStatusInfoProps {
   devices?: Device[];
@@ -18,8 +20,10 @@ interface DeviceStatusInfoProps {
 export function DeviceStatusInfo({ devices = [], maps, onDeviceSelect }: DeviceStatusInfoProps) {
   const [showDownDevices, setShowDownDevices] = useState(false);
 
-  const upDevices = devices.filter(d => d.status === 'online').length;
-  const downDevices = devices.filter(d => d.status !== 'online').length;
+  const onlineDevices = devices.filter(d => d.status === 'online').length;
+  const staleDevices = devices.filter(d => d.status === 'stale');
+  const offlineDevices = devices.filter(d => d.status === 'offline' || (d.status !== 'online' && d.status !== 'stale'));
+  const problemDevices = [...staleDevices, ...offlineDevices];
   const totalDevices = devices.length;
 
   if (totalDevices === 0) {
@@ -31,11 +35,22 @@ export function DeviceStatusInfo({ devices = [], maps, onDeviceSelect }: DeviceS
       <div className="flex items-center gap-2 text-sm">
         <div className="flex items-center gap-1">
           <CheckCircle2 className="h-4 w-4 text-green-500" />
-          <span className="text-foreground">{upDevices}</span>
+          <span className="text-foreground">{onlineDevices}</span>
         </div>
+        
+        {staleDevices.length > 0 && (
+          <>
+            <span className="text-muted-foreground">/</span>
+            <div className="flex items-center gap-1 text-orange-500">
+              <Clock className="h-4 w-4" />
+              <span>{staleDevices.length}</span>
+            </div>
+          </>
+        )}
+        
         <span className="text-muted-foreground">/</span>
         
-        {downDevices > 0 ? (
+        {problemDevices.length > 0 ? (
           <DropdownMenu open={showDownDevices} onOpenChange={setShowDownDevices}>
             <DropdownMenuTrigger asChild>
               <Button
@@ -45,28 +60,67 @@ export function DeviceStatusInfo({ devices = [], maps, onDeviceSelect }: DeviceS
                 data-testid="button-down-devices"
               >
                 <AlertCircle className="h-4 w-4" />
-                <span>{downDevices}</span>
+                <span>{offlineDevices.length}</span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              {devices
-                .filter(d => d.status !== 'online')
-                .map(device => (
-                  <DropdownMenuItem
-                    key={device.id}
-                    onClick={() => {
-                      onDeviceSelect(device.id);
-                      setShowDownDevices(false);
-                    }}
-                    data-testid={`down-device-${device.id}`}
-                    className="flex items-center justify-between"
-                  >
-                    <span className="truncate">{device.name}</span>
-                    <span className="text-xs text-muted-foreground ml-2">
-                      {device.status || 'unknown'}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
+            <DropdownMenuContent align="end" className="w-64">
+              {staleDevices.length > 0 && (
+                <>
+                  <DropdownMenuLabel className="flex items-center gap-2 text-orange-500">
+                    <Clock className="h-3 w-3" />
+                    Stale (Ping Response)
+                  </DropdownMenuLabel>
+                  {staleDevices.map(device => (
+                    <DropdownMenuItem
+                      key={device.id}
+                      onClick={() => {
+                        onDeviceSelect(device.id);
+                        setShowDownDevices(false);
+                      }}
+                      data-testid={`stale-device-${device.id}`}
+                      className="flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-orange-500" />
+                        <span className="truncate">{device.name}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        {device.ipAddress}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              )}
+              {staleDevices.length > 0 && offlineDevices.length > 0 && (
+                <DropdownMenuSeparator />
+              )}
+              {offlineDevices.length > 0 && (
+                <>
+                  <DropdownMenuLabel className="flex items-center gap-2 text-destructive">
+                    <AlertCircle className="h-3 w-3" />
+                    Offline
+                  </DropdownMenuLabel>
+                  {offlineDevices.map(device => (
+                    <DropdownMenuItem
+                      key={device.id}
+                      onClick={() => {
+                        onDeviceSelect(device.id);
+                        setShowDownDevices(false);
+                      }}
+                      data-testid={`down-device-${device.id}`}
+                      className="flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-red-500" />
+                        <span className="truncate">{device.name}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        {device.ipAddress}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
