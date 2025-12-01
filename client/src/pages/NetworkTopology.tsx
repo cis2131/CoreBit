@@ -434,7 +434,10 @@ export default function NetworkTopology() {
     toast({ title: 'Device not on any map', description: 'This device is not placed on any map yet.', variant: 'destructive' });
   };
 
-  const selectedDevice = selectedDeviceId ? devicesOnMap.find(d => d.id === selectedDeviceId) : null;
+  // Look for selected device on map first, then fall back to all devices (for unplaced devices)
+  const selectedDevice = selectedDeviceId 
+    ? (devicesOnMap.find(d => d.id === selectedDeviceId) || allDevices.find(d => d.id === selectedDeviceId))
+    : null;
   const selectedConnection = selectedConnectionId ? connections.find(c => c.id === selectedConnectionId) : null;
   const selectedConnectionSourceDevice = selectedConnection ? devicesOnMap.find(d => d.id === selectedConnection.sourceDeviceId) : null;
   const selectedConnectionTargetDevice = selectedConnection ? devicesOnMap.find(d => d.id === selectedConnection.targetDeviceId) : null;
@@ -494,10 +497,15 @@ export default function NetworkTopology() {
           onDeviceDragStart={canModify ? setDraggingDeviceId : undefined}
           onEditDevice={handleDeviceEdit}
           onDeviceClick={(deviceId) => {
-            const device = devicesOnMap.find(d => d.id === deviceId);
-            if (device) {
+            // Check if device is placed on current map
+            const placedDevice = devicesOnMap.find(d => d.id === deviceId);
+            if (placedDevice) {
               setSelectedDeviceId(deviceId);
-              setSelectedPlacementId(device.placementId);
+              setSelectedPlacementId(placedDevice.placementId);
+            } else {
+              // Device not on current map - still open properties panel
+              setSelectedDeviceId(deviceId);
+              setSelectedPlacementId(null);
             }
           }}
           canModify={canModify}
