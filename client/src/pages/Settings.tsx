@@ -1485,6 +1485,7 @@ export default function Settings() {
   const [defaultOfflineThreshold, setDefaultOfflineThreshold] = useState("1");
   const [concurrentProbeThreads, setConcurrentProbeThreads] = useState("80");
   const [mikrotikKeepConnections, setMikrotikKeepConnections] = useState(false);
+  const [pingFallbackEnabled, setPingFallbackEnabled] = useState(false);
 
   // Only admins can access settings
   if (!isAdmin) {
@@ -1586,6 +1587,15 @@ export default function Settings() {
     },
   });
 
+  const { data: pingFallbackEnabledData } = useQuery<{ key: string; value: boolean }>({
+    queryKey: ["/api/settings", "ping_fallback_enabled"],
+    queryFn: async () => {
+      const response = await fetch("/api/settings/ping_fallback_enabled");
+      if (!response.ok) return { key: "ping_fallback_enabled", value: false };
+      return response.json();
+    },
+  });
+
   // Sync state with fetched data
   useEffect(() => {
     if (pollingIntervalData?.value !== undefined) {
@@ -1616,6 +1626,12 @@ export default function Settings() {
       setMikrotikKeepConnections(mikrotikKeepConnectionsData.value);
     }
   }, [mikrotikKeepConnectionsData]);
+
+  useEffect(() => {
+    if (pingFallbackEnabledData?.value !== undefined) {
+      setPingFallbackEnabled(pingFallbackEnabledData.value);
+    }
+  }, [pingFallbackEnabledData]);
 
   const deleteProfileMutation = useMutation({
     mutationFn: async (id: string) => 
@@ -1724,6 +1740,21 @@ export default function Settings() {
     },
   });
 
+  const updatePingFallbackMutation = useMutation({
+    mutationFn: async (value: boolean) => 
+      apiRequest("PUT", `/api/settings/ping_fallback_enabled`, { value }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings", "ping_fallback_enabled"] });
+      toast({ description: `Ping fallback ${pingFallbackEnabled ? 'disabled' : 'enabled'}` });
+    },
+    onError: () => {
+      toast({ 
+        variant: "destructive",
+        description: "Failed to update ping fallback setting" 
+      });
+    },
+  });
+
   const handleEdit = (profile: CredentialProfile) => {
     setEditingProfile(profile);
     setDialogOpen(true);
@@ -1776,6 +1807,11 @@ export default function Settings() {
   const handleToggleKeepConnections = (checked: boolean) => {
     setMikrotikKeepConnections(checked);
     updateKeepConnectionsMutation.mutate(checked);
+  };
+
+  const handleTogglePingFallback = (checked: boolean) => {
+    setPingFallbackEnabled(checked);
+    updatePingFallbackMutation.mutate(checked);
   };
 
   return (
@@ -1930,6 +1966,25 @@ export default function Settings() {
                   onCheckedChange={handleToggleKeepConnections}
                   disabled={updateKeepConnectionsMutation.isPending}
                   data-testid="switch-mikrotik-keep-connections"
+                />
+              </div>
+              <div className="flex items-center justify-between p-4 border rounded-md">
+                <div className="flex-1">
+                  <Label htmlFor="ping-fallback-enabled" className="text-base font-medium">
+                    Ping Fallback Verification
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    When API/SNMP probe fails, ping the device before marking offline. If ping succeeds, 
+                    mark as "stale" instead of "offline" (no alarm triggered). Useful for detecting when 
+                    device is reachable but API is temporarily unavailable.
+                  </p>
+                </div>
+                <Switch
+                  id="ping-fallback-enabled"
+                  checked={pingFallbackEnabled}
+                  onCheckedChange={handleTogglePingFallback}
+                  disabled={updatePingFallbackMutation.isPending}
+                  data-testid="switch-ping-fallback-enabled"
                 />
               </div>
             </CardContent>
