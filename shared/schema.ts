@@ -115,6 +115,7 @@ export const devices = pgTable("devices", {
     diskUsagePct?: number;
   }>(),
   credentialProfileId: varchar("credential_profile_id").references(() => credentialProfiles.id, { onDelete: "set null" }),
+  linkedMapId: varchar("linked_map_id").references(() => maps.id, { onDelete: "set null" }), // Link to navigate to another map
   customCredentials: jsonb("custom_credentials").$type<{
     username?: string;
     password?: string;
