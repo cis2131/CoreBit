@@ -35,6 +35,7 @@ export default function NetworkTopology() {
   const [editMapName, setEditMapName] = useState('');
   const [editMapDescription, setEditMapDescription] = useState('');
   const [editMapIsDefault, setEditMapIsDefault] = useState(false);
+  const [focusDeviceId, setFocusDeviceId] = useState<string | null>(null);
   const { toast } = useToast();
   const { canModify } = useAuth();
 
@@ -416,10 +417,13 @@ export default function NetworkTopology() {
     for (const map of maps) {
       try {
         const mapPlacements = await apiRequest('GET', `/api/placements/${map.id}`);
-        const hasDevice = (mapPlacements as DevicePlacement[]).some(p => p.deviceId === deviceId);
-        if (hasDevice) {
+        const placement = (mapPlacements as DevicePlacement[]).find(p => p.deviceId === deviceId);
+        if (placement) {
           setCurrentMapId(map.id);
           setSelectedDeviceId(deviceId);
+          setSelectedPlacementId(placement.id);
+          // Set focusDeviceId to trigger canvas centering on this device
+          setFocusDeviceId(deviceId);
           return;
         }
       } catch (error) {
@@ -522,6 +526,8 @@ export default function NetworkTopology() {
               draggingDeviceId={draggingDeviceId}
               onDeviceDropFromSidebar={handleDeviceDragFromSidebar}
               onDraggingComplete={() => setDraggingDeviceId(null)}
+              focusDeviceId={focusDeviceId}
+              onFocusComplete={() => setFocusDeviceId(null)}
             />
           ) : (
             <div className="h-full flex items-center justify-center bg-white dark:bg-gray-950">

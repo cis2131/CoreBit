@@ -19,6 +19,8 @@ interface NetworkCanvasProps {
   draggingDeviceId: string | null;
   onDeviceDropFromSidebar?: (deviceId: string, position: { x: number; y: number }) => void;
   onDraggingComplete: () => void;
+  focusDeviceId?: string | null;
+  onFocusComplete?: () => void;
 }
 
 export function NetworkCanvas({
@@ -35,6 +37,8 @@ export function NetworkCanvas({
   draggingDeviceId,
   onDeviceDropFromSidebar,
   onDraggingComplete,
+  focusDeviceId,
+  onFocusComplete,
 }: NetworkCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -90,6 +94,35 @@ export function NetworkCanvas({
       return () => canvas.removeEventListener('wheel', handleWheel);
     }
   }, [handleWheel]);
+
+  // Center on focused device when focusDeviceId changes
+  useEffect(() => {
+    if (!focusDeviceId) return;
+    
+    const device = devices.find(d => d.id === focusDeviceId);
+    if (!device) return;
+    
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    // Calculate pan to center the device in the viewport
+    // Device position is its center (due to translate(-50%, -50%) in DeviceNode)
+    const viewportCenterX = rect.width / 2;
+    const viewportCenterY = rect.height / 2;
+    
+    // Pan formula: to put device at screen position S, we need pan = S - pos * zoom
+    // To center device: pan = viewportCenter - devicePos * zoom
+    const newPanX = viewportCenterX - device.position.x * zoom;
+    const newPanY = viewportCenterY - device.position.y * zoom;
+    
+    setPan({ x: newPanX, y: newPanY });
+    
+    // Mark as initialized to prevent auto-fit from overriding our pan
+    setIsInitialized(true);
+    
+    // Notify parent that focus is complete
+    onFocusComplete?.();
+  }, [focusDeviceId, devices, zoom, onFocusComplete]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     // Allow panning with left button on canvas background or middle button anywhere
