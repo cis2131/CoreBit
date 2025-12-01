@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Device, Connection, type CredentialProfile, type Notification, type DeviceNotification } from '@shared/schema';
+import { Device, Connection, Map, type CredentialProfile, type Notification, type DeviceNotification } from '@shared/schema';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -8,7 +8,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { Checkbox } from '@/components/ui/checkbox';
-import { X, Trash2, Edit, RefreshCw, Key, Cpu, MemoryStick, Bell, Link as LinkIcon, Clock, AlertTriangle } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { X, Trash2, Edit, RefreshCw, Key, Cpu, MemoryStick, Bell, Link as LinkIcon, Clock, AlertTriangle, Map as MapIcon } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { apiRequest, queryClient } from '@/lib/queryClient';
@@ -23,6 +24,7 @@ interface DevicePropertiesPanelProps {
   onEdit: (device: Device) => void;
   onNavigateToDevice?: (deviceId: string) => void;
   onStartConnectionFromPort?: (deviceId: string, portName: string) => void;
+  onNavigateToMap?: (mapId: string) => void;
   canModify?: boolean;
 }
 
@@ -64,6 +66,7 @@ export function DevicePropertiesPanel({
   onEdit, 
   onNavigateToDevice,
   onStartConnectionFromPort,
+  onNavigateToMap,
   canModify = true
 }: DevicePropertiesPanelProps) {
   const { toast } = useToast();
@@ -76,6 +79,22 @@ export function DevicePropertiesPanel({
     setTimeoutValue(device.probeTimeout?.toString() ?? '');
     setThresholdValue(device.offlineThreshold?.toString() ?? '');
   }, [device.id, device.probeTimeout, device.offlineThreshold]);
+
+  const { data: maps = [] } = useQuery<Map[]>({
+    queryKey: ['/api/maps'],
+  });
+
+  const updateLinkedMapMutation = useMutation({
+    mutationFn: async (linkedMapId: string | null) =>
+      apiRequest('PATCH', `/api/devices/${device.id}`, { linkedMapId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/devices'] });
+      toast({ description: 'Map link updated' });
+    },
+    onError: () => {
+      toast({ variant: 'destructive', description: 'Failed to update map link' });
+    },
+  });
 
   const { data: credentialProfile } = useQuery<CredentialProfile>({
     queryKey: ['/api/credential-profiles', device.credentialProfileId],
@@ -642,6 +661,53 @@ export function DevicePropertiesPanel({
                     </div>
                   ))}
                 </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <MapIcon className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm">Map Link</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Link this device to another map. A link icon will appear on the device in the canvas.
+              </p>
+              <Select
+                value={device.linkedMapId || "none"}
+                onValueChange={(value) => {
+                  if (canModify) {
+                    updateLinkedMapMutation.mutate(value === "none" ? null : value);
+                  }
+                }}
+                disabled={!canModify}
+              >
+                <SelectTrigger data-testid="select-linked-map">
+                  <SelectValue placeholder="No map linked" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No map linked</SelectItem>
+                  {maps.map((map) => (
+                    <SelectItem key={map.id} value={map.id}>
+                      {map.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {device.linkedMapId && onNavigateToMap && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-2"
+                  onClick={() => onNavigateToMap(device.linkedMapId!)}
+                  data-testid="button-go-to-linked-map"
+                >
+                  <LinkIcon className="h-3 w-3" />
+                  Go to {maps.find(m => m.id === device.linkedMapId)?.name || 'Linked Map'}
+                </Button>
               )}
             </CardContent>
           </Card>
