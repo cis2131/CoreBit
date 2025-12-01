@@ -38,29 +38,29 @@ export function DeviceStatusInfo({ devices = [], maps, onDeviceSelect }: DeviceS
           <span className="text-foreground">{onlineDevices}</span>
         </div>
         
-        {staleDevices.length > 0 && (
-          <>
-            <span className="text-muted-foreground">/</span>
-            <div className="flex items-center gap-1 text-orange-500">
-              <Clock className="h-4 w-4" />
-              <span>{staleDevices.length}</span>
-            </div>
-          </>
-        )}
-        
-        <span className="text-muted-foreground">/</span>
-        
         {problemDevices.length > 0 ? (
           <DropdownMenu open={showDownDevices} onOpenChange={setShowDownDevices}>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-auto p-0 gap-1 text-destructive hover:text-destructive"
-                data-testid="button-down-devices"
+                className="h-auto p-0 gap-2 hover:bg-transparent"
+                data-testid="button-problem-devices"
               >
-                <AlertCircle className="h-4 w-4" />
-                <span>{offlineDevices.length}</span>
+                {staleDevices.length > 0 && (
+                  <>
+                    <span className="text-muted-foreground">/</span>
+                    <div className="flex items-center gap-1 text-orange-500">
+                      <Clock className="h-4 w-4" />
+                      <span>{staleDevices.length}</span>
+                    </div>
+                  </>
+                )}
+                <span className="text-muted-foreground">/</span>
+                <div className="flex items-center gap-1 text-destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>{offlineDevices.length}</span>
+                </div>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
@@ -124,9 +124,12 @@ export function DeviceStatusInfo({ devices = [], maps, onDeviceSelect }: DeviceS
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
-          <div className="flex items-center gap-1 text-foreground">
-            <CheckCircle2 className="h-4 w-4 text-green-500" />
-            <span>0</span>
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">/</span>
+            <div className="flex items-center gap-1 text-green-500">
+              <AlertCircle className="h-4 w-4" />
+              <span>0</span>
+            </div>
           </div>
         )}
       </div>
