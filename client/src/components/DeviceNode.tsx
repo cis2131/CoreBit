@@ -1,5 +1,5 @@
 import { Device } from '@shared/schema';
-import { Server, Router, Wifi, HardDrive, Activity, Cpu, MemoryStick, Clock } from 'lucide-react';
+import { Server, Router, Wifi, HardDrive, Activity, Cpu, MemoryStick, Clock, ExternalLink } from 'lucide-react';
 
 interface DeviceNodeProps {
   device: Device & { position: { x: number; y: number } };
@@ -7,6 +7,7 @@ interface DeviceNodeProps {
   isHighlighted: boolean;
   onClick: () => void;
   onDragStart: (e: React.MouseEvent) => void;
+  onMapLinkClick?: (mapId: string) => void;
 }
 
 const deviceIcons = {
@@ -59,7 +60,7 @@ function parseUptime(uptime: string | undefined): { value: number; unit: string 
   return { value: 0, unit: 'h' };
 }
 
-export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragStart }: DeviceNodeProps) {
+export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragStart, onMapLinkClick }: DeviceNodeProps) {
   const Icon = deviceIcons[device.type as keyof typeof deviceIcons] || Activity;
 
   // Calculate port status counts
@@ -108,6 +109,22 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
           }`}
           data-testid={`status-indicator-${device.status}`}
         />
+
+        {/* Map link icon - shows when device has a linked map */}
+        {device.linkedMapId && onMapLinkClick && (
+          <button
+            className="absolute top-2 right-8 p-1 rounded hover:bg-accent transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              onMapLinkClick(device.linkedMapId!);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            title="Go to linked map"
+            data-testid={`button-map-link-${device.id}`}
+          >
+            <ExternalLink className="h-4 w-4 text-primary" />
+          </button>
+        )}
 
         {/* Main content */}
         <div className="p-3">
