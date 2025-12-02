@@ -4,6 +4,7 @@ dotenv.config();
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { mapSyncServer } from "./wsServer";
 
 const app = express();
 
@@ -69,6 +70,9 @@ app.use((req, res, next) => {
   } else {
     serveStatic(app);
   }
+
+  // Initialize WebSocket server for real-time map synchronization
+  mapSyncServer.initialize(server);
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.

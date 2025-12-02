@@ -19,6 +19,7 @@ import {
   getUserSafeData,
   type AuthenticatedRequest 
 } from "./auth";
+import { mapSyncServer } from "./wsServer";
 
 const BACKUP_DIR = path.join(process.cwd(), "backups");
 
@@ -580,7 +581,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/placements", canModify as any, async (req, res) => {
+  app.post("/api/placements", canModify as any, async (req: AuthenticatedRequest, res) => {
     try {
       const data = insertDevicePlacementSchema.parse(req.body);
       
@@ -592,6 +593,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const placement = await storage.createPlacement(data);
+      
+      // Broadcast change to other users viewing this map
+      mapSyncServer.broadcastMapChange(data.mapId, 'placement', 'create', req.user?.id);
+      
       res.status(201).json(placement);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -602,13 +607,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/placements/:id", canModify as any, async (req, res) => {
+  app.patch("/api/placements/:id", canModify as any, async (req: AuthenticatedRequest, res) => {
     try {
       const data = insertDevicePlacementSchema.partial().parse(req.body);
+      
+      // Get the placement first to know which map to broadcast to
+      const existingPlacement = await storage.getPlacement(req.params.id);
+      if (!existingPlacement) {
+        return res.status(404).json({ error: 'Placement not found' });
+      }
+      
       const placement = await storage.updatePlacement(req.params.id, data);
       if (!placement) {
         return res.status(404).json({ error: 'Placement not found' });
       }
+      
+      // Broadcast change to other users viewing this map
+      mapSyncServer.broadcastMapChange(existingPlacement.mapId, 'placement', 'update', req.user?.id);
+      
+      // If mapId changed (placement moved to different map), also broadcast to the new map
+      if (data.mapId && data.mapId !== existingPlacement.mapId) {
+        mapSyncServer.broadcastMapChange(data.mapId, 'placement', 'create', req.user?.id);
+      }
+      
       res.json(placement);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -619,7 +640,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/placements/:id", canModify as any, async (req, res) => {
+  app.delete("/api/placements/:id", canModify as any, async (req: AuthenticatedRequest, res) => {
     try {
       // Get placement to find deviceId and mapId
       const placement = await storage.getPlacement(req.params.id);
@@ -641,6 +662,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Delete the placement
       await storage.deletePlacement(req.params.id);
+      
+      // Broadcast change to other users viewing this map
+      mapSyncServer.broadcastMapChange(placement.mapId, 'placement', 'delete', req.user?.id);
+      
       res.status(204).send();
     } catch (error) {
       console.error('Error deleting placement:', error);
@@ -729,7 +754,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/connections", canModify as any, async (req, res) => {
+  app.post("/api/connections", canModify as any, async (req: AuthenticatedRequest, res) => {
     try {
       const data = insertConnectionSchema.parse(req.body);
       
@@ -751,6 +776,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const connection = await storage.createConnection(data);
+      
+      // Broadcast change to other users viewing this map
+      mapSyncServer.broadcastMapChange(data.mapId, 'connection', 'create', req.user?.id);
+      
       res.status(201).json(connection);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -761,7 +790,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/connections/:id", canModify as any, async (req, res) => {
+  app.patch("/api/connections/:id", canModify as any, async (req: AuthenticatedRequest, res) => {
     try {
       const data = insertConnectionSchema.partial().parse(req.body);
       
@@ -787,6 +816,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const connection = await storage.updateConnection(req.params.id, data);
+      
+      // Broadcast change to other users viewing this map
+      mapSyncServer.broadcastMapChange(existingConn.mapId, 'connection', 'update', req.user?.id);
+      
       res.json(connection);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -797,12 +830,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/connections/:id", canModify as any, async (req, res) => {
+  app.delete("/api/connections/:id", canModify as any, async (req: AuthenticatedRequest, res) => {
     try {
       const connectionId = req.params.id;
+      
+      // Get the connection first to know which map to broadcast to
+      const connection = await storage.getConnection(connectionId);
+      
       await storage.deleteConnection(connectionId);
       // Clean up traffic history for this connection
       trafficHistory.delete(connectionId);
+      
+      // Broadcast change to other users viewing this map
+      if (connection) {
+        mapSyncServer.broadcastMapChange(connection.mapId, 'connection', 'delete', req.user?.id);
+      }
+      
       res.status(204).send();
     } catch (error) {
       console.error('Error deleting connection:', error);

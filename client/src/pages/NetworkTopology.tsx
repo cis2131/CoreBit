@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Map, Device, DevicePlacement, Connection, InsertDevice, InsertDevicePlacement, InsertConnection } from '@shared/schema';
 import { NetworkCanvas } from '@/components/NetworkCanvas';
@@ -15,6 +15,8 @@ import { Label } from '@/components/ui/label';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { useMapSync } from '@/hooks/useMapSync';
+import { RefreshCw, Users } from 'lucide-react';
 
 export default function NetworkTopology() {
   const [currentMapId, setCurrentMapId] = useState<string | null>(null);
@@ -37,7 +39,33 @@ export default function NetworkTopology() {
   const [editMapIsDefault, setEditMapIsDefault] = useState(false);
   const [focusDeviceId, setFocusDeviceId] = useState<string | null>(null);
   const { toast } = useToast();
-  const { canModify } = useAuth();
+  const { canModify, user } = useAuth();
+
+  // Real-time map sync - detect changes made by other users
+  const handleRemoteChange = useCallback(() => {
+    // Show toast notification when remote changes are detected
+    toast({
+      title: 'Map updated',
+      description: 'Another user made changes to this map.',
+    });
+  }, [toast]);
+
+  const { hasRemoteChanges, clearRemoteChanges, isConnected: isSyncConnected } = useMapSync({
+    mapId: currentMapId,
+    userId: user?.id,
+    onRemoteChange: handleRemoteChange,
+  });
+
+  // Handle refresh button click - refetch data and clear indicator
+  const handleRefreshMap = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['/api/placements', currentMapId] });
+    queryClient.invalidateQueries({ queryKey: ['/api/connections', currentMapId] });
+    clearRemoteChanges();
+    toast({
+      title: 'Map refreshed',
+      description: 'Latest changes have been loaded.',
+    });
+  }, [currentMapId, clearRemoteChanges, toast]);
 
   const { data: maps = [] } = useQuery<Map[]>({
     queryKey: ['/api/maps'],
@@ -489,6 +517,26 @@ export default function NetworkTopology() {
         onAddDevice={handleAddDevice}
         onDeviceStatusSelect={handleDeviceStatusSelect}
       />
+
+      {/* Remote changes banner */}
+      {hasRemoteChanges && (
+        <div className="bg-blue-50 dark:bg-blue-900/30 border-b border-blue-200 dark:border-blue-800 px-4 py-2 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
+            <Users className="h-4 w-4" />
+            <span>Another user made changes to this map</span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleRefreshMap}
+            className="bg-white dark:bg-gray-800"
+            data-testid="button-refresh-map"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh Map
+          </Button>
+        </div>
+      )}
 
       <div className="flex-1 flex overflow-hidden">
         <DeviceListSidebar
