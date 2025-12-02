@@ -1,22 +1,51 @@
-import { useState, useEffect } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { Device, Connection, Map, type CredentialProfile, type Notification, type DeviceNotification } from '@shared/schema';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import { Progress } from '@/components/ui/progress';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { X, Trash2, Edit, RefreshCw, Key, Cpu, MemoryStick, Bell, Link as LinkIcon, Clock, AlertTriangle, Map as MapIcon } from 'lucide-react';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { apiRequest, queryClient } from '@/lib/queryClient';
-import { useToast } from '@/hooks/use-toast';
+import { useState, useEffect } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import {
+  Device,
+  Connection,
+  Map,
+  type CredentialProfile,
+  type Notification,
+  type DeviceNotification,
+} from "@shared/schema";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  X,
+  Trash2,
+  Edit,
+  RefreshCw,
+  Key,
+  Cpu,
+  MemoryStick,
+  Bell,
+  Link as LinkIcon,
+  Clock,
+  AlertTriangle,
+  Map as MapIcon,
+} from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface DevicePropertiesPanelProps {
-  device: Device & { placementId?: string; position?: { x: number; y: number } };
+  device: Device & {
+    placementId?: string;
+    position?: { x: number; y: number };
+  };
   connections?: Connection[];
   allDevices?: Device[];
   onClose: () => void;
@@ -29,11 +58,11 @@ interface DevicePropertiesPanelProps {
 }
 
 const statusLabels = {
-  online: { label: 'Online', color: 'bg-green-500' },
-  warning: { label: 'Warning', color: 'bg-yellow-500' },
-  stale: { label: 'Stale', color: 'bg-orange-500' },
-  offline: { label: 'Offline', color: 'bg-red-500' },
-  unknown: { label: 'Unknown', color: 'bg-gray-400' },
+  online: { label: "Online", color: "bg-green-500" },
+  warning: { label: "Warning", color: "bg-yellow-500" },
+  stale: { label: "Stale", color: "bg-orange-500" },
+  offline: { label: "Offline", color: "bg-red-500" },
+  unknown: { label: "Unknown", color: "bg-gray-400" },
 };
 
 function formatLastSeen(date: Date): string {
@@ -47,89 +76,109 @@ function formatLastSeen(date: Date): string {
   if (diffSecs < 60) {
     return `${diffSecs} seconds ago`;
   } else if (diffMins < 60) {
-    return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+    return `${diffMins} minute${diffMins !== 1 ? "s" : ""} ago`;
   } else if (diffHours < 24) {
-    return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+    return `${diffHours} hour${diffHours !== 1 ? "s" : ""} ago`;
   } else if (diffDays < 7) {
-    return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+    return `${diffDays} day${diffDays !== 1 ? "s" : ""} ago`;
   } else {
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    return date.toLocaleDateString() + " " + date.toLocaleTimeString();
   }
 }
 
-export function DevicePropertiesPanel({ 
-  device, 
-  connections = [], 
-  allDevices = [], 
-  onClose, 
-  onDelete, 
-  onEdit, 
+export function DevicePropertiesPanel({
+  device,
+  connections = [],
+  allDevices = [],
+  onClose,
+  onDelete,
+  onEdit,
   onNavigateToDevice,
   onStartConnectionFromPort,
   onNavigateToMap,
-  canModify = true
+  canModify = true,
 }: DevicePropertiesPanelProps) {
   const { toast } = useToast();
   const [probing, setProbing] = useState(false);
-  const [timeoutValue, setTimeoutValue] = useState<string>(device.probeTimeout?.toString() ?? '');
-  const [thresholdValue, setThresholdValue] = useState<string>(device.offlineThreshold?.toString() ?? '');
-  const status = statusLabels[device.status as keyof typeof statusLabels] || statusLabels.unknown;
+  const [timeoutValue, setTimeoutValue] = useState<string>(
+    device.probeTimeout?.toString() ?? "",
+  );
+  const [thresholdValue, setThresholdValue] = useState<string>(
+    device.offlineThreshold?.toString() ?? "",
+  );
+  const status =
+    statusLabels[device.status as keyof typeof statusLabels] ||
+    statusLabels.unknown;
 
   useEffect(() => {
-    setTimeoutValue(device.probeTimeout?.toString() ?? '');
-    setThresholdValue(device.offlineThreshold?.toString() ?? '');
+    setTimeoutValue(device.probeTimeout?.toString() ?? "");
+    setThresholdValue(device.offlineThreshold?.toString() ?? "");
   }, [device.id, device.probeTimeout, device.offlineThreshold]);
 
   const { data: maps = [] } = useQuery<Map[]>({
-    queryKey: ['/api/maps'],
+    queryKey: ["/api/maps"],
   });
 
   const updateLinkedMapMutation = useMutation({
     mutationFn: async (linkedMapId: string | null) =>
-      apiRequest('PATCH', `/api/devices/${device.id}`, { linkedMapId }),
+      apiRequest("PATCH", `/api/devices/${device.id}`, { linkedMapId }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/devices'] });
-      toast({ description: 'Map link updated' });
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      toast({ description: "Map link updated" });
     },
     onError: () => {
-      toast({ variant: 'destructive', description: 'Failed to update map link' });
+      toast({
+        variant: "destructive",
+        description: "Failed to update map link",
+      });
     },
   });
 
   const { data: credentialProfile } = useQuery<CredentialProfile>({
-    queryKey: ['/api/credential-profiles', device.credentialProfileId],
+    queryKey: ["/api/credential-profiles", device.credentialProfileId],
     queryFn: async () => {
       if (!device.credentialProfileId) return null;
-      const response = await fetch(`/api/credential-profiles/${device.credentialProfileId}`);
-      if (!response.ok) throw new Error('Failed to fetch credential profile');
+      const response = await fetch(
+        `/api/credential-profiles/${device.credentialProfileId}`,
+      );
+      if (!response.ok) throw new Error("Failed to fetch credential profile");
       return response.json();
     },
     enabled: !!device.credentialProfileId,
   });
 
-  const { data: defaultProbeTimeoutData } = useQuery<{ key: string; value: number }>({
-    queryKey: ['/api/settings', 'default_probe_timeout'],
+  const { data: defaultProbeTimeoutData } = useQuery<{
+    key: string;
+    value: number;
+  }>({
+    queryKey: ["/api/settings", "default_probe_timeout"],
     queryFn: async () => {
-      const response = await fetch('/api/settings/default_probe_timeout');
-      if (!response.ok) return { key: 'default_probe_timeout', value: 6 };
+      const response = await fetch("/api/settings/default_probe_timeout");
+      if (!response.ok) return { key: "default_probe_timeout", value: 6 };
       return response.json();
     },
   });
 
-  const { data: defaultOfflineThresholdData } = useQuery<{ key: string; value: number }>({
-    queryKey: ['/api/settings', 'default_offline_threshold'],
+  const { data: defaultOfflineThresholdData } = useQuery<{
+    key: string;
+    value: number;
+  }>({
+    queryKey: ["/api/settings", "default_offline_threshold"],
     queryFn: async () => {
-      const response = await fetch('/api/settings/default_offline_threshold');
-      if (!response.ok) return { key: 'default_offline_threshold', value: 1 };
+      const response = await fetch("/api/settings/default_offline_threshold");
+      if (!response.ok) return { key: "default_offline_threshold", value: 1 };
       return response.json();
     },
   });
 
-  const { data: pollingIntervalData } = useQuery<{ key: string; value: number }>({
-    queryKey: ['/api/settings', 'polling_interval'],
+  const { data: pollingIntervalData } = useQuery<{
+    key: string;
+    value: number;
+  }>({
+    queryKey: ["/api/settings", "polling_interval"],
     queryFn: async () => {
-      const response = await fetch('/api/settings/polling_interval');
-      if (!response.ok) return { key: 'polling_interval', value: 30 };
+      const response = await fetch("/api/settings/polling_interval");
+      if (!response.ok) return { key: "polling_interval", value: 30 };
       return response.json();
     },
   });
@@ -139,67 +188,89 @@ export function DevicePropertiesPanel({
   const pollingInterval = pollingIntervalData?.value || 30;
 
   // Calculate lastSeen staleness color based on polling interval
-  const getLastSeenColor = (lastSeenDate: Date): { color: string; label: string } => {
+  const getLastSeenColor = (
+    lastSeenDate: Date,
+  ): { color: string; label: string } => {
     const now = new Date();
     const diffMs = now.getTime() - lastSeenDate.getTime();
     const diffSecs = diffMs / 1000;
-    
+
     // Thresholds based on polling interval
-    const freshThreshold = pollingInterval * 1.5;  // Within 1.5x = fresh (green)
-    const staleThreshold = pollingInterval * 3;    // Within 3x = stale (orange)
+    const freshThreshold = pollingInterval * 1.5; // Within 1.5x = fresh (green)
+    const staleThreshold = pollingInterval * 3; // Within 3x = stale (orange)
     // Beyond 3x = very stale (red)
-    
+
     if (diffSecs <= freshThreshold) {
-      return { color: 'text-green-600 dark:text-green-400', label: 'Recent' };
+      return { color: "text-green-600 dark:text-green-400", label: "Recent" };
     } else if (diffSecs <= staleThreshold) {
-      return { color: 'text-orange-500 dark:text-orange-400', label: 'Stale' };
+      return { color: "text-orange-500 dark:text-orange-400", label: "Stale" };
     } else {
-      return { color: 'text-red-500 dark:text-red-400', label: 'Very stale' };
+      return { color: "text-red-500 dark:text-red-400", label: "Very stale" };
     }
   };
 
   const { data: notifications = [] } = useQuery<Notification[]>({
-    queryKey: ['/api/notifications'],
+    queryKey: ["/api/notifications"],
   });
 
   const { data: deviceNotifications = [] } = useQuery<DeviceNotification[]>({
-    queryKey: ['/api/devices', device.id, 'notifications'],
+    queryKey: ["/api/devices", device.id, "notifications"],
     queryFn: async () => {
       const response = await fetch(`/api/devices/${device.id}/notifications`);
-      if (!response.ok) throw new Error('Failed to fetch device notifications');
+      if (!response.ok) throw new Error("Failed to fetch device notifications");
       return response.json();
     },
   });
 
   const addNotificationMutation = useMutation({
     mutationFn: async (notificationId: string) =>
-      apiRequest('POST', `/api/devices/${device.id}/notifications`, { notificationId }),
+      apiRequest("POST", `/api/devices/${device.id}/notifications`, {
+        notificationId,
+      }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/devices', device.id, 'notifications'] });
-      toast({ description: 'Notification enabled for device' });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/devices", device.id, "notifications"],
+      });
+      toast({ description: "Notification enabled for device" });
     },
     onError: () => {
-      toast({ variant: 'destructive', description: 'Failed to enable notification' });
+      toast({
+        variant: "destructive",
+        description: "Failed to enable notification",
+      });
     },
   });
 
   const removeNotificationMutation = useMutation({
     mutationFn: async (notificationId: string) =>
-      apiRequest('DELETE', `/api/devices/${device.id}/notifications/${notificationId}`),
+      apiRequest(
+        "DELETE",
+        `/api/devices/${device.id}/notifications/${notificationId}`,
+      ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/devices', device.id, 'notifications'] });
-      toast({ description: 'Notification disabled for device' });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/devices", device.id, "notifications"],
+      });
+      toast({ description: "Notification disabled for device" });
     },
     onError: () => {
-      toast({ variant: 'destructive', description: 'Failed to disable notification' });
+      toast({
+        variant: "destructive",
+        description: "Failed to disable notification",
+      });
     },
   });
 
   const isNotificationEnabled = (notificationId: string) => {
-    return deviceNotifications.some(dn => dn.notificationId === notificationId);
+    return deviceNotifications.some(
+      (dn) => dn.notificationId === notificationId,
+    );
   };
 
-  const handleNotificationToggle = (notificationId: string, enabled: boolean) => {
+  const handleNotificationToggle = (
+    notificationId: string,
+    enabled: boolean,
+  ) => {
     if (enabled) {
       addNotificationMutation.mutate(notificationId);
     } else {
@@ -209,63 +280,83 @@ export function DevicePropertiesPanel({
 
   const updateTimeoutMutation = useMutation({
     mutationFn: async (timeout: number | null) =>
-      apiRequest('PATCH', `/api/devices/${device.id}`, { probeTimeout: timeout }),
+      apiRequest("PATCH", `/api/devices/${device.id}`, {
+        probeTimeout: timeout,
+      }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/devices'] });
-      toast({ description: 'Probe timeout updated' });
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      toast({ description: "Probe timeout updated" });
     },
     onError: () => {
-      toast({ variant: 'destructive', description: 'Failed to update timeout' });
+      toast({
+        variant: "destructive",
+        description: "Failed to update timeout",
+      });
     },
   });
 
   const handleTimeoutBlur = () => {
     const parsed = parseInt(timeoutValue, 10);
-    if (timeoutValue === '' || isNaN(parsed)) {
+    if (timeoutValue === "" || isNaN(parsed)) {
       updateTimeoutMutation.mutate(null);
     } else if (parsed >= 1 && parsed <= 120) {
       updateTimeoutMutation.mutate(parsed);
     } else {
-      setTimeoutValue(device.probeTimeout?.toString() ?? '');
-      toast({ variant: 'destructive', description: 'Timeout must be between 1 and 120 seconds' });
+      setTimeoutValue(device.probeTimeout?.toString() ?? "");
+      toast({
+        variant: "destructive",
+        description: "Timeout must be between 1 and 120 seconds",
+      });
     }
   };
 
   const updateThresholdMutation = useMutation({
     mutationFn: async (threshold: number | null) =>
-      apiRequest('PATCH', `/api/devices/${device.id}`, { offlineThreshold: threshold }),
+      apiRequest("PATCH", `/api/devices/${device.id}`, {
+        offlineThreshold: threshold,
+      }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/devices'] });
-      toast({ description: 'Offline threshold updated' });
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      toast({ description: "Offline threshold updated" });
     },
     onError: () => {
-      toast({ variant: 'destructive', description: 'Failed to update threshold' });
+      toast({
+        variant: "destructive",
+        description: "Failed to update threshold",
+      });
     },
   });
 
   const handleThresholdBlur = () => {
     const parsed = parseInt(thresholdValue, 10);
-    if (thresholdValue === '' || isNaN(parsed)) {
+    if (thresholdValue === "" || isNaN(parsed)) {
       updateThresholdMutation.mutate(null);
     } else if (parsed >= 1 && parsed <= 10) {
       updateThresholdMutation.mutate(parsed);
     } else {
-      setThresholdValue(device.offlineThreshold?.toString() ?? '');
-      toast({ variant: 'destructive', description: 'Threshold must be between 1 and 10 cycles' });
+      setThresholdValue(device.offlineThreshold?.toString() ?? "");
+      toast({
+        variant: "destructive",
+        description: "Threshold must be between 1 and 10 cycles",
+      });
     }
   };
 
   const handleProbeNow = async () => {
     setProbing(true);
     try {
-      await apiRequest('POST', `/api/devices/${device.id}/probe`, {});
-      queryClient.invalidateQueries({ queryKey: ['/api/devices'] });
-      toast({ title: 'Device probed', description: 'Device information has been updated.' });
+      await apiRequest("POST", `/api/devices/${device.id}/probe`, {});
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      toast({
+        title: "Device probed",
+        description: "Device information has been updated.",
+      });
     } catch (error) {
       toast({
-        title: 'Probe failed',
-        description: 'Could not connect to device. Check credentials and IP address.',
-        variant: 'destructive',
+        title: "Probe failed",
+        description:
+          "Could not connect to device. Check credentials and IP address.",
+        variant: "destructive",
       });
     } finally {
       setProbing(false);
@@ -275,7 +366,9 @@ export function DevicePropertiesPanel({
   return (
     <div className="h-full w-80 bg-background border-l border-border flex flex-col">
       <div className="p-4 border-b border-border flex items-center justify-between">
-        <h2 className="text-base font-semibold text-foreground">Device Properties</h2>
+        <h2 className="text-base font-semibold text-foreground">
+          Device Properties
+        </h2>
         <Button
           size="icon"
           variant="ghost"
@@ -295,20 +388,30 @@ export function DevicePropertiesPanel({
             <CardContent className="space-y-3 text-sm">
               <div>
                 <p className="text-muted-foreground text-xs">Name</p>
-                <p className="font-medium text-foreground" data-testid="text-property-name">
+                <p
+                  className="font-medium text-foreground"
+                  data-testid="text-property-name"
+                >
                   {device.name}
                 </p>
               </div>
               <div>
                 <p className="text-muted-foreground text-xs">Type</p>
-                <Badge variant="secondary" className="mt-1" data-testid="badge-property-type">
-                  {device.type.replace(/_/g, ' ')}
+                <Badge
+                  variant="secondary"
+                  className="mt-1"
+                  data-testid="badge-property-type"
+                >
+                  {device.type.replace(/_/g, " ")}
                 </Badge>
               </div>
               {device.ipAddress && (
                 <div>
                   <p className="text-muted-foreground text-xs">IP Address</p>
-                  <p className="font-medium font-mono text-foreground" data-testid="text-property-ip">
+                  <p
+                    className="font-medium font-mono text-foreground"
+                    data-testid="text-property-ip"
+                  >
                     {device.ipAddress}
                   </p>
                 </div>
@@ -317,7 +420,10 @@ export function DevicePropertiesPanel({
                 <p className="text-muted-foreground text-xs">Status</p>
                 <div className="flex items-center gap-2 mt-1">
                   <div className={`w-2 h-2 rounded-full ${status.color}`} />
-                  <span className="font-medium text-foreground" data-testid="text-property-status">
+                  <span
+                    className="font-medium text-foreground"
+                    data-testid="text-property-status"
+                  >
                     {status.label}
                   </span>
                 </div>
@@ -329,7 +435,10 @@ export function DevicePropertiesPanel({
                     const lastSeenDate = new Date(device.lastSeen);
                     const { color } = getLastSeenColor(lastSeenDate);
                     return (
-                      <p className={`font-medium ${color}`} data-testid="text-property-last-seen">
+                      <p
+                        className={`font-medium ${color}`}
+                        data-testid="text-property-last-seen"
+                      >
                         {formatLastSeen(lastSeenDate)}
                       </p>
                     );
@@ -339,6 +448,59 @@ export function DevicePropertiesPanel({
             </CardContent>
           </Card>
 
+          {device.deviceData?.cpuUsagePct !== undefined &&
+            device.deviceData?.memoryUsagePct !== undefined && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm">System Vitals</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <Cpu className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-foreground font-medium">
+                          CPU Usage
+                        </span>
+                      </div>
+                      <span
+                        className="font-mono font-semibold text-foreground"
+                        data-testid="text-cpu-usage"
+                      >
+                        {device.deviceData.cpuUsagePct}%
+                      </span>
+                    </div>
+                    <Progress
+                      value={device.deviceData.cpuUsagePct}
+                      className="h-2"
+                      data-testid="progress-cpu"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <MemoryStick className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-foreground font-medium">
+                          Memory Usage
+                        </span>
+                      </div>
+                      <span
+                        className="font-mono font-semibold text-foreground"
+                        data-testid="text-memory-usage"
+                      >
+                        {device.deviceData.memoryUsagePct}%
+                      </span>
+                    </div>
+                    <Progress
+                      value={device.deviceData.memoryUsagePct}
+                      className="h-2"
+                      data-testid="progress-memory"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
           {device.deviceData && (
             <Card>
               <CardHeader className="pb-3">
@@ -347,26 +509,36 @@ export function DevicePropertiesPanel({
               <CardContent className="space-y-3 text-sm">
                 {device.deviceData.systemIdentity && (
                   <div>
-                    <p className="text-muted-foreground text-xs">System Identity</p>
-                    <p className="font-medium text-foreground">{device.deviceData.systemIdentity}</p>
+                    <p className="text-muted-foreground text-xs">
+                      System Identity
+                    </p>
+                    <p className="font-medium text-foreground">
+                      {device.deviceData.systemIdentity}
+                    </p>
                   </div>
                 )}
                 {device.deviceData.model && (
                   <div>
                     <p className="text-muted-foreground text-xs">Model</p>
-                    <p className="font-medium text-foreground">{device.deviceData.model}</p>
+                    <p className="font-medium text-foreground">
+                      {device.deviceData.model}
+                    </p>
                   </div>
                 )}
                 {device.deviceData.version && (
                   <div>
                     <p className="text-muted-foreground text-xs">Version</p>
-                    <p className="font-medium text-foreground">{device.deviceData.version}</p>
+                    <p className="font-medium text-foreground">
+                      {device.deviceData.version}
+                    </p>
                   </div>
                 )}
                 {device.deviceData.uptime && (
                   <div>
                     <p className="text-muted-foreground text-xs">Uptime</p>
-                    <p className="font-medium text-foreground">{device.deviceData.uptime}</p>
+                    <p className="font-medium text-foreground">
+                      {device.deviceData.uptime}
+                    </p>
                   </div>
                 )}
               </CardContent>
@@ -383,68 +555,90 @@ export function DevicePropertiesPanel({
                   {device.deviceData.ports.map((port, idx) => {
                     // Use defaultName (or name as fallback) for new connections
                     const portIdentifier = port.defaultName || port.name;
-                    
+
                     // Find connection for this port with backward compatibility
                     // Match against BOTH defaultName and name to handle:
                     // 1. New connections (use defaultName)
                     // 2. Legacy connections (use old name that might have been renamed)
                     // 3. Mikrotik renames (connection stored with defaultName still works)
-                    const connection = connections.find(
-                      conn => {
-                        // Check if this port is the source
-                        if (conn.sourceDeviceId === device.id) {
-                          // Match if connection identifier matches either defaultName OR current name
-                          return conn.sourcePort === port.defaultName || 
-                                 conn.sourcePort === port.name;
-                        }
-                        // Check if this port is the target
-                        if (conn.targetDeviceId === device.id) {
-                          // Match if connection identifier matches either defaultName OR current name
-                          return conn.targetPort === port.defaultName || 
-                                 conn.targetPort === port.name;
-                        }
-                        return false;
+                    const connection = connections.find((conn) => {
+                      // Check if this port is the source
+                      if (conn.sourceDeviceId === device.id) {
+                        // Match if connection identifier matches either defaultName OR current name
+                        return (
+                          conn.sourcePort === port.defaultName ||
+                          conn.sourcePort === port.name
+                        );
                       }
-                    );
-                    
+                      // Check if this port is the target
+                      if (conn.targetDeviceId === device.id) {
+                        // Match if connection identifier matches either defaultName OR current name
+                        return (
+                          conn.targetPort === port.defaultName ||
+                          conn.targetPort === port.name
+                        );
+                      }
+                      return false;
+                    });
+
                     // Find connected device and port
                     let connectedDevice: Device | undefined;
                     let connectedPortIdentifier: string | undefined;
                     let connectedPortName: string | undefined;
                     if (connection) {
-                      const isSourcePort = connection.sourceDeviceId === device.id;
-                      const connectedDeviceId = isSourcePort 
-                        ? connection.targetDeviceId 
+                      const isSourcePort =
+                        connection.sourceDeviceId === device.id;
+                      const connectedDeviceId = isSourcePort
+                        ? connection.targetDeviceId
                         : connection.sourceDeviceId;
-                      connectedDevice = allDevices.find(d => d.id === connectedDeviceId);
-                      connectedPortIdentifier = (isSourcePort ? connection.targetPort : connection.sourcePort) || undefined;
-                      
+                      connectedDevice = allDevices.find(
+                        (d) => d.id === connectedDeviceId,
+                      );
+                      connectedPortIdentifier =
+                        (isSourcePort
+                          ? connection.targetPort
+                          : connection.sourcePort) || undefined;
+
                       // Find the user-friendly name of the connected port with backward compatibility
                       if (connectedDevice && connectedPortIdentifier) {
                         // Try to find port by defaultName first, then fall back to name
-                        const connectedPort = connectedDevice.deviceData?.ports?.find(
-                          p => (p.defaultName || p.name) === connectedPortIdentifier || p.name === connectedPortIdentifier
-                        );
-                        connectedPortName = connectedPort?.name || connectedPortIdentifier;
+                        const connectedPort =
+                          connectedDevice.deviceData?.ports?.find(
+                            (p) =>
+                              (p.defaultName || p.name) ===
+                                connectedPortIdentifier ||
+                              p.name === connectedPortIdentifier,
+                          );
+                        connectedPortName =
+                          connectedPort?.name || connectedPortIdentifier;
                       }
                     }
-                    
+
                     return (
                       <div key={idx} className="flex flex-col gap-1 text-sm">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2 flex-1 min-w-0">
                             <div
                               className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                                device.status === 'online' && port.status === 'up' ? 'bg-green-500' : 'bg-gray-400'
+                                device.status === "online" &&
+                                port.status === "up"
+                                  ? "bg-green-500"
+                                  : "bg-gray-400"
                               }`}
                             />
-                            <span className="font-medium text-foreground">{port.name}</span>
-                            {connection && connectedDevice && onNavigateToDevice ? (
+                            <span className="font-medium text-foreground">
+                              {port.name}
+                            </span>
+                            {connection &&
+                            connectedDevice &&
+                            onNavigateToDevice ? (
                               <Button
                                 size="icon"
                                 variant="ghost"
                                 className="h-5 w-5 flex-shrink-0"
-                                onClick={() => onNavigateToDevice(connectedDevice.id)}
+                                onClick={() =>
+                                  onNavigateToDevice(connectedDevice.id)
+                                }
                                 title={`Connected to ${connectedDevice.name}`}
                                 data-testid={`button-navigate-connection-${port.name}`}
                               >
@@ -456,7 +650,12 @@ export function DevicePropertiesPanel({
                                   size="icon"
                                   variant="ghost"
                                   className="h-5 w-5 flex-shrink-0"
-                                  onClick={() => onStartConnectionFromPort(device.id, portIdentifier)}
+                                  onClick={() =>
+                                    onStartConnectionFromPort(
+                                      device.id,
+                                      portIdentifier,
+                                    )
+                                  }
                                   title="Create connection from this port"
                                   data-testid={`button-start-connection-${port.name}`}
                                 >
@@ -466,64 +665,30 @@ export function DevicePropertiesPanel({
                             )}
                           </div>
                           {port.speed && (
-                            <Badge variant="outline" className="text-xs flex-shrink-0">
+                            <Badge
+                              variant="outline"
+                              className="text-xs flex-shrink-0"
+                            >
                               {port.speed}
                             </Badge>
                           )}
                         </div>
                         {port.description && (
-                          <p className="text-xs text-muted-foreground ml-5">{port.description}</p>
+                          <p className="text-xs text-muted-foreground ml-5">
+                            {port.description}
+                          </p>
                         )}
                         {connection && connectedDevice && connectedPortName && (
-                          <p className="text-xs text-primary ml-5" data-testid={`text-connected-to-${port.name}`}>
+                          <p
+                            className="text-xs text-primary ml-5"
+                            data-testid={`text-connected-to-${port.name}`}
+                          >
                             → {connectedDevice.name} ({connectedPortName})
                           </p>
                         )}
                       </div>
                     );
                   })}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {device.deviceData?.cpuUsagePct !== undefined && device.deviceData?.memoryUsagePct !== undefined && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">System Vitals</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                      <Cpu className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-foreground font-medium">CPU Usage</span>
-                    </div>
-                    <span className="font-mono font-semibold text-foreground" data-testid="text-cpu-usage">
-                      {device.deviceData.cpuUsagePct}%
-                    </span>
-                  </div>
-                  <Progress 
-                    value={device.deviceData.cpuUsagePct} 
-                    className="h-2"
-                    data-testid="progress-cpu"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                      <MemoryStick className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-foreground font-medium">Memory Usage</span>
-                    </div>
-                    <span className="font-mono font-semibold text-foreground" data-testid="text-memory-usage">
-                      {device.deviceData.memoryUsagePct}%
-                    </span>
-                  </div>
-                  <Progress 
-                    value={device.deviceData.memoryUsagePct} 
-                    className="h-2"
-                    data-testid="progress-memory"
-                  />
                 </div>
               </CardContent>
             </Card>
@@ -539,28 +704,38 @@ export function DevicePropertiesPanel({
             <CardContent className="space-y-4">
               {device.credentialProfileId && credentialProfile ? (
                 <div className="space-y-1">
-                  <div className="text-sm text-foreground font-medium">{credentialProfile.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {credentialProfile.type === 'mikrotik' ? 'Mikrotik Device' : 'SNMP Device'}
+                  <div className="text-sm text-foreground font-medium">
+                    {credentialProfile.name}
                   </div>
-                  <Badge variant="outline" className="text-xs mt-2">Profile</Badge>
+                  <div className="text-xs text-muted-foreground">
+                    {credentialProfile.type === "mikrotik"
+                      ? "Mikrotik Device"
+                      : "SNMP Device"}
+                  </div>
+                  <Badge variant="outline" className="text-xs mt-2">
+                    Profile
+                  </Badge>
                 </div>
               ) : device.customCredentials ? (
                 <div className="space-y-1">
-                  <div className="text-sm text-foreground font-medium">Custom Credentials</div>
+                  <div className="text-sm text-foreground font-medium">
+                    Custom Credentials
+                  </div>
                   <div className="text-xs text-muted-foreground">
                     Device-specific credentials configured
                   </div>
-                  <Badge variant="outline" className="text-xs mt-2">Custom</Badge>
+                  <Badge variant="outline" className="text-xs mt-2">
+                    Custom
+                  </Badge>
                 </div>
               ) : (
                 <div className="text-sm text-muted-foreground">
                   No credentials configured
                 </div>
               )}
-              
+
               <Separator />
-              
+
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4 text-muted-foreground" />
@@ -580,20 +755,25 @@ export function DevicePropertiesPanel({
                     disabled={!canModify}
                   />
                   <span className="text-sm text-muted-foreground">
-                    seconds {device.probeTimeout ? '(custom)' : `(global: ${globalDefaultTimeout}s)`}
+                    seconds{" "}
+                    {device.probeTimeout
+                      ? "(custom)"
+                      : `(global: ${globalDefaultTimeout}s)`}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Leave empty to use global default from Settings
                 </p>
               </div>
-              
+
               <Separator />
-              
+
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-                  <Label className="text-sm font-medium">Offline Threshold</Label>
+                  <Label className="text-sm font-medium">
+                    Offline Threshold
+                  </Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <Input
@@ -609,7 +789,10 @@ export function DevicePropertiesPanel({
                     disabled={!canModify}
                   />
                   <span className="text-sm text-muted-foreground">
-                    cycles {device.offlineThreshold ? '(custom)' : `(global: ${globalDefaultThreshold})`}
+                    cycles{" "}
+                    {device.offlineThreshold
+                      ? "(custom)"
+                      : `(global: ${globalDefaultThreshold})`}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -617,7 +800,8 @@ export function DevicePropertiesPanel({
                 </p>
                 {device.failureCount ? (
                   <p className="text-xs text-yellow-600">
-                    Current failures: {device.failureCount}/{device.offlineThreshold || globalDefaultThreshold}
+                    Current failures: {device.failureCount}/
+                    {device.offlineThreshold || globalDefaultThreshold}
                   </p>
                 ) : null}
               </div>
@@ -639,11 +823,20 @@ export function DevicePropertiesPanel({
               ) : (
                 <div className="space-y-3">
                   {notifications.map((notification) => (
-                    <div key={notification.id} className="flex items-start space-x-3" data-testid={`notification-checkbox-${notification.id}`}>
+                    <div
+                      key={notification.id}
+                      className="flex items-start space-x-3"
+                      data-testid={`notification-checkbox-${notification.id}`}
+                    >
                       <Checkbox
                         id={`notification-${notification.id}`}
                         checked={isNotificationEnabled(notification.id)}
-                        onCheckedChange={(checked) => handleNotificationToggle(notification.id, checked as boolean)}
+                        onCheckedChange={(checked) =>
+                          handleNotificationToggle(
+                            notification.id,
+                            checked as boolean,
+                          )
+                        }
                         disabled={!notification.enabled}
                         data-testid={`checkbox-notification-${notification.id}`}
                       />
@@ -655,7 +848,9 @@ export function DevicePropertiesPanel({
                           {notification.name}
                         </label>
                         {!notification.enabled && (
-                          <Badge variant="outline" className="text-xs">Disabled</Badge>
+                          <Badge variant="outline" className="text-xs">
+                            Disabled
+                          </Badge>
                         )}
                       </div>
                     </div>
@@ -674,13 +869,16 @@ export function DevicePropertiesPanel({
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-xs text-muted-foreground">
-                Link this device to another map. A link icon will appear on the device in the canvas.
+                Link this device to another map. A link icon will appear on the
+                device in the canvas.
               </p>
               <Select
                 value={device.linkedMapId || "none"}
                 onValueChange={(value) => {
                   if (canModify) {
-                    updateLinkedMapMutation.mutate(value === "none" ? null : value);
+                    updateLinkedMapMutation.mutate(
+                      value === "none" ? null : value,
+                    );
                   }
                 }}
                 disabled={!canModify}
@@ -706,7 +904,9 @@ export function DevicePropertiesPanel({
                   data-testid="button-go-to-linked-map"
                 >
                   <LinkIcon className="h-3 w-3" />
-                  Go to {maps.find(m => m.id === device.linkedMapId)?.name || 'Linked Map'}
+                  Go to{" "}
+                  {maps.find((m) => m.id === device.linkedMapId)?.name ||
+                    "Linked Map"}
                 </Button>
               )}
             </CardContent>
@@ -717,13 +917,13 @@ export function DevicePropertiesPanel({
               <p className="text-xs text-muted-foreground mb-2">Position</p>
               <div className="flex gap-4 text-sm">
                 <div>
-                  <span className="text-muted-foreground">X:</span>{' '}
+                  <span className="text-muted-foreground">X:</span>{" "}
                   <span className="font-mono font-medium text-foreground">
                     {Math.round(device.position.x)}
                   </span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Y:</span>{' '}
+                  <span className="text-muted-foreground">Y:</span>{" "}
                   <span className="font-mono font-medium text-foreground">
                     {Math.round(device.position.y)}
                   </span>
@@ -744,8 +944,8 @@ export function DevicePropertiesPanel({
           disabled={probing}
           data-testid="button-probe-device"
         >
-          <RefreshCw className={`h-4 w-4 ${probing ? 'animate-spin' : ''}`} />
-          {probing ? 'Probing...' : 'Probe Now'}
+          <RefreshCw className={`h-4 w-4 ${probing ? "animate-spin" : ""}`} />
+          {probing ? "Probing..." : "Probe Now"}
         </Button>
         {canModify && (
           <>
@@ -765,7 +965,7 @@ export function DevicePropertiesPanel({
               data-testid="button-delete-device"
             >
               <Trash2 className="h-4 w-4" />
-              Delete Device
+              Remove Device
             </Button>
           </>
         )}
