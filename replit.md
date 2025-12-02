@@ -39,9 +39,26 @@ The application is built with a client-server architecture.
 -   Drizzle ORM for type-safe database queries.
 -   Zod for runtime validation.
 
+## Deployment System
+
+The project includes a complete deployment system for production servers:
+
+-   **One-line Install:** `curl -fsSL https://your-server.com/dude/install.sh | sudo bash`
+-   **Kickstart Script:** `deploy/kickstart.sh` - Automated installer that handles:
+    -   Node.js and PostgreSQL installation
+    -   Database setup with secure credentials
+    -   Systemd service configuration
+    -   Environment file generation
+    -   Updates via `--update` flag
+-   **Build Script:** `deploy/build-release.sh` - Creates distributable zip/tar.gz packages
+-   **Systemd Service:** `deploy/dude-manager.service` - Production service file
+-   **Documentation:** `DEPLOYMENT.md` - Complete deployment guide
+
+**Snap-to-Grid:** Default ON (devices snap to 20px grid), hold Shift for free placement.
+
 ## External Dependencies
 
--   **Database:** PostgreSQL (hosted on Neon).
+-   **Database:** PostgreSQL (hosted on Neon for development, standard PostgreSQL for production).
 -   **Mikrotik API Integration:** Utilizes `node-routeros` for communication.
 -   **SNMP Integration:** Uses `net-snmp` for SNMP device probing and traffic monitoring.
 -   **Frontend Libraries:** React, Wouter, TanStack Query, Tailwind CSS, Shadcn UI.

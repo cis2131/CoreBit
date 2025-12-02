@@ -203,8 +203,21 @@ setup_postgresql() {
             ;;
     esac
     
-    # Generate random password
-    DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
+    # Check if we have existing credentials from backup
+    if [ -f "/tmp/dude-manager.env.backup" ]; then
+        # Extract existing password from backup
+        EXISTING_PW=$(grep "^PGPASSWORD=" /tmp/dude-manager.env.backup 2>/dev/null | cut -d'=' -f2)
+        if [ -n "$EXISTING_PW" ]; then
+            DB_PASSWORD="$EXISTING_PW"
+            log_info "Using existing database password from backup"
+        fi
+    fi
+    
+    # Generate new password only if we don't have one
+    if [ -z "$DB_PASSWORD" ]; then
+        DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
+        log_info "Generated new database password"
+    fi
     
     # Create database and user
     sudo -u postgres psql <<EOF
@@ -393,7 +406,7 @@ User=${SERVICE_USER}
 Group=${SERVICE_USER}
 WorkingDirectory=${INSTALL_DIR}
 EnvironmentFile=${INSTALL_DIR}/.env
-ExecStart=/usr/bin/node ${INSTALL_DIR}/dist/index.js
+ExecStart=/usr/bin/node ${INSTALL_DIR}/index.js
 Restart=always
 RestartSec=10
 StandardOutput=journal
