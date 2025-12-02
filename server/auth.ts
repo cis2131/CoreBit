@@ -51,7 +51,7 @@ export function setupSession(app: Express): void {
     resave: false,
     saveUninitialized: false,
     proxy: true,
-    name: 'thedude.sid',
+    name: 'corebit.sid',
     cookie: {
       secure: false,
       httpOnly: true,

@@ -2,7 +2,7 @@
 set -e
 
 #===============================================================================
-# The Dude Network Manager - Release Builder
+# CoreBit Network Manager - Release Builder
 # 
 # This script creates a distributable release package.
 # Run from the project root: ./deploy/build-release.sh
@@ -18,7 +18,7 @@ NC='\033[0m'
 
 # Get version from package.json or use date
 VERSION=${1:-$(date +%Y%m%d%H%M%S)}
-RELEASE_NAME="dude-manager-${VERSION}"
+RELEASE_NAME="corebit-${VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/dist/releases"
@@ -77,9 +77,9 @@ cp shared/schema.ts "$RELEASE_DIR/shared/" 2>/dev/null || true
 # Create production package.json
 cat > "$RELEASE_DIR/package.json" <<EOF
 {
-  "name": "dude-manager",
+  "name": "corebit",
   "version": "${VERSION}",
-  "description": "The Dude Network Manager - Modern network topology and monitoring",
+  "description": "CoreBit - Modern network topology and monitoring",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -156,9 +156,9 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-DOWNLOAD_URL="${DOWNLOAD_URL:-https://your-server.com/dude/releases/latest.zip}"
+DOWNLOAD_URL="${DOWNLOAD_URL:-https://your-server.com/corebit/releases/latest.zip}"
 
-echo -e "${BLUE}The Dude Network Manager - Quick Install${NC}"
+echo -e "${BLUE}CoreBit Network Manager - Quick Install${NC}"
 echo ""
 
 # Check root
@@ -176,7 +176,7 @@ wget -q "$DOWNLOAD_URL" -O release.zip
 
 echo "Extracting..."
 unzip -q release.zip
-cd dude-manager-*
+cd corebit-*
 
 echo "Running installer..."
 bash deploy/kickstart.sh --url "$(pwd)" "$@"
@@ -206,6 +206,6 @@ echo -e "  ${YELLOW}To distribute:${NC}"
 echo "    1. Upload files to your web server"
 echo "    2. Update DOWNLOAD_URL in install.sh"
 echo "    3. Users can install with:"
-echo "       curl -fsSL https://your-server.com/dude/install.sh | sudo bash"
+echo "       curl -fsSL https://your-server.com/corebit/install.sh | sudo bash"
 echo ""
 echo -e "${GREEN}======================================================${NC}"

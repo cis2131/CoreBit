@@ -1,22 +1,22 @@
 [Unit]
-Description=The Dude Network Manager
-Documentation=https://github.com/your-org/dude-manager
+Description=CoreBit Network Manager
+Documentation=https://github.com/your-org/corebit
 After=network.target postgresql.service
 Wants=postgresql.service
 
 [Service]
 Type=simple
-User=dude
-Group=dude
-WorkingDirectory=/opt/dude-manager
-EnvironmentFile=/opt/dude-manager/.env
-ExecStart=/usr/bin/node /opt/dude-manager/index.js
+User=corebit
+Group=corebit
+WorkingDirectory=/opt/corebit
+EnvironmentFile=/opt/corebit/.env
+ExecStart=/usr/bin/node /opt/corebit/index.js
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=dude-manager
+SyslogIdentifier=corebit
 
 # Graceful shutdown timeout
 TimeoutStopSec=30
@@ -25,7 +25,7 @@ TimeoutStopSec=30
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/dude-manager/data
+ReadWritePaths=/opt/corebit/data
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true

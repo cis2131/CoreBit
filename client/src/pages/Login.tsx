@@ -66,7 +66,7 @@ export default function Login() {
               <Network className="h-8 w-8 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-2xl" data-testid="text-login-title">The Dude</CardTitle>
+          <CardTitle className="text-2xl" data-testid="text-login-title">CoreBit</CardTitle>
           <CardDescription data-testid="text-login-description">
             Network Topology Manager
           </CardDescription>

@@ -2,13 +2,13 @@
 set -e
 
 #===============================================================================
-# The Dude Network Manager - Kickstart Installer
+# CoreBit Network Manager - Kickstart Installer
 # 
 # One-line install:
-#   curl -fsSL https://your-server.com/dude/install.sh | sudo bash
+#   curl -fsSL https://your-server.com/corebit/install.sh | sudo bash
 #
 # Or download and run:
-#   wget https://your-server.com/dude/kickstart.sh
+#   wget https://your-server.com/corebit/kickstart.sh
 #   chmod +x kickstart.sh
 #   sudo ./kickstart.sh
 #
@@ -18,8 +18,8 @@ set -e
 #   --no-db           Skip database setup (use external database)
 #   --db-host HOST    PostgreSQL host (default: localhost)
 #   --db-port PORT    PostgreSQL port (default: 5432)
-#   --db-name NAME    Database name (default: dude_manager)
-#   --db-user USER    Database user (default: dude)
+#   --db-name NAME    Database name (default: corebit)
+#   --db-user USER    Database user (default: corebit)
 #   --port PORT       Application port (default: 3000)
 #===============================================================================
 
@@ -31,15 +31,15 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default configuration
-INSTALL_DIR="/opt/dude-manager"
-SERVICE_NAME="dude-manager"
-SERVICE_USER="dude"
+INSTALL_DIR="/opt/corebit"
+SERVICE_NAME="corebit"
+SERVICE_USER="corebit"
 APP_PORT=3000
 DB_HOST="localhost"
 DB_PORT=5432
-DB_NAME="dude_manager"
-DB_USER="dude"
-DOWNLOAD_URL="${DOWNLOAD_URL:-https://your-server.com/dude/releases/latest.zip}"
+DB_NAME="corebit"
+DB_USER="corebit"
+DOWNLOAD_URL="${DOWNLOAD_URL:-https://your-server.com/corebit/releases/latest.zip}"
 
 # Parse command line arguments
 UPDATE_MODE=false
@@ -204,9 +204,9 @@ setup_postgresql() {
     esac
     
     # Check if we have existing credentials from backup
-    if [ -f "/tmp/dude-manager.env.backup" ]; then
+    if [ -f "/tmp/corebit.env.backup" ]; then
         # Extract existing password from backup
-        EXISTING_PW=$(grep "^PGPASSWORD=" /tmp/dude-manager.env.backup 2>/dev/null | cut -d'=' -f2)
+        EXISTING_PW=$(grep "^PGPASSWORD=" /tmp/corebit.env.backup 2>/dev/null | cut -d'=' -f2)
         if [ -n "$EXISTING_PW" ]; then
             DB_PASSWORD="$EXISTING_PW"
             log_info "Using existing database password from backup"
@@ -271,8 +271,8 @@ download_application() {
     fi
     
     # Find extracted directory (handle nested directories)
-    if [ -d "dude-manager" ]; then
-        cd dude-manager
+    if [ -d "corebit" ]; then
+        cd corebit
     fi
     
     log_success "Application downloaded"
@@ -285,12 +285,12 @@ backup_existing() {
         
         # Backup .env file
         if [ -f "$INSTALL_DIR/.env" ]; then
-            cp "$INSTALL_DIR/.env" "/tmp/dude-manager.env.backup"
+            cp "$INSTALL_DIR/.env" "/tmp/corebit.env.backup"
         fi
         
         # Backup data directory if exists
         if [ -d "$INSTALL_DIR/data" ]; then
-            cp -r "$INSTALL_DIR/data" "/tmp/dude-manager-data.backup"
+            cp -r "$INSTALL_DIR/data" "/tmp/corebit-data.backup"
         fi
         
         log_success "Backup created at $BACKUP_DIR"
@@ -307,14 +307,14 @@ install_application() {
     cp -r . "$INSTALL_DIR/"
     
     # Restore .env if exists
-    if [ -f "/tmp/dude-manager.env.backup" ]; then
-        cp "/tmp/dude-manager.env.backup" "$INSTALL_DIR/.env"
+    if [ -f "/tmp/corebit.env.backup" ]; then
+        cp "/tmp/corebit.env.backup" "$INSTALL_DIR/.env"
         log_info "Restored existing .env configuration"
     fi
     
     # Restore data if exists
-    if [ -d "/tmp/dude-manager-data.backup" ]; then
-        cp -r "/tmp/dude-manager-data.backup" "$INSTALL_DIR/data"
+    if [ -d "/tmp/corebit-data.backup" ]; then
+        cp -r "/tmp/corebit-data.backup" "$INSTALL_DIR/data"
         log_info "Restored existing data"
     fi
     
@@ -341,7 +341,7 @@ configure_environment() {
         SESSION_SECRET=$(openssl rand -base64 32 | tr -dc 'a-zA-Z0-9' | head -c 32)
         
         cat > "$ENV_FILE" <<EOF
-# The Dude Network Manager - Configuration
+# CoreBit Network Manager - Configuration
 # Generated on $(date)
 
 # Server Configuration
@@ -395,8 +395,8 @@ setup_systemd() {
     
     cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=The Dude Network Manager
-Documentation=https://github.com/your-org/dude-manager
+Description=CoreBit Network Manager
+Documentation=https://github.com/your-org/corebit
 After=network.target postgresql.service
 Wants=postgresql.service
 
@@ -454,7 +454,7 @@ start_service() {
 }
 
 uninstall() {
-    log_info "Uninstalling The Dude Network Manager..."
+    log_info "Uninstalling CoreBit Network Manager..."
     
     # Stop and disable service
     systemctl stop "$SERVICE_NAME" 2>/dev/null || true
@@ -464,7 +464,7 @@ uninstall() {
     
     # Backup data before removal
     if [ -d "$INSTALL_DIR" ]; then
-        BACKUP_DIR="/tmp/dude-manager-uninstall-backup-$(date +%Y%m%d%H%M%S)"
+        BACKUP_DIR="/tmp/corebit-uninstall-backup-$(date +%Y%m%d%H%M%S)"
         mkdir -p "$BACKUP_DIR"
         cp -r "$INSTALL_DIR/.env" "$BACKUP_DIR/" 2>/dev/null || true
         cp -r "$INSTALL_DIR/data" "$BACKUP_DIR/" 2>/dev/null || true
@@ -486,7 +486,7 @@ show_completion() {
     
     echo ""
     echo -e "${GREEN}======================================================${NC}"
-    echo -e "${GREEN}  The Dude Network Manager - Installation Complete!${NC}"
+    echo -e "${GREEN}  CoreBit Network Manager - Installation Complete!${NC}"
     echo -e "${GREEN}======================================================${NC}"
     echo ""
     echo -e "  ${BLUE}Access URL:${NC}      http://${LOCAL_IP}:${APP_PORT}"
@@ -511,7 +511,7 @@ show_completion() {
 main() {
     echo ""
     echo -e "${BLUE}======================================================${NC}"
-    echo -e "${BLUE}  The Dude Network Manager - Installer${NC}"
+    echo -e "${BLUE}  CoreBit Network Manager - Installer${NC}"
     echo -e "${BLUE}======================================================${NC}"
     echo ""
     
@@ -540,8 +540,8 @@ main() {
     
     # Cleanup
     rm -rf "$TEMP_DIR"
-    rm -f /tmp/dude-manager.env.backup
-    rm -rf /tmp/dude-manager-data.backup
+    rm -f /tmp/corebit.env.backup
+    rm -rf /tmp/corebit-data.backup
     
     show_completion
 }

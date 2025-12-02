@@ -1,8 +1,8 @@
-# Network Topology Manager - The Dude
+# CoreBit - Network Topology Manager
 
 ## Overview
 
-"The Dude" is a modern, web-based network management application designed to replicate and enhance Mikrotik's original "The Dude" functionality. It provides an interactive canvas for mapping network topology, managing Mikrotik and generic SNMP devices, and visualizing real-time device status.
+CoreBit is a modern, web-based network management application inspired by Mikrotik's original "The Dude" functionality. It provides an interactive canvas for mapping network topology, managing Mikrotik and generic SNMP devices, and visualizing real-time device status.
 
 The project aims to offer a professional-grade tool for network administrators to efficiently monitor, map, and manage their network infrastructure. Key capabilities include drag-and-drop device placement, multi-map support for organizing network segments, and automated device probing for discovery and status updates.
 
@@ -43,7 +43,7 @@ The application is built with a client-server architecture.
 
 The project includes a complete deployment system for production servers:
 
--   **One-line Install:** `curl -fsSL https://your-server.com/dude/install.sh | sudo bash`
+-   **One-line Install:** `curl -fsSL https://your-server.com/corebit/install.sh | sudo bash`
 -   **Kickstart Script:** `deploy/kickstart.sh` - Automated installer that handles:
     -   Node.js and PostgreSQL installation
     -   Database setup with secure credentials
@@ -51,7 +51,7 @@ The project includes a complete deployment system for production servers:
     -   Environment file generation
     -   Updates via `--update` flag
 -   **Build Script:** `deploy/build-release.sh` - Creates distributable zip/tar.gz packages
--   **Systemd Service:** `deploy/dude-manager.service` - Production service file
+-   **Systemd Service:** `deploy/corebit.service` - Production service file
 -   **Documentation:** `DEPLOYMENT.md` - Complete deployment guide
 
 **Snap-to-Grid:** Default ON (devices snap to 20px grid), hold Shift for free placement.
