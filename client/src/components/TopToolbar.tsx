@@ -114,7 +114,7 @@ export function TopToolbar({
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
           <Network className="h-6 w-6 text-primary" />
-          <h1 className="text-base font-bold text-foreground hidden sm:block">Network Manager</h1>
+          <h1 className="text-base font-bold text-foreground hidden sm:block">CoreBit</h1>
         </div>
 
         <div className="flex items-center gap-2">

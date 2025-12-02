@@ -490,7 +490,7 @@ export default function NetworkTopology() {
         />
         <div className="flex-1 flex items-center justify-center bg-background">
           <div className="text-center space-y-4 max-w-md p-8">
-            <h2 className="text-2xl font-bold text-foreground">Welcome to Network Manager</h2>
+            <h2 className="text-2xl font-bold text-foreground">Welcome to CoreBit</h2>
             <p className="text-muted-foreground">
               Get started by creating your first network topology map
             </p>
