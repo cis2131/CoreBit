@@ -1,11 +1,12 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Log, Device } from '@shared/schema';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowUpCircle, ArrowDownCircle, AlertCircle, Info, ArrowLeft, Trash2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { ArrowUpCircle, ArrowDownCircle, AlertCircle, Info, ArrowLeft, Trash2, Search, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'wouter';
 import { apiRequest, queryClient } from '@/lib/queryClient';
@@ -13,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 
 export default function Logs() {
   const [selectedDevice, setSelectedDevice] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const { toast } = useToast();
 
   const { data: devices = [], isLoading: devicesLoading } = useQuery<Device[]>({
@@ -56,6 +58,31 @@ export default function Logs() {
     const device = devices.find(d => d.id === deviceId);
     return device?.name || 'Unknown Device';
   };
+
+  const filteredLogs = useMemo(() => {
+    if (!searchQuery.trim()) return logs;
+    
+    const query = searchQuery.toLowerCase().trim();
+    return logs.filter(log => {
+      const deviceName = getDeviceName(log.deviceId).toLowerCase();
+      const message = (log.message || '').toLowerCase();
+      const severity = (log.severity || '').toLowerCase();
+      const eventType = (log.eventType || '').toLowerCase();
+      const oldStatus = (log.oldStatus || '').toLowerCase();
+      const newStatus = (log.newStatus || '').toLowerCase();
+      const ipAddress = (log.metadata as any)?.ipAddress?.toLowerCase() || '';
+      
+      return (
+        deviceName.includes(query) ||
+        message.includes(query) ||
+        severity.includes(query) ||
+        eventType.includes(query) ||
+        oldStatus.includes(query) ||
+        newStatus.includes(query) ||
+        ipAddress.includes(query)
+      );
+    });
+  }, [logs, searchQuery, devices]);
 
   const getStatusIcon = (log: Log) => {
     if (log.eventType === 'status_change') {
@@ -103,12 +130,38 @@ export default function Logs() {
       <div className="flex-1 overflow-auto p-6">
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-4">
-              <CardTitle>Recent Events</CardTitle>
+            <div className="flex items-center justify-between gap-4 flex-wrap">
               <div className="flex items-center gap-2">
-                <label className="text-sm text-muted-foreground">Filter by device:</label>
+                <CardTitle>Recent Events</CardTitle>
+                {searchQuery && (
+                  <Badge variant="secondary" data-testid="badge-search-count">
+                    {filteredLogs.length} of {logs.length}
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Search logs..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9 pr-8 w-[220px]"
+                    data-testid="input-search-logs"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      data-testid="button-clear-search"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
                 <Select value={selectedDevice} onValueChange={setSelectedDevice}>
-                  <SelectTrigger className="w-[200px]" data-testid="select-device-filter">
+                  <SelectTrigger className="w-[180px]" data-testid="select-device-filter">
                     <SelectValue placeholder="All devices" />
                   </SelectTrigger>
                   <SelectContent>
@@ -147,9 +200,13 @@ export default function Logs() {
               <div className="text-center py-8 text-muted-foreground">
                 No events logged yet. Status changes will appear here automatically.
               </div>
+            ) : filteredLogs.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                No logs match your search "{searchQuery}"
+              </div>
             ) : (
               <div className="space-y-2">
-                {logs.map((log) => (
+                {filteredLogs.map((log) => (
                   <div
                     key={log.id}
                     className="flex items-start gap-4 p-4 rounded-lg border bg-card hover-elevate"
