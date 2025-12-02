@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { Server } from 'http';
+import { Server, IncomingMessage } from 'http';
+import { Socket } from 'net';
 
 interface MapChangeEvent {
   type: 'map:change';
@@ -20,7 +21,21 @@ class MapSyncServer {
   private clients: Map<WebSocket, { subscribedMaps: Set<string>; userId?: string }> = new Map();
 
   initialize(server: Server) {
-    this.wss = new WebSocketServer({ server, path: '/ws' });
+    // Use noServer mode to avoid conflicting with Vite's WebSocket upgrade handler
+    this.wss = new WebSocketServer({ noServer: true });
+
+    // Handle WebSocket upgrade requests only for our /ws path
+    server.on('upgrade', (request: IncomingMessage, socket: Socket, head: Buffer) => {
+      const pathname = request.url;
+      
+      // Only handle our /ws path - let Vite handle other WebSocket paths
+      if (pathname === '/ws') {
+        this.wss!.handleUpgrade(request, socket, head, (ws) => {
+          this.wss!.emit('connection', ws, request);
+        });
+      }
+      // Don't close socket for other paths - Vite will handle them
+    });
 
     this.wss.on('connection', (ws: WebSocket) => {
       console.log('[WebSocket] Client connected');

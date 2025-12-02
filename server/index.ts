@@ -62,6 +62,10 @@ app.use((req, res, next) => {
     throw err;
   });
 
+  // Initialize WebSocket server for real-time map synchronization
+  // Must be done BEFORE Vite setup so our upgrade handler is registered first
+  mapSyncServer.initialize(server);
+
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
@@ -70,9 +74,6 @@ app.use((req, res, next) => {
   } else {
     serveStatic(app);
   }
-
-  // Initialize WebSocket server for real-time map synchronization
-  mapSyncServer.initialize(server);
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
