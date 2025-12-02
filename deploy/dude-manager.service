@@ -1,0 +1,43 @@
+[Unit]
+Description=The Dude Network Manager
+Documentation=https://github.com/your-org/dude-manager
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=dude
+Group=dude
+WorkingDirectory=/opt/dude-manager
+EnvironmentFile=/opt/dude-manager/.env
+ExecStart=/usr/bin/node /opt/dude-manager/dist/index.js
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dude-manager
+
+# Graceful shutdown timeout
+TimeoutStopSec=30
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/dude-manager/data
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Resource limits
+LimitNOFILE=65535
+MemoryMax=1G
+CPUQuota=80%
+
+# Network access required for device probing
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
