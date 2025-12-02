@@ -1,20 +1,91 @@
-# Network Topology Manager - Ubuntu Deployment Guide
+# Network Topology Manager - Deployment Guide
 
-Complete guide for deploying The Dude network management application on Ubuntu 22.04+ in production.
+Complete guide for deploying The Dude network management application in production.
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [System Setup](#system-setup)
-3. [PostgreSQL Configuration](#postgresql-configuration)
-4. [Application Setup](#application-setup)
-5. [PM2 Process Management](#pm2-process-management)
-6. [Nginx Reverse Proxy](#nginx-reverse-proxy)
-7. [SSL/HTTPS Setup](#ssl-https-setup)
-8. [Security Hardening](#security-hardening)
-9. [Deployment Workflow](#deployment-workflow)
-10. [Monitoring & Maintenance](#monitoring--maintenance)
-11. [Troubleshooting](#troubleshooting)
+1. [Quick Install (Recommended)](#quick-install-recommended)
+2. [Prerequisites](#prerequisites)
+3. [System Setup](#system-setup)
+4. [PostgreSQL Configuration](#postgresql-configuration)
+5. [Application Setup](#application-setup)
+6. [PM2 Process Management](#pm2-process-management)
+7. [Nginx Reverse Proxy](#nginx-reverse-proxy)
+8. [SSL/HTTPS Setup](#ssl-https-setup)
+9. [Security Hardening](#security-hardening)
+10. [Deployment Workflow](#deployment-workflow)
+11. [Monitoring & Maintenance](#monitoring--maintenance)
+12. [Troubleshooting](#troubleshooting)
+13. [Building Releases](#building-releases)
+
+---
+
+## Quick Install (Recommended)
+
+The fastest way to deploy is using our one-line installer:
+
+```bash
+curl -fsSL https://your-server.com/dude/install.sh | sudo bash
+```
+
+Or download and run manually:
+
+```bash
+wget https://your-server.com/dude/releases/latest.zip
+unzip latest.zip
+cd dude-manager-*
+sudo ./install.sh
+```
+
+### What the Installer Does
+
+1. Installs Node.js 20 and PostgreSQL
+2. Creates a dedicated `dude` system user
+3. Sets up the PostgreSQL database with secure credentials
+4. Configures environment variables automatically
+5. Runs database migrations
+6. Installs a systemd service for automatic startup
+7. Starts the application
+
+### Installer Options
+
+| Option | Description |
+|--------|-------------|
+| `--update` | Update existing installation |
+| `--uninstall` | Remove the application |
+| `--no-db` | Skip database setup (use external DB) |
+| `--db-host HOST` | PostgreSQL host (default: localhost) |
+| `--db-port PORT` | PostgreSQL port (default: 5432) |
+| `--db-name NAME` | Database name (default: dude_manager) |
+| `--db-user USER` | Database user (default: dude) |
+| `--port PORT` | Application port (default: 3000) |
+
+### After Installation
+
+- **Access URL:** `http://your-server-ip:3000`
+- **Default Login:** admin / admin (change immediately!)
+- **Configuration:** `/opt/dude-manager/.env`
+- **Service Commands:**
+  - Start: `sudo systemctl start dude-manager`
+  - Stop: `sudo systemctl stop dude-manager`
+  - Restart: `sudo systemctl restart dude-manager`
+  - Logs: `sudo journalctl -u dude-manager -f`
+
+### Updates
+
+Simply run the installer again with the `--update` flag:
+
+```bash
+curl -fsSL https://your-server.com/dude/install.sh | sudo bash -s -- --update
+```
+
+Your configuration and data will be preserved.
+
+---
+
+## Manual Installation (Advanced)
+
+For more control over the installation process, follow the detailed steps below.
 
 ---
 
@@ -933,11 +1004,89 @@ Before going live, ensure:
 
 ---
 
+## Building Releases
+
+To create a distributable release package for hosting on your web server:
+
+### Using the Build Script
+
+```bash
+# From project root
+./deploy/build-release.sh [version]
+
+# Example with version number
+./deploy/build-release.sh 1.0.0
+
+# Or with auto-generated timestamp version
+./deploy/build-release.sh
+```
+
+### What Gets Built
+
+The script creates:
+- `dist/releases/dude-manager-VERSION.zip` - Release archive
+- `dist/releases/dude-manager-VERSION.tar.gz` - Alternative archive
+- `dist/releases/dude-manager-VERSION.*.sha256` - Checksums for verification
+- `dist/releases/latest.zip` - Symlink to latest version
+- `dist/releases/install.sh` - One-line install script
+
+### Hosting Releases
+
+1. **Upload to your web server:**
+
+```bash
+# Example: Upload to /var/www/dude/
+scp dist/releases/* user@your-server:/var/www/dude/releases/
+scp dist/releases/install.sh user@your-server:/var/www/dude/
+```
+
+2. **Update the download URL** in `deploy/kickstart.sh`:
+
+```bash
+DOWNLOAD_URL="https://your-server.com/dude/releases/latest.zip"
+```
+
+3. **Configure Nginx** to serve the files:
+
+```nginx
+server {
+    listen 80;
+    server_name your-server.com;
+    root /var/www/dude;
+    
+    location / {
+        autoindex on;
+    }
+}
+```
+
+### Directory Structure on Web Server
+
+```
+/var/www/dude/
+├── install.sh                           # One-line install script
+└── releases/
+    ├── latest.zip -> dude-manager-1.0.0.zip
+    ├── dude-manager-1.0.0.zip
+    ├── dude-manager-1.0.0.zip.sha256
+    ├── dude-manager-1.0.0.tar.gz
+    └── dude-manager-1.0.0.tar.gz.sha256
+```
+
+### Users Can Now Install With
+
+```bash
+curl -fsSL https://your-server.com/dude/install.sh | sudo bash
+```
+
+---
+
 ## Support
 
 For issues specific to this application, refer to:
-- Application logs: `/opt/network-topology/logs/`
+- Application logs: `/opt/dude-manager/logs/` or `journalctl -u dude-manager`
+- Configuration: `/opt/dude-manager/.env`
 - Database schema: `shared/schema.ts`
 - API documentation: Check `server/routes.ts`
 
-**Your Network Topology Manager is now production-ready! 🎉**
+**Your Network Topology Manager is now production-ready!**
