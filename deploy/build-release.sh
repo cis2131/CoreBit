@@ -46,7 +46,7 @@ npm run build
 
 # Step 4: Compile TypeScript backend
 echo -e "${BLUE}[4/7]${NC} Compiling backend..."
-npx esbuild server/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:pg-native --external:better-sqlite3
+npx esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/index.js
 
 # Step 5: Prepare release directory
 echo -e "${BLUE}[5/7]${NC} Preparing release package..."
