@@ -543,6 +543,7 @@ export default function NetworkTopology() {
           devices={allDevices}
           placedDeviceIds={placements.map(p => p.deviceId)}
           onDeviceDragStart={canModify ? setDraggingDeviceId : undefined}
+          onDeviceDragEnd={() => setDraggingDeviceId(null)}
           onEditDevice={handleDeviceEdit}
           onDeviceClick={(deviceId) => {
             // Check if device is placed on current map

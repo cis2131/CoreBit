@@ -9,6 +9,7 @@ interface DeviceListSidebarProps {
   devices: Device[];
   placedDeviceIds?: string[];
   onDeviceDragStart?: (deviceId: string) => void;
+  onDeviceDragEnd?: () => void;
   onEditDevice?: (device: Device) => void;
   onDeviceClick?: (deviceId: string) => void;
   canModify?: boolean;
@@ -37,7 +38,7 @@ function getStatusColor(status: string): string {
   }
 }
 
-export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragStart, onEditDevice, onDeviceClick, canModify = true }: DeviceListSidebarProps) {
+export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragStart, onDeviceDragEnd, onEditDevice, onDeviceClick, canModify = true }: DeviceListSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [hideUnplaced, setHideUnplaced] = useState(false);
@@ -108,6 +109,7 @@ export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragS
                       className={`p-2 rounded-md cursor-grab active:cursor-grabbing hover-elevate border border-border ${isPlaced ? 'opacity-60' : ''}`}
                       draggable={!isPlaced}
                       onDragStart={() => onDeviceDragStart?.(device.id)}
+                      onDragEnd={() => onDeviceDragEnd?.()}
                       onClick={() => onDeviceClick?.(device.id)}
                       data-testid={`device-list-item-${device.id}`}
                     >

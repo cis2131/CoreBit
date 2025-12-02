@@ -243,6 +243,35 @@ export function NetworkCanvas({
     }
   };
 
+  // HTML5 Drag and Drop handlers for sidebar device drops
+  const handleDragOver = (e: React.DragEvent) => {
+    if (draggingDeviceId) {
+      e.preventDefault(); // Allow drop
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    
+    if (draggingDeviceId && onDeviceDropFromSidebar) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      let x = (e.clientX - rect.left - pan.x) / zoom;
+      let y = (e.clientY - rect.top - pan.y) / zoom;
+
+      // Snap to grid if Shift key is held
+      if (e.shiftKey) {
+        x = snapToGrid(x);
+        y = snapToGrid(y);
+      }
+
+      onDeviceDropFromSidebar(draggingDeviceId, { x, y });
+      onDraggingComplete();
+    }
+  };
+
   const snapToGrid = (value: number, gridSize: number = 20): number => {
     return Math.round(value / gridSize) * gridSize;
   };
@@ -406,6 +435,8 @@ export function NetworkCanvas({
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUp}
         onClick={handleCanvasClickLocal}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
         data-testid="canvas-workspace"
       >
         <div
