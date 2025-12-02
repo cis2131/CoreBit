@@ -1413,9 +1413,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 deviceId: device.id,
                 eventType: 'status_change',
                 severity: status === 'offline' ? 'error' : status === 'warning' ? 'warning' : 'info',
-                message: `Device ${device.name} status changed from ${oldStatus} to ${status}`,
+                message: `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to ${status}`,
                 oldStatus,
                 newStatus: status,
+                metadata: { ipAddress: device.ipAddress },
               });
             } catch (error: any) {
               console.error(`[Logging] Error creating log for ${device.name}:`, error.message);
@@ -1505,10 +1506,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             eventType: 'status_change',
             severity: status === 'offline' ? 'error' : status === 'stale' ? 'warning' : status === 'warning' ? 'warning' : 'info',
             message: status === 'stale' 
-              ? `Device ${device.name} status changed from ${oldStatus} to stale (API unreachable but responds to ping)`
-              : `Device ${device.name} status changed from ${oldStatus} to ${status}`,
+              ? `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to stale (API unreachable but responds to ping)`
+              : `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to ${status}`,
             oldStatus,
             newStatus: status,
+            metadata: { ipAddress: device.ipAddress },
           });
         } catch (error: any) {
           console.error(`[Logging] Error creating log for ${device.name}:`, error.message);
@@ -1609,10 +1611,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   eventType: 'status_change',
                   severity: useStaleStatus ? 'warning' : 'error',
                   message: useStaleStatus 
-                    ? `Device ${device.name} status changed from ${oldStatus} to stale (API unreachable but responds to ping)`
-                    : `Device ${device.name} status changed from ${oldStatus} to offline (probe timeout after ${currentFailureCount} failed cycles)`,
+                    ? `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to stale (API unreachable but responds to ping)`
+                    : `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to offline (probe timeout after ${currentFailureCount} failed cycles)`,
                   oldStatus,
                   newStatus: targetStatus,
+                  metadata: { ipAddress: device.ipAddress },
                 });
               } catch (logError: any) {
                 console.error(`[Logging] Error creating timeout log for ${device.name}:`, logError.message);
@@ -1774,9 +1777,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   deviceId: device.id,
                   eventType: 'status_change',
                   severity: 'error',
-                  message: `Device ${device.name} marked offline (stale ${Math.round(timeSinceLastSeen / 1000)}s and ping failed)`,
+                  message: `Device ${device.name} (${device.ipAddress}) marked offline (stale ${Math.round(timeSinceLastSeen / 1000)}s and ping failed)`,
                   oldStatus,
                   newStatus: 'offline',
+                  metadata: { ipAddress: device.ipAddress },
                 });
               } catch (error: any) {
                 console.error(`[Logging] Error creating stale log for ${device.name}:`, error.message);
