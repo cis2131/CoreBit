@@ -46,7 +46,7 @@ npm run build
 
 # Step 4: Compile TypeScript backend
 echo -e "${BLUE}[4/7]${NC} Compiling backend..."
-npx esbuild server/index.ts --bundle --platform=node --outfile=dist/index.js --external:pg-native --external:better-sqlite3
+npx esbuild server/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:pg-native --external:better-sqlite3
 
 # Step 5: Prepare release directory
 echo -e "${BLUE}[5/7]${NC} Preparing release package..."
@@ -80,6 +80,7 @@ cat > "$RELEASE_DIR/package.json" <<EOF
   "name": "corebit",
   "version": "${VERSION}",
   "description": "CoreBit - Modern network topology and monitoring",
+  "type": "module",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
