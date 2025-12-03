@@ -18,7 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw, Users, Crown, Shield, Eye, Loader2, UserCog, Calendar, Sun, Moon, Webhook, Mail, MessageSquare } from "lucide-react";
 import { Link } from "wouter";
 import { z } from "zod";
-import type { CredentialProfile, InsertCredentialProfile, Notification, InsertNotification, Backup, UserNotificationChannel, DutyTeam, DutySchedule } from "@shared/schema";
+import type { CredentialProfile, InsertCredentialProfile, Notification, InsertNotification, Backup, UserNotificationChannel, DutyUserSchedule } from "@shared/schema";
 
 const credentialFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -1120,28 +1120,18 @@ function MyNotificationChannelsSection() {
   );
 }
 
-interface DutyTeamWithMembers extends DutyTeam {
-  members: { id: string; username: string; displayName: string | null }[];
+interface OnDutyUserSchedule extends DutyUserSchedule {
+  user: { id: string; username: string; displayName: string | null };
 }
 
-const dutyTeamFormSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  description: z.string().optional(),
-});
-
-type DutyTeamFormData = z.infer<typeof dutyTeamFormSchema>;
-
-function DutyTeamsSection() {
+function OnDutyScheduleSection() {
   const { toast } = useToast();
   const { isAdmin } = useAuth();
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingTeam, setEditingTeam] = useState<DutyTeamWithMembers | null>(null);
-  const [deletingTeam, setDeletingTeam] = useState<DutyTeamWithMembers | null>(null);
-  const [addingMemberToTeam, setAddingMemberToTeam] = useState<string | null>(null);
+  const [addingUserShift, setAddingUserShift] = useState<'day' | 'night' | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
 
-  const { data: teams = [], isLoading } = useQuery<DutyTeamWithMembers[]>({
-    queryKey: ["/api/duty-teams"],
+  const { data: schedules = [], isLoading } = useQuery<OnDutyUserSchedule[]>({
+    queryKey: ["/api/duty-user-schedules"],
     enabled: isAdmin,
   });
 
@@ -1153,120 +1143,77 @@ function DutyTeamsSection() {
   const { data: shiftConfig } = useQuery<{
     dayShiftStart: string;
     dayShiftEnd: string;
-    nightShiftStart: string;
-    nightShiftEnd: string;
     timezone: string;
-    rotationWeeks: number;
   }>({
     queryKey: ["/api/duty-shift-config"],
     enabled: isAdmin,
   });
 
-  const { data: onDutyNow } = useQuery<{ team: DutyTeam | null; shift: string | null; members: any[] }>({
+  const { data: onDutyNow } = useQuery<{ shift: string | null; users: { id: string; username: string; displayName: string | null }[] }>({
     queryKey: ["/api/duty-on-call"],
     enabled: isAdmin,
     refetchInterval: 60000,
   });
 
-  const form = useForm<DutyTeamFormData>({
-    resolver: zodResolver(dutyTeamFormSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-    },
-  });
+  const [dayStart, setDayStart] = useState(shiftConfig?.dayShiftStart || "08:00");
+  const [dayEnd, setDayEnd] = useState(shiftConfig?.dayShiftEnd || "20:00");
+  const [timezone, setTimezone] = useState(shiftConfig?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
 
   useEffect(() => {
-    if (editingTeam) {
-      form.reset({
-        name: editingTeam.name,
-        description: editingTeam.description || "",
-      });
-    } else {
-      form.reset({
-        name: "",
-        description: "",
-      });
+    if (shiftConfig) {
+      setDayStart(shiftConfig.dayShiftStart);
+      setDayEnd(shiftConfig.dayShiftEnd);
+      setTimezone(shiftConfig.timezone);
     }
-  }, [editingTeam, dialogOpen, form]);
+  }, [shiftConfig]);
 
-  const createTeamMutation = useMutation({
-    mutationFn: async (data: DutyTeamFormData) =>
-      apiRequest("POST", "/api/duty-teams", data),
+  const updateShiftConfigMutation = useMutation({
+    mutationFn: async (config: { dayShiftStart: string; dayShiftEnd: string; timezone: string }) =>
+      apiRequest("PUT", "/api/duty-shift-config", config),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/duty-teams"] });
-      toast({ description: "Team created" });
-      handleDialogClose();
+      queryClient.invalidateQueries({ queryKey: ["/api/duty-shift-config"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/duty-on-call"] });
+      toast({ description: "Shift times updated" });
     },
     onError: () => {
-      toast({ variant: "destructive", description: "Failed to create team" });
+      toast({ variant: "destructive", description: "Failed to update shift times" });
     },
   });
 
-  const updateTeamMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Partial<DutyTeamFormData> }) =>
-      apiRequest("PATCH", `/api/duty-teams/${id}`, data),
+  const addUserScheduleMutation = useMutation({
+    mutationFn: async ({ userId, shift }: { userId: string; shift: 'day' | 'night' }) =>
+      apiRequest("POST", "/api/duty-user-schedules", { userId, shift }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/duty-teams"] });
-      toast({ description: "Team updated" });
-      handleDialogClose();
-    },
-    onError: () => {
-      toast({ variant: "destructive", description: "Failed to update team" });
-    },
-  });
-
-  const deleteTeamMutation = useMutation({
-    mutationFn: async (id: string) =>
-      apiRequest("DELETE", `/api/duty-teams/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/duty-teams"] });
-      toast({ description: "Team deleted" });
-      setDeletingTeam(null);
-    },
-    onError: () => {
-      toast({ variant: "destructive", description: "Failed to delete team" });
-    },
-  });
-
-  const addMemberMutation = useMutation({
-    mutationFn: async ({ teamId, userId }: { teamId: string; userId: string }) =>
-      apiRequest("POST", `/api/duty-teams/${teamId}/members`, { userId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/duty-teams"] });
-      toast({ description: "Member added" });
-      setAddingMemberToTeam(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/duty-user-schedules"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/duty-on-call"] });
+      toast({ description: "User assigned to shift" });
+      setAddingUserShift(null);
       setSelectedUserId("");
     },
     onError: () => {
-      toast({ variant: "destructive", description: "Failed to add member" });
+      toast({ variant: "destructive", description: "Failed to assign user to shift" });
     },
   });
 
-  const removeMemberMutation = useMutation({
-    mutationFn: async ({ teamId, userId }: { teamId: string; userId: string }) =>
-      apiRequest("DELETE", `/api/duty-teams/${teamId}/members/${userId}`),
+  const removeUserScheduleMutation = useMutation({
+    mutationFn: async (scheduleId: string) =>
+      apiRequest("DELETE", `/api/duty-user-schedules/${scheduleId}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/duty-teams"] });
-      toast({ description: "Member removed" });
+      queryClient.invalidateQueries({ queryKey: ["/api/duty-user-schedules"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/duty-on-call"] });
+      toast({ description: "User removed from shift" });
     },
     onError: () => {
-      toast({ variant: "destructive", description: "Failed to remove member" });
+      toast({ variant: "destructive", description: "Failed to remove user from shift" });
     },
   });
 
-  const handleDialogClose = () => {
-    setDialogOpen(false);
-    setEditingTeam(null);
-    form.reset();
-  };
+  const dayShiftUsers = schedules.filter(s => s.shift === 'day');
+  const nightShiftUsers = schedules.filter(s => s.shift === 'night');
 
-  const handleSubmit = (data: DutyTeamFormData) => {
-    if (editingTeam) {
-      updateTeamMutation.mutate({ id: editingTeam.id, data });
-    } else {
-      createTeamMutation.mutate(data);
-    }
+  const availableUsersForShift = (shift: 'day' | 'night') => {
+    const assignedUserIds = schedules.filter(s => s.shift === shift).map(s => s.userId);
+    return users.filter(u => !assignedUserIds.includes(u.id));
   };
 
   if (!isAdmin) {
@@ -1274,71 +1221,18 @@ function DutyTeamsSection() {
   }
 
   return (
-    <Card data-testid="card-duty-teams">
-      <CardHeader className="flex flex-row items-center justify-between gap-4">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
-            Duty Teams & Schedule
-          </CardTitle>
-          <CardDescription>
-            Manage on-call teams for shift-based notifications
-          </CardDescription>
-        </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm" data-testid="button-add-team">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Team
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editingTeam ? "Edit Team" : "Create Duty Team"}</DialogTitle>
-              <DialogDescription>
-                Create a team of operators for on-call rotations
-              </DialogDescription>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Team Name</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="e.g., Night Shift Team" data-testid="input-team-name" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="description"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Description</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="Optional description" data-testid="input-team-description" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <DialogFooter>
-                  <Button type="submit" disabled={createTeamMutation.isPending || updateTeamMutation.isPending} data-testid="button-save-team">
-                    {createTeamMutation.isPending || updateTeamMutation.isPending ? "Saving..." : "Save"}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
+    <Card data-testid="card-on-duty-schedule">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Calendar className="h-5 w-5" />
+          On-Duty Schedule
+        </CardTitle>
+        <CardDescription>
+          Configure shift times and assign operators to day/night shifts
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {onDutyNow && onDutyNow.team && (
+        {onDutyNow && onDutyNow.shift && onDutyNow.users.length > 0 && (
           <div className="p-4 border rounded-md bg-primary/5 border-primary/20">
             <div className="flex items-center gap-3">
               {onDutyNow.shift === "day" ? (
@@ -1348,194 +1242,207 @@ function DutyTeamsSection() {
               )}
               <div>
                 <div className="font-medium text-foreground">
-                  Currently On Duty: {onDutyNow.team.name}
+                  Currently On Duty ({onDutyNow.shift} shift)
                 </div>
-                <div className="text-sm text-muted-foreground capitalize">
-                  {onDutyNow.shift} shift · {onDutyNow.members?.length || 0} operator(s)
+                <div className="text-sm text-muted-foreground">
+                  {onDutyNow.users.map(u => u.displayName || u.username).join(", ")}
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {shiftConfig && (
-          <div className="p-4 border rounded-md">
-            <h4 className="font-medium mb-2 flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              Shift Configuration
-            </h4>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <Sun className="h-4 w-4 text-yellow-500" />
-                <span>Day: {shiftConfig.dayShiftStart} - {shiftConfig.dayShiftEnd}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Moon className="h-4 w-4 text-blue-400" />
-                <span>Night: {shiftConfig.nightShiftStart} - {shiftConfig.nightShiftEnd}</span>
-              </div>
-              <div className="col-span-2 text-muted-foreground">
-                Rotation: {shiftConfig.rotationWeeks} week cycle · Timezone: {shiftConfig.timezone}
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="space-y-4">
+        <div className="p-4 border rounded-md space-y-4">
           <h4 className="font-medium flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            Teams
+            <Clock className="h-4 w-4" />
+            Shift Times
           </h4>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Sun className="h-4 w-4 text-yellow-500" />
+                Day Shift Start
+              </Label>
+              <Input
+                type="time"
+                value={dayStart}
+                onChange={(e) => setDayStart(e.target.value)}
+                data-testid="input-day-shift-start"
+              />
             </div>
-          ) : teams.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              No duty teams created yet. Create a team to get started.
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Moon className="h-4 w-4 text-blue-400" />
+                Night Shift Start (Day End)
+              </Label>
+              <Input
+                type="time"
+                value={dayEnd}
+                onChange={(e) => setDayEnd(e.target.value)}
+                data-testid="input-day-shift-end"
+              />
             </div>
-          ) : (
-            <div className="space-y-4">
-              {teams.map((team) => (
-                <div
-                  key={team.id}
-                  className="p-4 border rounded-md"
-                  data-testid={`team-item-${team.id}`}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <div className="font-medium text-foreground">{team.name}</div>
-                      {team.description && (
-                        <div className="text-sm text-muted-foreground">{team.description}</div>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          setEditingTeam(team);
-                          setDialogOpen(true);
-                        }}
-                        data-testid={`button-edit-team-${team.id}`}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setDeletingTeam(team)}
-                        data-testid={`button-delete-team-${team.id}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Timezone</Label>
+            <Select value={timezone} onValueChange={setTimezone}>
+              <SelectTrigger data-testid="select-timezone">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="America/New_York">America/New_York (ET)</SelectItem>
+                <SelectItem value="America/Chicago">America/Chicago (CT)</SelectItem>
+                <SelectItem value="America/Denver">America/Denver (MT)</SelectItem>
+                <SelectItem value="America/Los_Angeles">America/Los_Angeles (PT)</SelectItem>
+                <SelectItem value="Europe/London">Europe/London (GMT)</SelectItem>
+                <SelectItem value="Europe/Paris">Europe/Paris (CET)</SelectItem>
+                <SelectItem value="Asia/Tokyo">Asia/Tokyo (JST)</SelectItem>
+                <SelectItem value="Australia/Sydney">Australia/Sydney (AEST)</SelectItem>
+                <SelectItem value="UTC">UTC</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            onClick={() => updateShiftConfigMutation.mutate({ dayShiftStart: dayStart, dayShiftEnd: dayEnd, timezone })}
+            disabled={updateShiftConfigMutation.isPending}
+            data-testid="button-save-shift-config"
+          >
+            {updateShiftConfigMutation.isPending ? "Saving..." : "Save Shift Times"}
+          </Button>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-6">
+          <div className="p-4 border rounded-md space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="font-medium flex items-center gap-2">
+                <Sun className="h-4 w-4 text-yellow-500" />
+                Day Shift Operators
+              </h4>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAddingUserShift('day')}
+                data-testid="button-add-day-shift-user"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Add
+              </Button>
+            </div>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : dayShiftUsers.length === 0 ? (
+              <div className="text-sm text-muted-foreground py-2">
+                No operators assigned to day shift
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {dayShiftUsers.map((schedule) => (
+                  <div
+                    key={schedule.id}
+                    className="flex items-center gap-1 px-2 py-1 bg-muted rounded text-sm"
+                  >
+                    <span>{schedule.user.displayName || schedule.user.username}</span>
+                    <button
+                      className="ml-1 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeUserScheduleMutation.mutate(schedule.id)}
+                      data-testid={`button-remove-day-${schedule.userId}`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
                   </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">
-                        {team.members.length} member(s)
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setAddingMemberToTeam(team.id)}
-                        data-testid={`button-add-member-${team.id}`}
-                      >
-                        <Plus className="h-3 w-3 mr-1" />
-                        Add Member
-                      </Button>
-                    </div>
-                    {team.members.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {team.members.map((member) => (
-                          <div
-                            key={member.id}
-                            className="flex items-center gap-1 px-2 py-1 bg-muted rounded text-sm"
-                          >
-                            <span>{member.displayName || member.username}</span>
-                            <button
-                              className="ml-1 text-muted-foreground hover:text-destructive"
-                              onClick={() =>
-                                removeMemberMutation.mutate({ teamId: team.id, userId: member.id })
-                              }
-                              data-testid={`button-remove-member-${member.id}`}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="p-4 border rounded-md space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="font-medium flex items-center gap-2">
+                <Moon className="h-4 w-4 text-blue-400" />
+                Night Shift Operators
+              </h4>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAddingUserShift('night')}
+                data-testid="button-add-night-shift-user"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Add
+              </Button>
             </div>
-          )}
+            {isLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : nightShiftUsers.length === 0 ? (
+              <div className="text-sm text-muted-foreground py-2">
+                No operators assigned to night shift
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {nightShiftUsers.map((schedule) => (
+                  <div
+                    key={schedule.id}
+                    className="flex items-center gap-1 px-2 py-1 bg-muted rounded text-sm"
+                  >
+                    <span>{schedule.user.displayName || schedule.user.username}</span>
+                    <button
+                      className="ml-1 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeUserScheduleMutation.mutate(schedule.id)}
+                      data-testid={`button-remove-night-${schedule.userId}`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </CardContent>
 
-      <Dialog open={!!addingMemberToTeam} onOpenChange={(open) => !open && setAddingMemberToTeam(null)}>
+      <Dialog open={!!addingUserShift} onOpenChange={(open) => !open && setAddingUserShift(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Team Member</DialogTitle>
+            <DialogTitle>
+              Add {addingUserShift === 'day' ? 'Day' : 'Night'} Shift Operator
+            </DialogTitle>
             <DialogDescription>
-              Select a user to add to this duty team
+              Select a user to assign to the {addingUserShift} shift
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-              <SelectTrigger data-testid="select-member-user">
+              <SelectTrigger data-testid="select-shift-user">
                 <SelectValue placeholder="Select user" />
               </SelectTrigger>
               <SelectContent>
-                {users
-                  .filter((u) => {
-                    const team = teams.find((t) => t.id === addingMemberToTeam);
-                    return !team?.members.some((m) => m.id === u.id);
-                  })
-                  .map((user) => (
-                    <SelectItem key={user.id} value={user.id}>
-                      {user.displayName || user.username}
-                    </SelectItem>
-                  ))}
+                {addingUserShift && availableUsersForShift(addingUserShift).map((user) => (
+                  <SelectItem key={user.id} value={user.id}>
+                    {user.displayName || user.username}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <DialogFooter>
               <Button
                 onClick={() => {
-                  if (addingMemberToTeam && selectedUserId) {
-                    addMemberMutation.mutate({ teamId: addingMemberToTeam, userId: selectedUserId });
+                  if (addingUserShift && selectedUserId) {
+                    addUserScheduleMutation.mutate({ userId: selectedUserId, shift: addingUserShift });
                   }
                 }}
-                disabled={!selectedUserId || addMemberMutation.isPending}
-                data-testid="button-confirm-add-member"
+                disabled={!selectedUserId || addUserScheduleMutation.isPending}
+                data-testid="button-confirm-add-shift-user"
               >
-                {addMemberMutation.isPending ? "Adding..." : "Add Member"}
+                {addUserScheduleMutation.isPending ? "Adding..." : "Add to Shift"}
               </Button>
             </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>
-
-      <AlertDialog open={!!deletingTeam} onOpenChange={(open) => !open && setDeletingTeam(null)}>
-        <AlertDialogContent data-testid="dialog-delete-team-confirm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Duty Team</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete "{deletingTeam?.name}"? This will also remove all schedule assignments.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-delete-team">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => deletingTeam && deleteTeamMutation.mutate(deletingTeam.id)}
-              data-testid="button-confirm-delete-team"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Card>
   );
 }
@@ -2941,7 +2848,7 @@ export default function Settings() {
 
           <MyNotificationChannelsSection />
 
-          <DutyTeamsSection />
+          <OnDutyScheduleSection />
 
           <UserManagementSection />
         </div>

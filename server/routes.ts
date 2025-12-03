@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probeMikrotikWithPool, pingDevice } from "./deviceProbe";
 import { mikrotikPool } from "./mikrotikConnectionPool";
-import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, insertUserNotificationChannelSchema, insertDutyTeamSchema, insertDutyTeamMemberSchema, insertDutyScheduleSchema, insertDutyShiftConfigSchema, type Device, type Connection, type UserNotificationChannel } from "@shared/schema";
+import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, insertUserNotificationChannelSchema, insertDutyUserScheduleSchema, insertDutyShiftConfigSchema, type Device, type Connection, type UserNotificationChannel } from "@shared/schema";
 import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
@@ -172,8 +172,8 @@ async function sendUserNotification(channel: UserNotificationChannel, device: an
   }
 }
 
-// Helper function to determine the currently on-duty team based on schedule
-async function getCurrentOnDutyTeam(): Promise<{ team: any; shift: 'day' | 'night'; members: any[] } | null> {
+// Helper function to determine the currently active shift and get users assigned to it
+async function getCurrentOnDutyUsers(): Promise<{ shift: 'day' | 'night'; users: any[] } | null> {
   const config = await storage.getDutyShiftConfig();
   if (!config) {
     return null;
@@ -185,7 +185,7 @@ async function getCurrentOnDutyTeam(): Promise<{ team: any; shift: 'day' | 'nigh
   const [dayStartHour, dayStartMin] = config.dayShiftStart.split(':').map(Number);
   const [dayEndHour, dayEndMin] = config.dayShiftEnd.split(':').map(Number);
   
-  // Get current hour and minute
+  // Get current hour and minute (respecting timezone if configured)
   const currentHour = now.getUTCHours();
   const currentMinute = now.getUTCMinutes();
   const currentTime = currentHour * 60 + currentMinute;
@@ -202,36 +202,16 @@ async function getCurrentOnDutyTeam(): Promise<{ team: any; shift: 'day' | 'nigh
     shift = (currentTime >= dayStart || currentTime < dayEnd) ? 'day' : 'night';
   }
   
-  // Calculate which week of the rotation we're in
-  // Use a fixed reference point (epoch start) to calculate rotation week
-  const rotationWeeks = config.rotationWeeks || 4;
-  const weeksSinceEpoch = Math.floor(now.getTime() / (7 * 24 * 60 * 60 * 1000));
-  const currentWeek = (weeksSinceEpoch % rotationWeeks) + 1;
+  // Get users assigned to the current shift
+  const dutySchedules = await storage.getDutyUserSchedulesByShift(shift);
   
-  // Get day of week (0 = Sunday, 1 = Monday, etc.)
-  const dayOfWeek = now.getUTCDay();
-  
-  // Find the schedule entry for this week, day, and shift
-  const schedules = await storage.getAllDutySchedules();
-  const matchingSchedule = schedules.find(s => 
-    s.weekNumber === currentWeek && 
-    s.dayOfWeek === dayOfWeek && 
-    s.shift === shift
-  );
-  
-  if (!matchingSchedule) {
-    return null;
+  if (dutySchedules.length === 0) {
+    return { shift, users: [] };
   }
   
-  // Get the team and its members
-  const team = await storage.getDutyTeam(matchingSchedule.teamId);
-  if (!team) {
-    return null;
-  }
-  
-  const members = await storage.getDutyTeamMembers(team.id);
-  const memberUsers = await Promise.all(members.map(async (m) => {
-    const user = await storage.getUser(m.userId);
+  // Get user details and their notification channels
+  const users = await Promise.all(dutySchedules.map(async (schedule) => {
+    const user = await storage.getUser(schedule.userId);
     if (!user) return null;
     const channels = await storage.getUserNotificationChannels(user.id);
     return { 
@@ -243,33 +223,31 @@ async function getCurrentOnDutyTeam(): Promise<{ team: any; shift: 'day' | 'nigh
   }));
   
   return {
-    team,
     shift,
-    members: memberUsers.filter(Boolean),
+    users: users.filter(Boolean),
   };
 }
 
-// Helper function to send notifications for a device based on its notification mode
+// Helper function to send notifications for a device
+// Both global channels AND on-duty users can be notified simultaneously
 async function sendDeviceNotifications(device: Device, newStatus: string, oldStatus?: string) {
-  const notificationMode = device.notificationMode || 'global';
+  // 1. Always send to global channels (device's assigned notification channels)
+  const deviceNotifications = await storage.getDeviceNotifications(device.id);
+  for (const dn of deviceNotifications) {
+    const notification = await storage.getNotification(dn.notificationId);
+    if (notification) {
+      await sendNotification(notification, device, newStatus, oldStatus);
+    }
+  }
   
-  if (notificationMode === 'duty' && device.dutyTeamId) {
-    // On-duty mode: notify the currently on-duty team members
-    const onDuty = await getCurrentOnDutyTeam();
-    if (onDuty) {
-      for (const member of onDuty.members) {
-        for (const channel of member.channels || []) {
+  // 2. If useOnDuty is enabled, ALSO notify on-duty users
+  if (device.useOnDuty) {
+    const onDuty = await getCurrentOnDutyUsers();
+    if (onDuty && onDuty.users.length > 0) {
+      for (const user of onDuty.users) {
+        for (const channel of user.channels || []) {
           await sendUserNotification(channel, device, newStatus, oldStatus);
         }
-      }
-    }
-  } else {
-    // Global mode: use the device's assigned notification channels
-    const deviceNotifications = await storage.getDeviceNotifications(device.id);
-    for (const dn of deviceNotifications) {
-      const notification = await storage.getNotification(dn.notificationId);
-      if (notification) {
-        await sendNotification(notification, device, newStatus, oldStatus);
       }
     }
   }
@@ -1288,182 +1266,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =============================================
-  // Duty Teams Routes
+  // Duty User Schedules Routes (simplified: assign users to shifts)
   // =============================================
 
-  // Get all duty teams
-  app.get("/api/duty-teams", requireAuth as any, async (_req, res) => {
+  // Get all duty user schedules with user details
+  app.get("/api/duty-user-schedules", requireAuth as any, async (_req, res) => {
     try {
-      const teams = await storage.getAllDutyTeams();
-      // Get members for each team
-      const teamsWithMembers = await Promise.all(teams.map(async (team) => {
-        const members = await storage.getDutyTeamMembers(team.id);
-        const memberUsers = await Promise.all(members.map(async (m) => {
-          const user = await storage.getUser(m.userId);
-          return user ? { id: user.id, username: user.username, displayName: user.displayName } : null;
-        }));
+      const schedules = await storage.getAllDutyUserSchedules();
+      // Get user details for each schedule
+      const schedulesWithUsers = await Promise.all(schedules.map(async (schedule) => {
+        const user = await storage.getUser(schedule.userId);
         return {
-          ...team,
-          members: memberUsers.filter(Boolean),
+          ...schedule,
+          user: user ? { id: user.id, username: user.username, displayName: user.displayName } : null,
         };
       }));
-      res.json(teamsWithMembers);
+      res.json(schedulesWithUsers);
     } catch (error) {
-      console.error('Error fetching duty teams:', error);
-      res.status(500).json({ error: 'Failed to fetch duty teams' });
+      console.error('Error fetching duty user schedules:', error);
+      res.status(500).json({ error: 'Failed to fetch duty user schedules' });
     }
   });
 
-  // Get single duty team
-  app.get("/api/duty-teams/:id", requireAuth as any, async (req, res) => {
+  // Get users assigned to a specific shift
+  app.get("/api/duty-user-schedules/:shift", requireAuth as any, async (req, res) => {
     try {
-      const team = await storage.getDutyTeam(req.params.id);
-      if (!team) {
-        return res.status(404).json({ error: 'Team not found' });
+      const shift = req.params.shift as 'day' | 'night';
+      if (shift !== 'day' && shift !== 'night') {
+        return res.status(400).json({ error: 'Shift must be "day" or "night"' });
       }
-      const members = await storage.getDutyTeamMembers(team.id);
-      const memberUsers = await Promise.all(members.map(async (m) => {
-        const user = await storage.getUser(m.userId);
-        return user ? { id: user.id, username: user.username, displayName: user.displayName } : null;
+      const schedules = await storage.getDutyUserSchedulesByShift(shift);
+      const schedulesWithUsers = await Promise.all(schedules.map(async (schedule) => {
+        const user = await storage.getUser(schedule.userId);
+        return {
+          ...schedule,
+          user: user ? { id: user.id, username: user.username, displayName: user.displayName } : null,
+        };
       }));
-      res.json({ ...team, members: memberUsers.filter(Boolean) });
+      res.json(schedulesWithUsers);
     } catch (error) {
-      console.error('Error fetching duty team:', error);
-      res.status(500).json({ error: 'Failed to fetch duty team' });
+      console.error('Error fetching duty user schedules by shift:', error);
+      res.status(500).json({ error: 'Failed to fetch duty user schedules' });
     }
   });
 
-  // Create duty team
-  app.post("/api/duty-teams", requireAdmin as any, async (req, res) => {
+  // Add user to a shift
+  app.post("/api/duty-user-schedules", requireAdmin as any, async (req, res) => {
     try {
-      const data = insertDutyTeamSchema.parse(req.body);
-      const team = await storage.createDutyTeam(data);
-      res.status(201).json(team);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: 'Invalid team data', details: error.errors });
-      }
-      console.error('Error creating duty team:', error);
-      res.status(500).json({ error: 'Failed to create duty team' });
-    }
-  });
-
-  // Update duty team
-  app.patch("/api/duty-teams/:id", requireAdmin as any, async (req, res) => {
-    try {
-      const data = insertDutyTeamSchema.partial().parse(req.body);
-      const team = await storage.updateDutyTeam(req.params.id, data);
-      if (!team) {
-        return res.status(404).json({ error: 'Team not found' });
-      }
-      res.json(team);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: 'Invalid team data', details: error.errors });
-      }
-      console.error('Error updating duty team:', error);
-      res.status(500).json({ error: 'Failed to update duty team' });
-    }
-  });
-
-  // Delete duty team
-  app.delete("/api/duty-teams/:id", requireAdmin as any, async (req, res) => {
-    try {
-      await storage.deleteDutyTeam(req.params.id);
-      res.status(204).send();
-    } catch (error) {
-      console.error('Error deleting duty team:', error);
-      res.status(500).json({ error: 'Failed to delete duty team' });
-    }
-  });
-
-  // Add member to duty team
-  app.post("/api/duty-teams/:teamId/members", requireAdmin as any, async (req, res) => {
-    try {
-      const data = insertDutyTeamMemberSchema.parse({
-        teamId: req.params.teamId,
-        userId: req.body.userId,
-      });
-      const member = await storage.addDutyTeamMember(data);
-      res.status(201).json(member);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: 'Invalid member data', details: error.errors });
-      }
-      console.error('Error adding team member:', error);
-      res.status(500).json({ error: 'Failed to add team member' });
-    }
-  });
-
-  // Remove member from duty team
-  app.delete("/api/duty-teams/:teamId/members/:userId", requireAdmin as any, async (req, res) => {
-    try {
-      await storage.removeDutyTeamMember(req.params.teamId, req.params.userId);
-      res.status(204).send();
-    } catch (error) {
-      console.error('Error removing team member:', error);
-      res.status(500).json({ error: 'Failed to remove team member' });
-    }
-  });
-
-  // =============================================
-  // Duty Schedules Routes
-  // =============================================
-
-  // Get all duty schedules
-  app.get("/api/duty-schedules", requireAuth as any, async (_req, res) => {
-    try {
-      const schedules = await storage.getAllDutySchedules();
-      res.json(schedules);
-    } catch (error) {
-      console.error('Error fetching duty schedules:', error);
-      res.status(500).json({ error: 'Failed to fetch duty schedules' });
-    }
-  });
-
-  // Create duty schedule entry
-  app.post("/api/duty-schedules", requireAdmin as any, async (req, res) => {
-    try {
-      const data = insertDutyScheduleSchema.parse(req.body);
-      const schedule = await storage.createDutySchedule(data);
+      const data = insertDutyUserScheduleSchema.parse(req.body);
+      const schedule = await storage.addDutyUserSchedule(data);
       res.status(201).json(schedule);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: 'Invalid schedule data', details: error.errors });
       }
-      console.error('Error creating duty schedule:', error);
-      res.status(500).json({ error: 'Failed to create duty schedule' });
+      console.error('Error adding duty user schedule:', error);
+      res.status(500).json({ error: 'Failed to add duty user schedule' });
     }
   });
 
-  // Bulk update duty schedules (replace all)
-  app.put("/api/duty-schedules", requireAdmin as any, async (req, res) => {
+  // Remove user from a shift by schedule ID
+  app.delete("/api/duty-user-schedules/:scheduleId", requireAdmin as any, async (req, res) => {
     try {
-      const schedulesData = z.array(insertDutyScheduleSchema).parse(req.body);
-      // Clear existing schedules
-      await storage.clearDutySchedules();
-      // Create new schedules
-      const schedules = await Promise.all(
-        schedulesData.map(data => storage.createDutySchedule(data))
-      );
-      res.json(schedules);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: 'Invalid schedule data', details: error.errors });
-      }
-      console.error('Error updating duty schedules:', error);
-      res.status(500).json({ error: 'Failed to update duty schedules' });
-    }
-  });
-
-  // Delete duty schedule entry
-  app.delete("/api/duty-schedules/:id", requireAdmin as any, async (req, res) => {
-    try {
-      await storage.deleteDutySchedule(req.params.id);
+      await storage.removeDutyUserScheduleById(req.params.scheduleId);
       res.status(204).send();
     } catch (error) {
-      console.error('Error deleting duty schedule:', error);
-      res.status(500).json({ error: 'Failed to delete duty schedule' });
+      console.error('Error removing duty user schedule:', error);
+      res.status(500).json({ error: 'Failed to remove duty user schedule' });
     }
   });
 
@@ -1493,7 +1362,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update shift configuration
+  // Update shift configuration (PATCH)
   app.patch("/api/duty-shift-config", requireAdmin as any, async (req, res) => {
     try {
       const data = insertDutyShiftConfigSchema.partial().parse(req.body);
@@ -1508,21 +1377,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update shift configuration (PUT)
+  app.put("/api/duty-shift-config", requireAdmin as any, async (req, res) => {
+    try {
+      const data = insertDutyShiftConfigSchema.partial().parse(req.body);
+      const config = await storage.updateDutyShiftConfig(data);
+      res.json(config);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid config data', details: error.errors });
+      }
+      console.error('Error updating duty shift config:', error);
+      res.status(500).json({ error: 'Failed to update duty shift config' });
+    }
+  });
+
   // =============================================
-  // Get Currently On-Duty Team
+  // Get Currently On-Duty Users
   // =============================================
 
-  // Get the team that is currently on duty
+  // Get users that are currently on duty based on shift configuration
   app.get("/api/duty-on-call", requireAuth as any, async (_req, res) => {
     try {
-      const onDutyTeam = await getCurrentOnDutyTeam();
-      if (!onDutyTeam) {
-        return res.json({ team: null, shift: null, message: 'No team scheduled' });
+      const onDuty = await getCurrentOnDutyUsers();
+      if (!onDuty) {
+        return res.json({ shift: null, users: [], message: 'No shift configuration' });
       }
-      res.json(onDutyTeam);
+      res.json(onDuty);
     } catch (error) {
-      console.error('Error getting on-duty team:', error);
-      res.status(500).json({ error: 'Failed to get on-duty team' });
+      console.error('Error getting on-duty users:', error);
+      res.status(500).json({ error: 'Failed to get on-duty users' });
     }
   });
 

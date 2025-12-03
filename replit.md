@@ -38,6 +38,12 @@ The application is built with a client-server architecture.
 -   **Network Scanner:** Automated discovery of devices on IP ranges (CIDR/Range support), multi-credential support, auto-detection of device types, scan profile saving, and bulk device creation.
 -   **Traffic Monitoring:** Real-time traffic monitoring on connections using SNMP, requiring SNMP credentials. Optimizes polling with stored SNMP interface indexes for faster data retrieval and calculates traffic rates and utilization.
 -   **Backup & Restore:** Provides manual and scheduled backups with configurable retention policies. Supports downloading, uploading, and restoring full application data, including devices, maps, connections, credentials, and settings. Backup files are JSON-formatted and stored locally.
+-   **On-Duty Notification System:** Simplified shift-based notification system with direct user-to-shift assignments:
+    -   Two shifts: Day and Night, with configurable start/end times and timezone
+    -   Users are directly assigned to shifts (no teams) via Settings
+    -   Devices have a `useOnDuty` boolean flag - when enabled, alerts go to on-duty operators in addition to global notifications
+    -   Global notifications and on-duty notifications can be active simultaneously for redundancy
+    -   On-duty checkbox appears in Device Properties Panel under Notifications section
 
 **Technical Implementations:**
 -   TypeScript strict mode.

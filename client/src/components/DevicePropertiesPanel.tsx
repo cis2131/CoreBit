@@ -342,6 +342,22 @@ export function DevicePropertiesPanel({
     }
   };
 
+  // On-Duty toggle mutation
+  const updateOnDutyMutation = useMutation({
+    mutationFn: async (useOnDuty: boolean) =>
+      apiRequest("PATCH", `/api/devices/${device.id}`, { useOnDuty }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      toast({ description: "On-duty notification setting updated" });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        description: "Failed to update on-duty setting",
+      });
+    },
+  });
+
   const handleProbeNow = async () => {
     setProbing(true);
     try {
@@ -815,7 +831,7 @@ export function DevicePropertiesPanel({
                 <CardTitle className="text-sm">Notifications</CardTitle>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               {notifications.length === 0 ? (
                 <div className="text-sm text-muted-foreground">
                   No notifications configured. Create notifications in Settings.
@@ -857,6 +873,35 @@ export function DevicePropertiesPanel({
                   ))}
                 </div>
               )}
+              
+              <Separator />
+              
+              <div className="space-y-2">
+                <div className="flex items-start space-x-3" data-testid="on-duty-checkbox-container">
+                  <Checkbox
+                    id="use-on-duty"
+                    checked={device.useOnDuty ?? false}
+                    onCheckedChange={(checked) => {
+                      if (canModify) {
+                        updateOnDutyMutation.mutate(checked as boolean);
+                      }
+                    }}
+                    disabled={!canModify || updateOnDutyMutation.isPending}
+                    data-testid="checkbox-use-on-duty"
+                  />
+                  <div className="flex-1 space-y-1">
+                    <label
+                      htmlFor="use-on-duty"
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                    >
+                      Use On-Duty Notifications
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      Also notify the on-duty operator (based on shift schedule configured in Settings)
+                    </p>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
 

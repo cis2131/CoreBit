@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Device, type CredentialProfile, type DutyTeam } from '@shared/schema';
+import { Device, type CredentialProfile } from '@shared/schema';
 import {
   Dialog,
   DialogContent,
@@ -21,7 +21,6 @@ import {
 } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
-import { Bell, Users } from 'lucide-react';
 
 interface AddDeviceDialogProps {
   open: boolean;
@@ -33,8 +32,6 @@ interface AddDeviceDialogProps {
     position: { x: number; y: number };
     credentialProfileId?: string;
     customCredentials?: any;
-    notificationMode?: 'global' | 'duty';
-    dutyTeamId?: string | null;
   }) => void;
   onDelete?: (deviceId: string) => void;
   initialPosition: { x: number; y: number };
@@ -79,18 +76,9 @@ export function AddDeviceDialog({
   const [snmpAuthKey, setSnmpAuthKey] = useState('');
   const [snmpPrivProtocol, setSnmpPrivProtocol] = useState<'DES' | 'AES'>('DES');
   const [snmpPrivKey, setSnmpPrivKey] = useState('');
-  
-  // Notification routing
-  const [notificationMode, setNotificationMode] = useState<'global' | 'duty'>('global');
-  const [selectedDutyTeamId, setSelectedDutyTeamId] = useState<string>('');
 
   const { data: profiles = [] } = useQuery<CredentialProfile[]>({
     queryKey: ['/api/credential-profiles'],
-    enabled: open,
-  });
-  
-  const { data: dutyTeams = [] } = useQuery<DutyTeam[]>({
-    queryKey: ['/api/duty-teams'],
     enabled: open,
   });
 
@@ -108,10 +96,6 @@ export function AddDeviceDialog({
       setName(editDevice.name);
       setType(editDevice.type);
       setIpAddress(editDevice.ipAddress || '');
-      
-      // Notification mode settings
-      setNotificationMode(editDevice.notificationMode || 'global');
-      setSelectedDutyTeamId(editDevice.dutyTeamId || '');
       
       if (editDevice.credentialProfileId) {
         setCredMode('profile');
@@ -139,8 +123,6 @@ export function AddDeviceDialog({
       setIpAddress('');
       setCredMode('none');
       setSelectedProfileId('');
-      setNotificationMode('global');
-      setSelectedDutyTeamId('');
     }
   }, [editDevice, initialType, open]);
 
@@ -151,8 +133,6 @@ export function AddDeviceDialog({
         type,
         ipAddress: ipAddress.trim(),
         position: initialPosition,
-        notificationMode,
-        dutyTeamId: notificationMode === 'duty' ? (selectedDutyTeamId || null) : null,
       };
 
       let credentialData = {};
@@ -194,8 +174,6 @@ export function AddDeviceDialog({
       setType(initialType);
       setIpAddress('');
       setCredMode('none');
-      setNotificationMode('global');
-      setSelectedDutyTeamId('');
       onClose();
     }
   };
@@ -427,66 +405,6 @@ export function AddDeviceDialog({
               </div>
             </>
           )}
-          
-          {/* Notification Routing Section */}
-          <Separator />
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Bell className="h-4 w-4 text-muted-foreground" />
-              <Label className="text-sm font-medium">Notification Routing</Label>
-            </div>
-            <RadioGroup 
-              value={notificationMode} 
-              onValueChange={(v) => setNotificationMode(v as 'global' | 'duty')} 
-              data-testid="radio-notification-mode"
-            >
-              <div className="flex items-start space-x-2">
-                <RadioGroupItem value="global" id="notify-global" data-testid="radio-notify-global" className="mt-1" />
-                <div>
-                  <Label htmlFor="notify-global" className="font-normal">Global Channels</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Send alerts to device-specific notification channels (configured in Settings)
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start space-x-2">
-                <RadioGroupItem value="duty" id="notify-duty" data-testid="radio-notify-duty" className="mt-1" />
-                <div>
-                  <Label htmlFor="notify-duty" className="font-normal">On-Duty Team</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Route alerts to operators currently on duty according to the shift schedule
-                  </p>
-                </div>
-              </div>
-            </RadioGroup>
-            
-            {notificationMode === 'duty' && (
-              <div className="space-y-2 pl-6">
-                <Label className="text-sm">Select Duty Team</Label>
-                {dutyTeams.length > 0 ? (
-                  <Select value={selectedDutyTeamId} onValueChange={setSelectedDutyTeamId}>
-                    <SelectTrigger data-testid="select-duty-team">
-                      <SelectValue placeholder="Choose a team..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {dutyTeams.map(team => (
-                        <SelectItem key={team.id} value={team.id}>
-                          <div className="flex items-center gap-2">
-                            <Users className="h-3 w-3" />
-                            {team.name}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    No duty teams configured. Create teams in Settings first.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
         </div>
         <DialogFooter className="flex items-center justify-between">
           {editDevice && onDelete && (

@@ -128,8 +128,7 @@ export const devices = pgTable("devices", {
     snmpPrivProtocol?: 'DES' | 'AES';
     snmpPrivKey?: string;
   }>(),
-  notificationMode: text("notification_mode").default("global").$type<'global' | 'duty'>(), // global = use device notification channels, duty = use on-duty team
-  dutyTeamId: varchar("duty_team_id"), // Team to notify when notificationMode is 'duty' (references dutyTeams but no FK to avoid circular)
+  useOnDuty: boolean("use_on_duty").default(false).notNull(), // Also send alerts to on-duty operators (in addition to global channels)
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -307,8 +306,7 @@ export const insertDeviceSchema = createInsertSchema(devices).omit({
   }).optional(),
   customCredentials: credentialsSchema.optional(),
   probeTimeout: z.union([z.number().int().min(1).max(120), z.null()]).optional(),
-  notificationMode: z.enum(['global', 'duty']).nullable().optional(),
-  dutyTeamId: z.string().nullable().optional(),
+  useOnDuty: z.boolean().optional(),
 });
 
 export const insertDevicePlacementSchema = createInsertSchema(devicePlacements).omit({
@@ -423,32 +421,12 @@ export const userNotificationChannels = pgTable("user_notification_channels", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// Duty teams - groups of operators for on-call scheduling
-export const dutyTeams = pgTable("duty_teams", {
+// Duty user schedules - users assigned directly to day/night shifts
+// Simplified model: users are assigned to either Day shift or Night shift (or both)
+export const dutyUserSchedules = pgTable("duty_user_schedules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: text("name").notNull(),
-  description: text("description"),
-  color: text("color").default("#3498DB"), // Team color for calendar display
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
-// Duty team members - users assigned to teams
-export const dutyTeamMembers = pgTable("duty_team_members", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  teamId: varchar("team_id").notNull().references(() => dutyTeams.id, { onDelete: "cascade" }),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-// Duty schedules - which team is on duty for each shift
-// Represents recurring weekly schedule with day/night shifts
-export const dutySchedules = pgTable("duty_schedules", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  teamId: varchar("team_id").notNull().references(() => dutyTeams.id, { onDelete: "cascade" }),
-  weekNumber: integer("week_number").notNull(), // 1-4 for a 4-week rotation cycle
-  dayOfWeek: integer("day_of_week").notNull(), // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-  shift: text("shift").notNull().$type<'day' | 'night'>(), // day = 7AM-7PM, night = 7PM-7AM
+  shift: text("shift").notNull().$type<'day' | 'night'>(), // day = during day hours, night = during night hours
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -481,25 +459,10 @@ export const insertUserNotificationChannelSchema = createInsertSchema(userNotifi
   enabled: z.boolean().optional(),
 });
 
-export const insertDutyTeamSchema = createInsertSchema(dutyTeams).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-}).extend({
-  color: z.string().optional(),
-});
-
-export const insertDutyTeamMemberSchema = createInsertSchema(dutyTeamMembers).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertDutyScheduleSchema = createInsertSchema(dutySchedules).omit({
+export const insertDutyUserScheduleSchema = createInsertSchema(dutyUserSchedules).omit({
   id: true,
   createdAt: true,
 }).extend({
-  weekNumber: z.number().int().min(1).max(52),
-  dayOfWeek: z.number().int().min(0).max(6),
   shift: z.enum(['day', 'night']),
 });
 
@@ -540,11 +503,7 @@ export type PortLock = typeof portLocks.$inferSelect;
 export type InsertPortLock = z.infer<typeof insertPortLockSchema>;
 export type UserNotificationChannel = typeof userNotificationChannels.$inferSelect;
 export type InsertUserNotificationChannel = z.infer<typeof insertUserNotificationChannelSchema>;
-export type DutyTeam = typeof dutyTeams.$inferSelect;
-export type InsertDutyTeam = z.infer<typeof insertDutyTeamSchema>;
-export type DutyTeamMember = typeof dutyTeamMembers.$inferSelect;
-export type InsertDutyTeamMember = z.infer<typeof insertDutyTeamMemberSchema>;
-export type DutySchedule = typeof dutySchedules.$inferSelect;
-export type InsertDutySchedule = z.infer<typeof insertDutyScheduleSchema>;
+export type DutyUserSchedule = typeof dutyUserSchedules.$inferSelect;
+export type InsertDutyUserSchedule = z.infer<typeof insertDutyUserScheduleSchema>;
 export type DutyShiftConfig = typeof dutyShiftConfig.$inferSelect;
 export type InsertDutyShiftConfig = z.infer<typeof insertDutyShiftConfigSchema>;

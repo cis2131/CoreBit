@@ -14,9 +14,7 @@ import {
   users,
   portLocks,
   userNotificationChannels,
-  dutyTeams,
-  dutyTeamMembers,
-  dutySchedules,
+  dutyUserSchedules,
   dutyShiftConfig,
   type Map, 
   type InsertMap,
@@ -44,12 +42,8 @@ import {
   type InsertPortLock,
   type UserNotificationChannel,
   type InsertUserNotificationChannel,
-  type DutyTeam,
-  type InsertDutyTeam,
-  type DutyTeamMember,
-  type InsertDutyTeamMember,
-  type DutySchedule,
-  type InsertDutySchedule,
+  type DutyUserSchedule,
+  type InsertDutyUserSchedule,
   type DutyShiftConfig,
   type InsertDutyShiftConfig
 } from "@shared/schema";
@@ -150,24 +144,13 @@ export interface IStorage {
   updateUserNotificationChannel(id: string, channel: Partial<InsertUserNotificationChannel>): Promise<UserNotificationChannel | undefined>;
   deleteUserNotificationChannel(id: string): Promise<void>;
 
-  // Duty Teams
-  getAllDutyTeams(): Promise<DutyTeam[]>;
-  getDutyTeam(id: string): Promise<DutyTeam | undefined>;
-  createDutyTeam(team: InsertDutyTeam): Promise<DutyTeam>;
-  updateDutyTeam(id: string, team: Partial<InsertDutyTeam>): Promise<DutyTeam | undefined>;
-  deleteDutyTeam(id: string): Promise<void>;
-
-  // Duty Team Members
-  getDutyTeamMembers(teamId: string): Promise<DutyTeamMember[]>;
-  addDutyTeamMember(member: InsertDutyTeamMember): Promise<DutyTeamMember>;
-  removeDutyTeamMember(teamId: string, userId: string): Promise<void>;
-
-  // Duty Schedules
-  getAllDutySchedules(): Promise<DutySchedule[]>;
-  getDutySchedulesByTeam(teamId: string): Promise<DutySchedule[]>;
-  createDutySchedule(schedule: InsertDutySchedule): Promise<DutySchedule>;
-  deleteDutySchedule(id: string): Promise<void>;
-  clearDutySchedules(): Promise<void>;
+  // Duty User Schedules (simplified: users assigned directly to day/night shifts)
+  getAllDutyUserSchedules(): Promise<DutyUserSchedule[]>;
+  getDutyUserSchedulesByShift(shift: 'day' | 'night'): Promise<DutyUserSchedule[]>;
+  addDutyUserSchedule(schedule: InsertDutyUserSchedule): Promise<DutyUserSchedule>;
+  removeDutyUserSchedule(userId: string, shift: 'day' | 'night'): Promise<void>;
+  removeDutyUserScheduleById(id: string): Promise<void>;
+  clearDutyUserSchedules(): Promise<void>;
 
   // Duty Shift Config
   getDutyShiftConfig(): Promise<DutyShiftConfig | undefined>;
@@ -591,79 +574,41 @@ export class DatabaseStorage implements IStorage {
     await db.delete(userNotificationChannels).where(eq(userNotificationChannels.id, id));
   }
 
-  // Duty Teams
-  async getAllDutyTeams(): Promise<DutyTeam[]> {
-    return await db.select().from(dutyTeams).orderBy(dutyTeams.name);
+  // Duty User Schedules (simplified: users assigned directly to day/night shifts)
+  async getAllDutyUserSchedules(): Promise<DutyUserSchedule[]> {
+    return await db.select().from(dutyUserSchedules);
   }
 
-  async getDutyTeam(id: string): Promise<DutyTeam | undefined> {
-    const [team] = await db.select().from(dutyTeams).where(eq(dutyTeams.id, id));
-    return team || undefined;
+  async getDutyUserSchedulesByShift(shift: 'day' | 'night'): Promise<DutyUserSchedule[]> {
+    return await db.select().from(dutyUserSchedules).where(eq(dutyUserSchedules.shift, shift));
   }
 
-  async createDutyTeam(insertTeam: InsertDutyTeam): Promise<DutyTeam> {
-    const [team] = await db
-      .insert(dutyTeams)
-      .values(insertTeam)
-      .returning();
-    return team;
-  }
-
-  async updateDutyTeam(id: string, updateData: Partial<InsertDutyTeam>): Promise<DutyTeam | undefined> {
-    const [team] = await db
-      .update(dutyTeams)
-      .set({ ...updateData, updatedAt: new Date() })
-      .where(eq(dutyTeams.id, id))
-      .returning();
-    return team || undefined;
-  }
-
-  async deleteDutyTeam(id: string): Promise<void> {
-    await db.delete(dutyTeams).where(eq(dutyTeams.id, id));
-  }
-
-  // Duty Team Members
-  async getDutyTeamMembers(teamId: string): Promise<DutyTeamMember[]> {
-    return await db.select().from(dutyTeamMembers).where(eq(dutyTeamMembers.teamId, teamId));
-  }
-
-  async addDutyTeamMember(insertMember: InsertDutyTeamMember): Promise<DutyTeamMember> {
-    const [member] = await db
-      .insert(dutyTeamMembers)
-      .values(insertMember)
-      .returning();
-    return member;
-  }
-
-  async removeDutyTeamMember(teamId: string, userId: string): Promise<void> {
-    await db
-      .delete(dutyTeamMembers)
-      .where(and(eq(dutyTeamMembers.teamId, teamId), eq(dutyTeamMembers.userId, userId)));
-  }
-
-  // Duty Schedules
-  async getAllDutySchedules(): Promise<DutySchedule[]> {
-    return await db.select().from(dutySchedules).orderBy(dutySchedules.weekNumber, dutySchedules.dayOfWeek);
-  }
-
-  async getDutySchedulesByTeam(teamId: string): Promise<DutySchedule[]> {
-    return await db.select().from(dutySchedules).where(eq(dutySchedules.teamId, teamId));
-  }
-
-  async createDutySchedule(insertSchedule: InsertDutySchedule): Promise<DutySchedule> {
+  async addDutyUserSchedule(insertSchedule: InsertDutyUserSchedule): Promise<DutyUserSchedule> {
+    // Check if this user+shift combo already exists
+    const existing = await db.select().from(dutyUserSchedules)
+      .where(and(eq(dutyUserSchedules.userId, insertSchedule.userId), eq(dutyUserSchedules.shift, insertSchedule.shift)));
+    if (existing.length > 0) {
+      return existing[0]; // Already exists
+    }
     const [schedule] = await db
-      .insert(dutySchedules)
+      .insert(dutyUserSchedules)
       .values(insertSchedule)
       .returning();
     return schedule;
   }
 
-  async deleteDutySchedule(id: string): Promise<void> {
-    await db.delete(dutySchedules).where(eq(dutySchedules.id, id));
+  async removeDutyUserSchedule(userId: string, shift: 'day' | 'night'): Promise<void> {
+    await db
+      .delete(dutyUserSchedules)
+      .where(and(eq(dutyUserSchedules.userId, userId), eq(dutyUserSchedules.shift, shift)));
   }
 
-  async clearDutySchedules(): Promise<void> {
-    await db.delete(dutySchedules);
+  async removeDutyUserScheduleById(id: string): Promise<void> {
+    await db.delete(dutyUserSchedules).where(eq(dutyUserSchedules.id, id));
+  }
+
+  async clearDutyUserSchedules(): Promise<void> {
+    await db.delete(dutyUserSchedules);
   }
 
   // Duty Shift Config
