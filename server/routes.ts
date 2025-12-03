@@ -1162,11 +1162,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // User Notification Channels Routes
   // =============================================
   
-  // Get all user notification channels (admin only)
-  app.get("/api/user-notification-channels", requireAdmin as any, async (_req, res) => {
+  // Get all user notification channels (admin only) or filter by userId
+  app.get("/api/user-notification-channels", requireAdmin as any, async (req, res) => {
     try {
-      const channels = await storage.getAllUserNotificationChannels();
-      res.json(channels);
+      const userId = req.query.userId as string | undefined;
+      if (userId) {
+        const channels = await storage.getUserNotificationChannels(userId);
+        res.json(channels);
+      } else {
+        const channels = await storage.getAllUserNotificationChannels();
+        res.json(channels);
+      }
     } catch (error) {
       console.error('Error fetching user notification channels:', error);
       res.status(500).json({ error: 'Failed to fetch user notification channels' });

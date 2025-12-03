@@ -384,11 +384,122 @@ function UserManagementSection() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [channelsDialogUser, setChannelsDialogUser] = useState<User | null>(null);
+  const [channelDialogOpen, setChannelDialogOpen] = useState(false);
+  const [editingChannel, setEditingChannel] = useState<UserNotificationChannel | null>(null);
+  const [deletingChannel, setDeletingChannel] = useState<UserNotificationChannel | null>(null);
 
   const { data: users = [], isLoading } = useQuery<User[]>({
     queryKey: ["/api/users"],
     enabled: isAdmin,
   });
+
+  // Fetch notification channels for the selected user
+  const { data: userChannels = [], refetch: refetchUserChannels } = useQuery<UserNotificationChannel[]>({
+    queryKey: ["/api/user-notification-channels", channelsDialogUser?.id],
+    queryFn: async () => {
+      if (!channelsDialogUser) return [];
+      const res = await fetch(`/api/user-notification-channels?userId=${channelsDialogUser.id}`);
+      if (!res.ok) throw new Error("Failed to fetch channels");
+      return res.json();
+    },
+    enabled: !!channelsDialogUser,
+  });
+
+  const channelForm = useForm<UserChannelFormData>({
+    resolver: zodResolver(userChannelFormSchema),
+    defaultValues: {
+      name: "",
+      type: "webhook",
+      enabled: true,
+      config: {
+        url: "",
+        method: "POST",
+        messageTemplate: "[Device.Name] ([Device.Address]) is now [Service.Status]",
+      },
+    },
+  });
+
+  useEffect(() => {
+    if (editingChannel) {
+      channelForm.reset({
+        name: editingChannel.name,
+        type: editingChannel.type as "webhook" | "email" | "telegram",
+        enabled: editingChannel.enabled,
+        config: editingChannel.config as any,
+      });
+    } else {
+      channelForm.reset({
+        name: "",
+        type: "webhook",
+        enabled: true,
+        config: {
+          url: "",
+          method: "POST",
+          messageTemplate: "[Device.Name] ([Device.Address]) is now [Service.Status]",
+        },
+      });
+    }
+  }, [editingChannel, channelForm]);
+
+  const createChannelMutation = useMutation({
+    mutationFn: async (data: UserChannelFormData) =>
+      apiRequest("POST", "/api/user-notification-channels", { ...data, userId: channelsDialogUser?.id }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/user-notification-channels", channelsDialogUser?.id] });
+      toast({ description: "Notification channel created" });
+      setChannelDialogOpen(false);
+      setEditingChannel(null);
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to create channel" });
+    },
+  });
+
+  const updateChannelMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<UserChannelFormData> }) =>
+      apiRequest("PATCH", `/api/user-notification-channels/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/user-notification-channels", channelsDialogUser?.id] });
+      toast({ description: "Notification channel updated" });
+      setChannelDialogOpen(false);
+      setEditingChannel(null);
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to update channel" });
+    },
+  });
+
+  const deleteChannelMutation = useMutation({
+    mutationFn: async (id: string) =>
+      apiRequest("DELETE", `/api/user-notification-channels/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/user-notification-channels", channelsDialogUser?.id] });
+      toast({ description: "Notification channel deleted" });
+      setDeletingChannel(null);
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to delete channel" });
+    },
+  });
+
+  const handleChannelSubmit = (data: UserChannelFormData) => {
+    if (editingChannel) {
+      updateChannelMutation.mutate({ id: editingChannel.id, data });
+    } else {
+      createChannelMutation.mutate(data);
+    }
+  };
+
+  const handleOpenChannels = (user: User) => {
+    setChannelsDialogUser(user);
+    setEditingChannel(null);
+  };
+
+  const handleCloseChannelsDialog = () => {
+    setChannelsDialogUser(null);
+    setEditingChannel(null);
+  };
 
   const form = useForm<UserFormData>({
     resolver: zodResolver(userFormSchema),
@@ -694,6 +805,15 @@ function UserManagementSection() {
                   <Button
                     variant="ghost"
                     size="icon"
+                    onClick={() => handleOpenChannels(user)}
+                    title="Manage notification channels"
+                    data-testid={`button-channels-user-${user.id}`}
+                  >
+                    <Bell className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={() => handleEdit(user)}
                     data-testid={`button-edit-user-${user.id}`}
                   >
@@ -734,6 +854,277 @@ function UserManagementSection() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* User Notification Channels Dialog */}
+      <Dialog open={!!channelsDialogUser} onOpenChange={(open) => !open && handleCloseChannelsDialog()}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bell className="h-5 w-5" />
+              Notification Channels - {channelsDialogUser?.displayName || channelsDialogUser?.username}
+            </DialogTitle>
+            <DialogDescription>
+              Configure where this user receives on-duty alerts
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEditingChannel(null);
+                  setChannelDialogOpen(true);
+                }}
+                data-testid="button-add-user-channel"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Channel
+              </Button>
+            </div>
+
+            {userChannels.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                No notification channels configured for this user
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {userChannels.map((channel) => (
+                  <div
+                    key={channel.id}
+                    className="flex items-center justify-between p-3 border rounded-md"
+                    data-testid={`user-channel-item-${channel.id}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      {channel.type === 'webhook' && <Webhook className="h-4 w-4 text-blue-500" />}
+                      {channel.type === 'email' && <Mail className="h-4 w-4 text-green-500" />}
+                      {channel.type === 'telegram' && <MessageSquare className="h-4 w-4 text-sky-500" />}
+                      <div>
+                        <div className="font-medium text-foreground flex items-center gap-2">
+                          {channel.name}
+                          {!channel.enabled && (
+                            <span className="text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">Disabled</span>
+                          )}
+                        </div>
+                        <div className="text-sm text-muted-foreground capitalize">
+                          {channel.type}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setEditingChannel(channel);
+                          setChannelDialogOpen(true);
+                        }}
+                        data-testid={`button-edit-channel-${channel.id}`}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setDeletingChannel(channel)}
+                        data-testid={`button-delete-channel-${channel.id}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add/Edit Channel Dialog */}
+      <Dialog open={channelDialogOpen} onOpenChange={setChannelDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingChannel ? "Edit Channel" : "Add Notification Channel"}</DialogTitle>
+            <DialogDescription>
+              Configure a notification channel for {channelsDialogUser?.displayName || channelsDialogUser?.username}
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...channelForm}>
+            <form onSubmit={channelForm.handleSubmit(handleChannelSubmit)} className="space-y-4">
+              <FormField
+                control={channelForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Channel Name</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="e.g., My Telegram" data-testid="input-channel-name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={channelForm.control}
+                name="type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Type</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-channel-type">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="webhook">Webhook</SelectItem>
+                        <SelectItem value="telegram">Telegram</SelectItem>
+                        <SelectItem value="email">Email (coming soon)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={channelForm.control}
+                name="enabled"
+                render={({ field }) => (
+                  <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <FormLabel>Enabled</FormLabel>
+                      <FormDescription className="text-xs">
+                        Receive notifications on this channel
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              
+              {channelForm.watch("type") === "webhook" && (
+                <>
+                  <FormField
+                    control={channelForm.control}
+                    name="config.url"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Webhook URL</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="https://..." data-testid="input-channel-url" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={channelForm.control}
+                    name="config.method"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Method</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || "POST"}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="POST">POST</SelectItem>
+                            <SelectItem value="GET">GET</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
+
+              {channelForm.watch("type") === "telegram" && (
+                <>
+                  <FormField
+                    control={channelForm.control}
+                    name="config.botToken"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Bot Token</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="123456:ABC-DEF..." data-testid="input-channel-bot-token" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={channelForm.control}
+                    name="config.chatId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Chat ID</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="-1001234567890" data-testid="input-channel-chat-id" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
+
+              <FormField
+                control={channelForm.control}
+                name="config.messageTemplate"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Message Template</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        {...field}
+                        placeholder="[Device.Name] is now [Service.Status]"
+                        data-testid="input-channel-message"
+                      />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      Available: [Device.Name], [Device.Address], [Service.Status], [Status.Old], [Status.New]
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <DialogFooter>
+                <Button type="submit" disabled={createChannelMutation.isPending || updateChannelMutation.isPending}>
+                  {(createChannelMutation.isPending || updateChannelMutation.isPending) && (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  )}
+                  {editingChannel ? "Update" : "Create"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Channel Confirmation */}
+      <AlertDialog open={!!deletingChannel} onOpenChange={(open) => !open && setDeletingChannel(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Notification Channel</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{deletingChannel?.name}"?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deletingChannel && deleteChannelMutation.mutate(deletingChannel.id)}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
@@ -754,371 +1145,6 @@ const userChannelFormSchema = z.object({
 });
 
 type UserChannelFormData = z.infer<typeof userChannelFormSchema>;
-
-function MyNotificationChannelsSection() {
-  const { toast } = useToast();
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingChannel, setEditingChannel] = useState<UserNotificationChannel | null>(null);
-  const [deletingChannel, setDeletingChannel] = useState<UserNotificationChannel | null>(null);
-
-  const { data: channels = [], isLoading } = useQuery<UserNotificationChannel[]>({
-    queryKey: ["/api/my-notification-channels"],
-  });
-
-  const form = useForm<UserChannelFormData>({
-    resolver: zodResolver(userChannelFormSchema),
-    defaultValues: {
-      name: "",
-      type: "webhook",
-      enabled: true,
-      config: {
-        url: "",
-        method: "POST",
-        messageTemplate: "Device [Device.Name] ([Device.Address]) is now [Service.Status]",
-        emailAddress: "",
-        botToken: "",
-        chatId: "",
-      },
-    },
-  });
-
-  const selectedType = form.watch("type");
-
-  useEffect(() => {
-    if (editingChannel) {
-      const config = editingChannel.config || {};
-      form.reset({
-        name: editingChannel.name,
-        type: editingChannel.type as "webhook" | "email" | "telegram",
-        enabled: editingChannel.enabled,
-        config: {
-          url: config.url || "",
-          method: (config.method as "GET" | "POST") || "POST",
-          messageTemplate: config.messageTemplate || "",
-          emailAddress: config.emailAddress || "",
-          botToken: config.botToken || "",
-          chatId: config.chatId || "",
-        },
-      });
-    } else {
-      form.reset({
-        name: "",
-        type: "webhook",
-        enabled: true,
-        config: {
-          url: "",
-          method: "POST",
-          messageTemplate: "Device [Device.Name] ([Device.Address]) is now [Service.Status]",
-          emailAddress: "",
-          botToken: "",
-          chatId: "",
-        },
-      });
-    }
-  }, [editingChannel, dialogOpen, form]);
-
-  const createMutation = useMutation({
-    mutationFn: async (data: UserChannelFormData) =>
-      apiRequest("POST", "/api/my-notification-channels", data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/my-notification-channels"] });
-      toast({ description: "Notification channel created" });
-      handleDialogClose();
-    },
-    onError: () => {
-      toast({ variant: "destructive", description: "Failed to create channel" });
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Partial<UserChannelFormData> }) =>
-      apiRequest("PATCH", `/api/user-notification-channels/${id}`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/my-notification-channels"] });
-      toast({ description: "Channel updated" });
-      handleDialogClose();
-    },
-    onError: () => {
-      toast({ variant: "destructive", description: "Failed to update channel" });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) =>
-      apiRequest("DELETE", `/api/user-notification-channels/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/my-notification-channels"] });
-      toast({ description: "Channel deleted" });
-      setDeletingChannel(null);
-    },
-    onError: () => {
-      toast({ variant: "destructive", description: "Failed to delete channel" });
-    },
-  });
-
-  const handleDialogClose = () => {
-    setDialogOpen(false);
-    setEditingChannel(null);
-    form.reset();
-  };
-
-  const handleSubmit = (data: UserChannelFormData) => {
-    if (editingChannel) {
-      updateMutation.mutate({ id: editingChannel.id, data });
-    } else {
-      createMutation.mutate(data);
-    }
-  };
-
-  const getChannelIcon = (type: string) => {
-    switch (type) {
-      case "webhook": return <Webhook className="h-4 w-4" />;
-      case "email": return <Mail className="h-4 w-4" />;
-      case "telegram": return <MessageSquare className="h-4 w-4" />;
-      default: return <Bell className="h-4 w-4" />;
-    }
-  };
-
-  return (
-    <Card data-testid="card-my-notification-channels">
-      <CardHeader className="flex flex-row items-center justify-between gap-4">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <UserCog className="h-5 w-5" />
-            My Notification Channels
-          </CardTitle>
-          <CardDescription>
-            Configure how you receive device alerts when on duty
-          </CardDescription>
-        </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm" data-testid="button-add-channel">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Channel
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editingChannel ? "Edit Channel" : "Add Notification Channel"}</DialogTitle>
-              <DialogDescription>
-                Configure where you receive alerts when you're on duty
-              </DialogDescription>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Channel Name</FormLabel>
-                      <FormControl>
-                        <Input {...field} placeholder="e.g., My Telegram" data-testid="input-channel-name" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="type"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Channel Type</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-channel-type">
-                            <SelectValue placeholder="Select type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="webhook">Webhook (HTTP)</SelectItem>
-                          <SelectItem value="email">Email (Coming Soon)</SelectItem>
-                          <SelectItem value="telegram">Telegram (Coming Soon)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                {selectedType === "webhook" && (
-                  <>
-                    <FormField
-                      control={form.control}
-                      name="config.url"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Webhook URL</FormLabel>
-                          <FormControl>
-                            <Input {...field} placeholder="https://..." data-testid="input-webhook-url" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="config.method"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>HTTP Method</FormLabel>
-                          <Select onValueChange={field.onChange} value={field.value || "POST"}>
-                            <FormControl>
-                              <SelectTrigger data-testid="select-webhook-method">
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="POST">POST</SelectItem>
-                              <SelectItem value="GET">GET</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="config.messageTemplate"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Message Template</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              {...field}
-                              rows={3}
-                              placeholder="Device [Device.Name] is now [Service.Status]"
-                              data-testid="input-message-template"
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            Use [Device.Name], [Device.Address], [Service.Status], [Status.Old], [Status.New]
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </>
-                )}
-                <FormField
-                  control={form.control}
-                  name="enabled"
-                  render={({ field }) => (
-                    <FormItem className="flex items-center justify-between p-4 border rounded-md">
-                      <div>
-                        <FormLabel className="text-base">Enabled</FormLabel>
-                        <FormDescription>Receive notifications through this channel</FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                          data-testid="switch-channel-enabled"
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-                <DialogFooter>
-                  <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-save-channel">
-                    {createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save"}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : channels.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            No notification channels configured. Add one to receive alerts when on duty.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {channels.map((channel) => (
-              <div
-                key={channel.id}
-                className="flex items-center justify-between p-4 border rounded-md hover-elevate"
-                data-testid={`channel-item-${channel.id}`}
-              >
-                <div className="flex items-center gap-3">
-                  {channel.enabled ? (
-                    <div className="text-primary">{getChannelIcon(channel.type)}</div>
-                  ) : (
-                    <div className="text-muted-foreground">{getChannelIcon(channel.type)}</div>
-                  )}
-                  <div>
-                    <div className="font-medium text-foreground flex items-center gap-2">
-                      {channel.name}
-                      {!channel.enabled && (
-                        <span className="text-xs bg-muted px-2 py-0.5 rounded">Disabled</span>
-                      )}
-                    </div>
-                    <div className="text-sm text-muted-foreground capitalize">
-                      {channel.type}
-                      {channel.type === "webhook" && channel.config?.url && (
-                        <span className="ml-2 truncate max-w-[200px] inline-block align-bottom">
-                          · {channel.config.url}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => {
-                      setEditingChannel(channel);
-                      setDialogOpen(true);
-                    }}
-                    data-testid={`button-edit-channel-${channel.id}`}
-                  >
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setDeletingChannel(channel)}
-                    data-testid={`button-delete-channel-${channel.id}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-
-      <AlertDialog open={!!deletingChannel} onOpenChange={(open) => !open && setDeletingChannel(null)}>
-        <AlertDialogContent data-testid="dialog-delete-channel-confirm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Notification Channel</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete "{deletingChannel?.name}"?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-delete-channel">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => deletingChannel && deleteMutation.mutate(deletingChannel.id)}
-              data-testid="button-confirm-delete-channel"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </Card>
-  );
-}
 
 interface OnDutyUserSchedule extends DutyUserSchedule {
   user: { id: string; username: string; displayName: string | null };
@@ -2846,7 +2872,6 @@ export default function Settings() {
 
           <BackupSection />
 
-          <MyNotificationChannelsSection />
 
           <OnDutyScheduleSection />
 
