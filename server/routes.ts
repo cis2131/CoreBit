@@ -456,7 +456,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Probe device for additional information
       const probeResult = await probeDevice(data.type, data.ipAddress || undefined, credentials);
-      const status = determineDeviceStatus(probeResult.data, probeResult.success);
+      const status = determineDeviceStatus(probeResult.data, probeResult.success, probeResult.pingOnly);
 
       const device = await storage.createDevice({
         ...data,
@@ -491,7 +491,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             (updateData.ipAddress !== undefined ? updateData.ipAddress : existingDevice.ipAddress) || undefined,
             credentials
           );
-          const status = determineDeviceStatus(probeResult.data, probeResult.success);
+          const status = determineDeviceStatus(probeResult.data, probeResult.success, probeResult.pingOnly);
           finalUpdateData = {
             ...updateData,
             status,
@@ -710,7 +710,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         probeResult = { success: false, error: timeoutError.message };
       }
       
-      const status = determineDeviceStatus(probeResult.data, probeResult.success);
+      const status = determineDeviceStatus(probeResult.data, probeResult.success, (probeResult as any).pingOnly);
 
       const updatedDevice = await storage.updateDevice(req.params.id, {
         status,
@@ -1429,7 +1429,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // If we don't need detailed probe, use the quick probe result and return early
         if (!needsDetailedProbe && quickProbe.success) {
-          const status = determineDeviceStatus(quickProbe.data, quickProbe.success);
+          const status = determineDeviceStatus(quickProbe.data, quickProbe.success, quickProbe.pingOnly);
           const oldStatus = device.status;
           const statusChanged = status !== oldStatus;
           
@@ -1504,12 +1504,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return { device, success: false, timeout: true };
       }
       
-      let status = determineDeviceStatus(probeResult.data, probeResult.success);
+      // For non-Mikrotik devices, ping fallback is now built into probeDevice
+      // For Mikrotik devices, still use the explicit ping fallback setting
+      let status = determineDeviceStatus(probeResult.data, probeResult.success, probeResult.pingOnly);
       const oldStatus = device.status;
       
-      // Ping fallback: if probe failed and status would be offline, try ping first
-      // If ping succeeds, use 'stale' status instead of 'offline' (no alarm)
-      if (status === 'offline' && defaults?.pingFallbackEnabled && device.ipAddress) {
+      // Ping fallback for Mikrotik devices: if probe failed and status would be offline, try ping
+      // (Non-Mikrotik devices already have ping fallback built into probeDevice)
+      if (status === 'offline' && defaults?.pingFallbackEnabled && device.ipAddress && device.type.startsWith('mikrotik_')) {
         try {
           const pingResult = await pingDevice(device.ipAddress, 3);
           if (pingResult.success) {

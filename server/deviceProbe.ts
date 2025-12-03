@@ -890,7 +890,7 @@ export async function probeDevice(
   needsSnmpIndexing: boolean = false,  // Only true when device has monitored connections
   timeoutSeconds: number = 5,  // Device probe timeout in seconds
   abortSignal?: AbortSignal
-): Promise<{ data: DeviceProbeData; success: boolean }> {
+): Promise<{ data: DeviceProbeData; success: boolean; pingOnly?: boolean; pingRtt?: number }> {
   if (!ipAddress) {
     return { data: {}, success: false };
   }
@@ -905,15 +905,39 @@ export async function probeDevice(
         data = await probeMikrotikDevice(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing, timeoutSeconds);
       }
     } else {
+      // Non-Mikrotik devices: use SNMP only (no API login attempts)
       data = await probeSnmpDevice(ipAddress, credentials);
     }
     return { data, success: true };
   } catch (error: any) {
+    // For non-Mikrotik devices, if SNMP fails, try ping as fallback
+    // This allows devices without SNMP to still show as reachable
+    if (!deviceType.startsWith('mikrotik_')) {
+      try {
+        const pingResult = await pingDevice(ipAddress, Math.min(timeoutSeconds, 3));
+        if (pingResult.success) {
+          // Device responds to ping but not SNMP
+          // Return success=false to preserve existing deviceData, but set pingOnly=true
+          // so the caller knows to mark as "stale" instead of "offline"
+          return { 
+            data: {}, 
+            success: false,
+            pingOnly: true,  // Flag to indicate ping succeeded but SNMP failed
+            pingRtt: pingResult.rtt
+          };
+        }
+      } catch (pingError: any) {
+        // Ping also failed - device is truly offline
+      }
+    }
     return { data: {}, success: false };
   }
 }
 
-export function determineDeviceStatus(probeData: DeviceProbeData, probeSucceeded: boolean): string {
+export function determineDeviceStatus(probeData: DeviceProbeData, probeSucceeded: boolean, pingOnly?: boolean): string {
+  // If device only responds to ping (not SNMP/API), mark as stale
+  // This takes precedence even when success=false
+  if (pingOnly) return 'stale';
   if (!probeSucceeded) return 'offline';
   if (probeData.model || probeData.uptime || probeData.version) return 'online';
   return 'unknown';
