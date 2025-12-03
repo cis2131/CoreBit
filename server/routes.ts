@@ -1179,6 +1179,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create notification channel for a user (admin only)
+  app.post("/api/user-notification-channels", requireAdmin as any, async (req, res) => {
+    try {
+      const { userId, ...channelData } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: 'userId is required' });
+      }
+      const data = insertUserNotificationChannelSchema.parse({
+        ...channelData,
+        userId,
+      });
+      const channel = await storage.createUserNotificationChannel(data);
+      res.status(201).json(channel);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid channel data', details: error.errors });
+      }
+      console.error('Error creating user notification channel:', error);
+      res.status(500).json({ error: 'Failed to create user notification channel' });
+    }
+  });
+
   // Get notification channels for a specific user
   app.get("/api/users/:userId/notification-channels", requireAuth as any, async (req, res) => {
     try {
