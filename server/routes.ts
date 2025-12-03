@@ -1839,17 +1839,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               console.error(`[Logging] Error creating log for ${device.name}:`, error.message);
             }
 
-            // Send notifications
+            // Send notifications (global channels + on-duty users if enabled)
             try {
-              const deviceNotifications = await storage.getDeviceNotifications(device.id);
-              if (deviceNotifications.length > 0) {
-                for (const dn of deviceNotifications) {
-                  const notification = await storage.getNotification(dn.notificationId);
-                  if (notification) {
-                    await sendNotification(notification, device, status, oldStatus);
-                  }
-                }
-              }
+              await sendDeviceNotifications(device, status, oldStatus);
             } catch (error: any) {
               console.error(`[Notification] Error sending notifications for ${device.name}:`, error.message);
             }
@@ -1989,15 +1981,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Send notifications only for offline status (not stale - that's the point of ping fallback)
         if (status !== 'stale') {
           try {
-            const deviceNotifications = await storage.getDeviceNotifications(device.id);
-            if (deviceNotifications.length > 0) {
-              for (const dn of deviceNotifications) {
-                const notification = await storage.getNotification(dn.notificationId);
-                if (notification) {
-                  await sendNotification(notification, device, status, oldStatus);
-                }
-              }
-            }
+            await sendDeviceNotifications(device, status, oldStatus);
           } catch (error: any) {
             console.error(`[Notification] Error sending notifications for ${device.name}:`, error.message);
           }
@@ -2096,15 +2080,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // Only send notifications for offline status (not stale - that's the whole point of ping fallback)
               if (!useStaleStatus) {
                 try {
-                  const deviceNotifications = await storage.getDeviceNotifications(device.id);
-                  if (deviceNotifications.length > 0) {
-                    for (const dn of deviceNotifications) {
-                      const notification = await storage.getNotification(dn.notificationId);
-                      if (notification) {
-                        await sendNotification(notification, device, 'offline', oldStatus);
-                      }
-                    }
-                  }
+                  await sendDeviceNotifications(device, 'offline', oldStatus);
                 } catch (notifError: any) {
                   console.error(`[Notification] Error sending timeout notifications for ${device.name}:`, notifError.message);
                 }
@@ -2260,15 +2236,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               
               // Send notifications for stale device going offline (only when ping also failed)
               try {
-                const deviceNotifications = await storage.getDeviceNotifications(device.id);
-                if (deviceNotifications.length > 0) {
-                  for (const dn of deviceNotifications) {
-                    const notification = await storage.getNotification(dn.notificationId);
-                    if (notification) {
-                      await sendNotification(notification, device, 'offline', oldStatus);
-                    }
-                  }
-                }
+                await sendDeviceNotifications(device, 'offline', oldStatus);
               } catch (error: any) {
                 console.error(`[Notification] Error sending stale notifications for ${device.name}:`, error.message);
               }
