@@ -415,6 +415,8 @@ function UserManagementSection() {
       config: {
         url: "",
         method: "POST",
+        botToken: "",
+        chatId: "",
         messageTemplate: "[Device.Name] ([Device.Address]) is now [Service.Status]",
       },
     },
@@ -436,6 +438,8 @@ function UserManagementSection() {
         config: {
           url: "",
           method: "POST",
+          botToken: "",
+          chatId: "",
           messageTemplate: "[Device.Name] ([Device.Address]) is now [Service.Status]",
         },
       });
@@ -1052,7 +1056,7 @@ function UserManagementSection() {
                       <FormItem>
                         <FormLabel>Bot Token</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="123456:ABC-DEF..." data-testid="input-channel-bot-token" />
+                          <Input {...field} value={field.value || ""} placeholder="123456:ABC-DEF..." data-testid="input-channel-bot-token" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -1065,7 +1069,7 @@ function UserManagementSection() {
                       <FormItem>
                         <FormLabel>Chat ID</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="-1001234567890" data-testid="input-channel-chat-id" />
+                          <Input {...field} value={field.value || ""} placeholder="-1001234567890" data-testid="input-channel-chat-id" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
