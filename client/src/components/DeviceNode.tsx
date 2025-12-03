@@ -94,12 +94,12 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
       data-testid={`device-node-${device.id}`}
     >
       <div
-        className={`relative bg-white dark:bg-gray-800 rounded-lg border-2 transition-all hover-elevate ${
+        className={`relative bg-slate-50 dark:bg-gray-800 rounded-lg border-2 shadow-sm transition-all hover-elevate ${
           isSelected
             ? 'border-primary shadow-lg'
             : isHighlighted
             ? 'border-yellow-400 shadow-md'
-            : 'border-border'
+            : 'border-slate-200 dark:border-border'
         }`}
         style={{ width: '320px' }}
       >
