@@ -13,6 +13,11 @@ import {
   backups,
   users,
   portLocks,
+  userNotificationChannels,
+  dutyTeams,
+  dutyTeamMembers,
+  dutySchedules,
+  dutyShiftConfig,
   type Map, 
   type InsertMap,
   type Device,
@@ -36,7 +41,17 @@ import {
   type User,
   type InsertUser,
   type PortLock,
-  type InsertPortLock
+  type InsertPortLock,
+  type UserNotificationChannel,
+  type InsertUserNotificationChannel,
+  type DutyTeam,
+  type InsertDutyTeam,
+  type DutyTeamMember,
+  type InsertDutyTeamMember,
+  type DutySchedule,
+  type InsertDutySchedule,
+  type DutyShiftConfig,
+  type InsertDutyShiftConfig
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNotNull } from "drizzle-orm";
@@ -126,6 +141,37 @@ export interface IStorage {
   getPortLock(deviceId: string, portName: string): Promise<PortLock | undefined>;
   createPortLock(portLock: InsertPortLock): Promise<PortLock>;
   deletePortLock(deviceId: string, portName: string): Promise<void>;
+
+  // User Notification Channels
+  getUserNotificationChannels(userId: string): Promise<UserNotificationChannel[]>;
+  getAllUserNotificationChannels(): Promise<UserNotificationChannel[]>;
+  getUserNotificationChannel(id: string): Promise<UserNotificationChannel | undefined>;
+  createUserNotificationChannel(channel: InsertUserNotificationChannel): Promise<UserNotificationChannel>;
+  updateUserNotificationChannel(id: string, channel: Partial<InsertUserNotificationChannel>): Promise<UserNotificationChannel | undefined>;
+  deleteUserNotificationChannel(id: string): Promise<void>;
+
+  // Duty Teams
+  getAllDutyTeams(): Promise<DutyTeam[]>;
+  getDutyTeam(id: string): Promise<DutyTeam | undefined>;
+  createDutyTeam(team: InsertDutyTeam): Promise<DutyTeam>;
+  updateDutyTeam(id: string, team: Partial<InsertDutyTeam>): Promise<DutyTeam | undefined>;
+  deleteDutyTeam(id: string): Promise<void>;
+
+  // Duty Team Members
+  getDutyTeamMembers(teamId: string): Promise<DutyTeamMember[]>;
+  addDutyTeamMember(member: InsertDutyTeamMember): Promise<DutyTeamMember>;
+  removeDutyTeamMember(teamId: string, userId: string): Promise<void>;
+
+  // Duty Schedules
+  getAllDutySchedules(): Promise<DutySchedule[]>;
+  getDutySchedulesByTeam(teamId: string): Promise<DutySchedule[]>;
+  createDutySchedule(schedule: InsertDutySchedule): Promise<DutySchedule>;
+  deleteDutySchedule(id: string): Promise<void>;
+  clearDutySchedules(): Promise<void>;
+
+  // Duty Shift Config
+  getDutyShiftConfig(): Promise<DutyShiftConfig | undefined>;
+  updateDutyShiftConfig(config: Partial<InsertDutyShiftConfig>): Promise<DutyShiftConfig>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -508,6 +554,140 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(portLocks)
       .where(and(eq(portLocks.deviceId, deviceId), eq(portLocks.portName, portName)));
+  }
+
+  // User Notification Channels
+  async getUserNotificationChannels(userId: string): Promise<UserNotificationChannel[]> {
+    return await db.select().from(userNotificationChannels).where(eq(userNotificationChannels.userId, userId));
+  }
+
+  async getAllUserNotificationChannels(): Promise<UserNotificationChannel[]> {
+    return await db.select().from(userNotificationChannels);
+  }
+
+  async getUserNotificationChannel(id: string): Promise<UserNotificationChannel | undefined> {
+    const [channel] = await db.select().from(userNotificationChannels).where(eq(userNotificationChannels.id, id));
+    return channel || undefined;
+  }
+
+  async createUserNotificationChannel(insertChannel: InsertUserNotificationChannel): Promise<UserNotificationChannel> {
+    const [channel] = await db
+      .insert(userNotificationChannels)
+      .values(insertChannel)
+      .returning();
+    return channel;
+  }
+
+  async updateUserNotificationChannel(id: string, updateData: Partial<InsertUserNotificationChannel>): Promise<UserNotificationChannel | undefined> {
+    const [channel] = await db
+      .update(userNotificationChannels)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(userNotificationChannels.id, id))
+      .returning();
+    return channel || undefined;
+  }
+
+  async deleteUserNotificationChannel(id: string): Promise<void> {
+    await db.delete(userNotificationChannels).where(eq(userNotificationChannels.id, id));
+  }
+
+  // Duty Teams
+  async getAllDutyTeams(): Promise<DutyTeam[]> {
+    return await db.select().from(dutyTeams).orderBy(dutyTeams.name);
+  }
+
+  async getDutyTeam(id: string): Promise<DutyTeam | undefined> {
+    const [team] = await db.select().from(dutyTeams).where(eq(dutyTeams.id, id));
+    return team || undefined;
+  }
+
+  async createDutyTeam(insertTeam: InsertDutyTeam): Promise<DutyTeam> {
+    const [team] = await db
+      .insert(dutyTeams)
+      .values(insertTeam)
+      .returning();
+    return team;
+  }
+
+  async updateDutyTeam(id: string, updateData: Partial<InsertDutyTeam>): Promise<DutyTeam | undefined> {
+    const [team] = await db
+      .update(dutyTeams)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(dutyTeams.id, id))
+      .returning();
+    return team || undefined;
+  }
+
+  async deleteDutyTeam(id: string): Promise<void> {
+    await db.delete(dutyTeams).where(eq(dutyTeams.id, id));
+  }
+
+  // Duty Team Members
+  async getDutyTeamMembers(teamId: string): Promise<DutyTeamMember[]> {
+    return await db.select().from(dutyTeamMembers).where(eq(dutyTeamMembers.teamId, teamId));
+  }
+
+  async addDutyTeamMember(insertMember: InsertDutyTeamMember): Promise<DutyTeamMember> {
+    const [member] = await db
+      .insert(dutyTeamMembers)
+      .values(insertMember)
+      .returning();
+    return member;
+  }
+
+  async removeDutyTeamMember(teamId: string, userId: string): Promise<void> {
+    await db
+      .delete(dutyTeamMembers)
+      .where(and(eq(dutyTeamMembers.teamId, teamId), eq(dutyTeamMembers.userId, userId)));
+  }
+
+  // Duty Schedules
+  async getAllDutySchedules(): Promise<DutySchedule[]> {
+    return await db.select().from(dutySchedules).orderBy(dutySchedules.weekNumber, dutySchedules.dayOfWeek);
+  }
+
+  async getDutySchedulesByTeam(teamId: string): Promise<DutySchedule[]> {
+    return await db.select().from(dutySchedules).where(eq(dutySchedules.teamId, teamId));
+  }
+
+  async createDutySchedule(insertSchedule: InsertDutySchedule): Promise<DutySchedule> {
+    const [schedule] = await db
+      .insert(dutySchedules)
+      .values(insertSchedule)
+      .returning();
+    return schedule;
+  }
+
+  async deleteDutySchedule(id: string): Promise<void> {
+    await db.delete(dutySchedules).where(eq(dutySchedules.id, id));
+  }
+
+  async clearDutySchedules(): Promise<void> {
+    await db.delete(dutySchedules);
+  }
+
+  // Duty Shift Config
+  async getDutyShiftConfig(): Promise<DutyShiftConfig | undefined> {
+    const [config] = await db.select().from(dutyShiftConfig);
+    return config || undefined;
+  }
+
+  async updateDutyShiftConfig(updateData: Partial<InsertDutyShiftConfig>): Promise<DutyShiftConfig> {
+    const existing = await this.getDutyShiftConfig();
+    if (existing) {
+      const [config] = await db
+        .update(dutyShiftConfig)
+        .set({ ...updateData, updatedAt: new Date() })
+        .where(eq(dutyShiftConfig.id, existing.id))
+        .returning();
+      return config;
+    } else {
+      const [config] = await db
+        .insert(dutyShiftConfig)
+        .values(updateData as InsertDutyShiftConfig)
+        .returning();
+      return config;
+    }
   }
 }
 
