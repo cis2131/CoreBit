@@ -428,7 +428,14 @@ function UserManagementSection() {
         name: editingChannel.name,
         type: editingChannel.type as "webhook" | "email" | "telegram",
         enabled: editingChannel.enabled,
-        config: editingChannel.config as any,
+        config: {
+          url: "",
+          method: "POST",
+          botToken: "",
+          chatId: "",
+          messageTemplate: "[Device.Name] ([Device.Address]) is now [Service.Status]",
+          ...(editingChannel.config as any),
+        },
       });
     } else {
       channelForm.reset({
@@ -445,6 +452,22 @@ function UserManagementSection() {
       });
     }
   }, [editingChannel, channelForm]);
+
+  // Reset config fields when channel type changes
+  const watchedType = channelForm.watch("type");
+  useEffect(() => {
+    if (!editingChannel) {
+      // When adding a new channel and type changes, ensure config fields are set
+      const currentConfig = channelForm.getValues("config");
+      channelForm.setValue("config", {
+        url: currentConfig?.url || "",
+        method: currentConfig?.method || "POST",
+        botToken: currentConfig?.botToken || "",
+        chatId: currentConfig?.chatId || "",
+        messageTemplate: currentConfig?.messageTemplate || "[Device.Name] ([Device.Address]) is now [Service.Status]",
+      });
+    }
+  }, [watchedType, editingChannel, channelForm]);
 
   const createChannelMutation = useMutation({
     mutationFn: async (data: UserChannelFormData) =>
