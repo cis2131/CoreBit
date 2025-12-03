@@ -1509,6 +1509,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let status = determineDeviceStatus(probeResult.data, probeResult.success, probeResult.pingOnly);
       const oldStatus = device.status;
       
+      // Log when ping fallback was used (non-Mikrotik devices - built into probeDevice)
+      if (probeResult.pingOnly) {
+        const timestamp = new Date().toISOString();
+        console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): SNMP failed but ping succeeded (RTT: ${probeResult.pingRtt || 'n/a'}ms) - marking as stale`);
+      }
+      
       // Ping fallback for Mikrotik devices: if probe failed and status would be offline, try ping
       // (Non-Mikrotik devices already have ping fallback built into probeDevice)
       if (status === 'offline' && defaults?.pingFallbackEnabled && device.ipAddress && device.type.startsWith('mikrotik_')) {
@@ -1517,7 +1523,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (pingResult.success) {
             status = 'stale';
             const timestamp = new Date().toISOString();
-            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): API failed but ping succeeded (RTT: ${pingResult.rtt || 'n/a'}ms) - marking as stale`);
+            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): Mikrotik API failed but ping succeeded (RTT: ${pingResult.rtt || 'n/a'}ms) - marking as stale`);
           }
         } catch (pingError: any) {
           console.warn(`[Probing] Ping fallback failed for ${device.name}:`, pingError.message);
@@ -1546,12 +1552,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Create log entry for status change
         try {
+          const staleProbeType = device.type.startsWith('mikrotik_') ? 'Mikrotik API' : 'SNMP';
           await storage.createLog({
             deviceId: device.id,
             eventType: 'status_change',
             severity: status === 'offline' ? 'error' : status === 'stale' ? 'warning' : status === 'warning' ? 'warning' : 'info',
             message: status === 'stale' 
-              ? `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to stale (API unreachable but responds to ping)`
+              ? `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to stale (${staleProbeType} unreachable but responds to ping)`
               : `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to ${status}`,
             oldStatus,
             newStatus: status,
@@ -1625,7 +1632,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 if (pingResult.success) {
                   useStaleStatus = true;
                   const timestamp = new Date().toISOString();
-                  console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): API failed but ping succeeded (RTT: ${pingResult.rtt || 'n/a'}ms) - marking as stale`);
+                  const probeType = device.type.startsWith('mikrotik_') ? 'Mikrotik API' : 'SNMP';
+                  console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${probeType} timed out but ping succeeded (RTT: ${pingResult.rtt || 'n/a'}ms) - marking as stale`);
                 }
               } catch (pingError: any) {
                 console.warn(`[Probing] Ping fallback failed for ${device.name}:`, pingError.message);
@@ -1643,8 +1651,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               
               // Log status change to console with timestamp
               const timestamp = new Date().toISOString();
+              const probeTypeLabel = device.type.startsWith('mikrotik_') ? 'Mikrotik API' : 'SNMP probe';
               if (useStaleStatus) {
-                console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → stale (API unreachable but device responds to ping)`);
+                console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → stale (${probeTypeLabel} unreachable but device responds to ping)`);
               } else {
                 console.warn(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${oldStatus} → offline (timeout after ${currentFailureCount}/${effectiveOfflineThreshold} failed cycles)`);
               }
@@ -1656,7 +1665,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   eventType: 'status_change',
                   severity: useStaleStatus ? 'warning' : 'error',
                   message: useStaleStatus 
-                    ? `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to stale (API unreachable but responds to ping)`
+                    ? `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to stale (${probeTypeLabel} unreachable but responds to ping)`
                     : `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to offline (probe timeout after ${currentFailureCount} failed cycles)`,
                   oldStatus,
                   newStatus: targetStatus,
