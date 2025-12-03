@@ -895,6 +895,11 @@ export async function probeDevice(
     return { data: {}, success: false };
   }
 
+  // Handle ping-only devices - no SNMP/API, just multi-ping for reliability
+  if (deviceType === 'generic_ping') {
+    return await probePingOnlyDevice(ipAddress, Math.min(timeoutSeconds, 3));
+  }
+
   try {
     let data: DeviceProbeData;
     if (deviceType.startsWith('mikrotik_')) {
@@ -934,10 +939,66 @@ export async function probeDevice(
   }
 }
 
-export function determineDeviceStatus(probeData: DeviceProbeData, probeSucceeded: boolean, pingOnly?: boolean): string {
-  // If device only responds to ping (not SNMP/API), mark as stale
-  // This takes precedence even when success=false
-  if (pingOnly) return 'stale';
+// Probe ping-only devices using concurrent pings for reliability
+// Best practice: Run 2 pings in parallel, succeed if ANY returns
+// This reduces false positives from packet loss without slowing the probe cycle
+async function probePingOnlyDevice(
+  ipAddress: string,
+  timeoutSeconds: number = 3
+): Promise<{ data: DeviceProbeData; success: boolean; pingOnly?: boolean; pingRtt?: number }> {
+  const PING_COUNT = 2;  // Number of concurrent pings (2 is sufficient for reliability)
+  
+  try {
+    // Fire pings in parallel - device is online if ANY succeeds
+    const pingPromises = Array.from({ length: PING_COUNT }, () => 
+      pingDevice(ipAddress, timeoutSeconds).catch(() => ({ success: false, rtt: undefined }))
+    );
+    
+    const results = await Promise.all(pingPromises);
+    const successfulPings = results.filter(r => r.success);
+    
+    if (successfulPings.length > 0) {
+      // Use best (lowest) RTT from successful pings
+      const bestRtt = Math.min(...successfulPings.map(r => r.rtt || Infinity));
+      
+      return {
+        data: {
+          model: 'Ping Only',
+          version: `RTT: ${bestRtt.toFixed(2)}ms`,
+        },
+        success: true,
+        pingOnly: true,
+        pingRtt: bestRtt
+      };
+    }
+    
+    // All pings failed - still set pingOnly=true so caller knows this is a ping-only device
+    // determineDeviceStatus will correctly return 'offline' when success=false and pingOnly=true
+    return { data: {}, success: false, pingOnly: true };
+  } catch (error: any) {
+    return { data: {}, success: false, pingOnly: true };
+  }
+}
+
+export function determineDeviceStatus(
+  probeData: DeviceProbeData, 
+  probeSucceeded: boolean, 
+  pingOnly?: boolean,
+  deviceType?: string
+): string {
+  // For ping-only devices (generic_ping), pingOnly flag is always set
+  // - success=true, pingOnly=true: device is online (ping responded)
+  // - success=false, pingOnly=true: device is offline (ping failed)
+  // For SNMP/API devices with ping fallback:
+  // - success=false, pingOnly=true: device is stale (SNMP/API failed but ping worked)
+  if (pingOnly) {
+    if (deviceType === 'generic_ping') {
+      // Ping-only device: online if ping works, offline if it doesn't
+      return probeSucceeded ? 'online' : 'offline';
+    }
+    // SNMP/API device with ping fallback: mark as stale (can reach device but not query it)
+    return probeSucceeded ? 'online' : 'stale';
+  }
   if (!probeSucceeded) return 'offline';
   if (probeData.model || probeData.uptime || probeData.version) return 'online';
   return 'unknown';

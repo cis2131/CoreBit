@@ -43,6 +43,7 @@ const deviceTypes = [
   { value: 'mikrotik_router', label: 'Mikrotik Router' },
   { value: 'mikrotik_switch', label: 'Mikrotik Switch' },
   { value: 'generic_snmp', label: 'Generic SNMP Device' },
+  { value: 'generic_ping', label: 'Ping Only Device' },
   { value: 'server', label: 'Server' },
   { value: 'access_point', label: 'Access Point' },
 ];
@@ -83,6 +84,7 @@ export function AddDeviceDialog({
 
   const deviceCategory = type.startsWith('mikrotik') ? 'mikrotik' : 
                         (type === 'generic_snmp' || type === 'server' || type === 'access_point') ? 'snmp' : 
+                        type === 'generic_ping' ? 'ping' :
                         'none';
 
   const availableProfiles = profiles.filter(p => 
@@ -224,7 +226,13 @@ export function AddDeviceDialog({
             />
           </div>
 
-          {deviceCategory !== 'none' && (
+          {deviceCategory === 'ping' && (
+            <div className="text-sm text-muted-foreground p-3 rounded-md bg-muted/50">
+              Ping-only devices are monitored using ICMP ping. No credentials required.
+            </div>
+          )}
+
+          {deviceCategory !== 'none' && deviceCategory !== 'ping' && (
             <>
               <Separator />
               <div className="space-y-4">

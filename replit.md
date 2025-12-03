@@ -29,6 +29,12 @@ The application is built with a client-server architecture.
 **System Design Choices:**
 -   **Global Device Model:** Devices are stored globally and can be placed on multiple maps via a `device_placements` junction table, allowing a single physical device to appear on different network topology maps.
 -   **Parallel Probing Service:** High-performance system for real-time device status updates, capable of probing 400+ devices within a 30-second interval using 80 concurrent probes. Includes timeout protection and optimized link speed detection for Mikrotik devices (quick and detailed probes).
+-   **Device Types:** Supports multiple device types:
+    -   **Mikrotik Router/Switch:** Uses Mikrotik API for detailed monitoring (ports, system info, link speeds)
+    -   **Generic SNMP Device:** Uses SNMP for device monitoring with ping fallback
+    -   **Ping Only Device:** For devices without SNMP/API support - monitored via 2 concurrent ICMP pings for reliability
+    -   **Server/Access Point:** SNMP-based monitoring with appropriate icons
+-   **Offline Threshold:** All device types respect configurable offline threshold - devices only go offline after N consecutive failed probes (default 3), preventing notification spam from transient failures.
 -   **Network Scanner:** Automated discovery of devices on IP ranges (CIDR/Range support), multi-credential support, auto-detection of device types, scan profile saving, and bulk device creation.
 -   **Traffic Monitoring:** Real-time traffic monitoring on connections using SNMP, requiring SNMP credentials. Optimizes polling with stored SNMP interface indexes for faster data retrieval and calculates traffic rates and utilization.
 -   **Backup & Restore:** Provides manual and scheduled backups with configurable retention policies. Supports downloading, uploading, and restoring full application data, including devices, maps, connections, credentials, and settings. Backup files are JSON-formatted and stored locally.

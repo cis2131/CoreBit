@@ -456,7 +456,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Probe device for additional information
       const probeResult = await probeDevice(data.type, data.ipAddress || undefined, credentials);
-      const status = determineDeviceStatus(probeResult.data, probeResult.success, probeResult.pingOnly);
+      const status = determineDeviceStatus(probeResult.data, probeResult.success, probeResult.pingOnly, data.type);
 
       const device = await storage.createDevice({
         ...data,
@@ -486,12 +486,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const mergedDevice = { ...existingDevice, ...updateData };
           const credentials = await resolveCredentials(mergedDevice);
           
+          const deviceTypeToProbe = updateData.type || existingDevice.type;
           const probeResult = await probeDevice(
-            updateData.type || existingDevice.type, 
+            deviceTypeToProbe, 
             (updateData.ipAddress !== undefined ? updateData.ipAddress : existingDevice.ipAddress) || undefined,
             credentials
           );
-          const status = determineDeviceStatus(probeResult.data, probeResult.success, probeResult.pingOnly);
+          const status = determineDeviceStatus(probeResult.data, probeResult.success, probeResult.pingOnly, deviceTypeToProbe);
           finalUpdateData = {
             ...updateData,
             status,
@@ -710,7 +711,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         probeResult = { success: false, error: timeoutError.message };
       }
       
-      const status = determineDeviceStatus(probeResult.data, probeResult.success, (probeResult as any).pingOnly);
+      const status = determineDeviceStatus(probeResult.data, probeResult.success, (probeResult as any).pingOnly, device.type);
 
       const updatedDevice = await storage.updateDevice(req.params.id, {
         status,
@@ -1429,7 +1430,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // If we don't need detailed probe, use the quick probe result and return early
         if (!needsDetailedProbe && quickProbe.success) {
-          const status = determineDeviceStatus(quickProbe.data, quickProbe.success, quickProbe.pingOnly);
+          const status = determineDeviceStatus(quickProbe.data, quickProbe.success, quickProbe.pingOnly, device.type);
           const oldStatus = device.status;
           const statusChanged = status !== oldStatus;
           
@@ -1506,13 +1507,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // For non-Mikrotik devices, ping fallback is now built into probeDevice
       // For Mikrotik devices, still use the explicit ping fallback setting
-      let status = determineDeviceStatus(probeResult.data, probeResult.success, probeResult.pingOnly);
+      let status = determineDeviceStatus(probeResult.data, probeResult.success, probeResult.pingOnly, device.type);
       const oldStatus = device.status;
       
-      // Log when ping fallback was used (non-Mikrotik devices - built into probeDevice)
+      // Log when ping was used for probing
       if (probeResult.pingOnly) {
         const timestamp = new Date().toISOString();
-        console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): SNMP failed but ping succeeded (RTT: ${probeResult.pingRtt || 'n/a'}ms) - marking as stale`);
+        if (device.type === 'generic_ping') {
+          // Ping-only device - this is expected behavior
+          if (probeResult.success) {
+            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): Ping probe successful (RTT: ${probeResult.pingRtt?.toFixed(2) || 'n/a'}ms)`);
+          } else {
+            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): Ping probe failed - device unreachable`);
+          }
+        } else {
+          // SNMP device with ping fallback - mark as stale
+          console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): SNMP failed but ping succeeded (RTT: ${probeResult.pingRtt || 'n/a'}ms) - marking as stale`);
+        }
       }
       
       // Ping fallback for Mikrotik devices: if probe failed and status would be offline, try ping
@@ -1530,14 +1541,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      // For failed probes, respect offline threshold before changing status
+      // This prevents immediate offline on single failures for ping-only and other devices
+      if (!probeResult.success && status === 'offline') {
+        // Fetch fresh device data to get current failureCount from database
+        const freshDevice = await storage.getDevice(device.id);
+        if (!freshDevice) {
+          return { device, success: false, timeout: false };
+        }
+        
+        const currentFailureCount = (freshDevice.failureCount || 0) + 1;
+        const offlineThreshold = freshDevice.offlineThreshold || defaults?.defaultOfflineThreshold || 3;
+        const timestamp = new Date().toISOString();
+        
+        if (currentFailureCount < offlineThreshold) {
+          // Haven't reached threshold yet - keep current status but increment failure count
+          await safeUpdateDevice({ failureCount: currentFailureCount });
+          console.log(`[${timestamp}] [Probing] ${device.name}: probe failed (${currentFailureCount}/${offlineThreshold}) - keeping status as ${oldStatus}`);
+          // Don't change status to offline yet
+          status = oldStatus === 'online' ? 'online' : oldStatus; // Keep previous status
+        } else {
+          // Reached threshold - allow offline status and update device
+          console.log(`[${timestamp}] [Probing] ${device.name}: probe failed (${currentFailureCount}/${offlineThreshold}) - threshold reached, marking offline`);
+          await safeUpdateDevice({
+            status: 'offline',
+            failureCount: currentFailureCount,
+          });
+        }
+      }
+      
       const statusChanged = status !== oldStatus;
       
-      if (status !== device.status || probeResult.success) {
+      if ((status !== device.status || probeResult.success) && probeResult.success) {
+        // Only update device data on successful probe
         const updated = await safeUpdateDevice({
           status,
-          deviceData: probeResult.success ? probeResult.data : (device.deviceData || undefined),
-          failureCount: probeResult.success ? 0 : undefined, // Reset failure count on successful probe
-          lastSeen: probeResult.success ? new Date() : undefined, // Update last seen timestamp on successful probe
+          deviceData: probeResult.data,
+          failureCount: 0, // Reset failure count on successful probe
+          lastSeen: new Date(), // Update last seen timestamp on successful probe
         });
         if (!updated && timedOut) {
           return { device, success: false, timeout: true };
@@ -1552,13 +1593,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Create log entry for status change
         try {
-          const staleProbeType = device.type.startsWith('mikrotik_') ? 'Mikrotik API' : 'SNMP';
+          const getProbeTypeDescription = () => {
+            if (device.type === 'generic_ping') return 'ping probe';
+            if (device.type.startsWith('mikrotik_')) return 'Mikrotik API';
+            return 'SNMP';
+          };
           await storage.createLog({
             deviceId: device.id,
             eventType: 'status_change',
             severity: status === 'offline' ? 'error' : status === 'stale' ? 'warning' : status === 'warning' ? 'warning' : 'info',
             message: status === 'stale' 
-              ? `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to stale (${staleProbeType} unreachable but responds to ping)`
+              ? `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to stale (${getProbeTypeDescription()} unreachable but responds to ping)`
               : `Device ${device.name} (${device.ipAddress}) status changed from ${oldStatus} to ${status}`,
             oldStatus,
             newStatus: status,
