@@ -307,6 +307,8 @@ export const insertDeviceSchema = createInsertSchema(devices).omit({
   }).optional(),
   customCredentials: credentialsSchema.optional(),
   probeTimeout: z.union([z.number().int().min(1).max(120), z.null()]).optional(),
+  notificationMode: z.enum(['global', 'duty']).nullable().optional(),
+  dutyTeamId: z.string().nullable().optional(),
 });
 
 export const insertDevicePlacementSchema = createInsertSchema(devicePlacements).omit({

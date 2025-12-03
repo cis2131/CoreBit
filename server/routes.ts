@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probeMikrotikWithPool, pingDevice } from "./deviceProbe";
 import { mikrotikPool } from "./mikrotikConnectionPool";
-import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, type Device, type Connection } from "@shared/schema";
+import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, insertUserNotificationChannelSchema, insertDutyTeamSchema, insertDutyTeamMemberSchema, insertDutyScheduleSchema, insertDutyShiftConfigSchema, type Device, type Connection, type UserNotificationChannel } from "@shared/schema";
 import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
@@ -135,6 +135,143 @@ async function sendNotification(notification: any, device: any, newStatus: strin
     }
   } catch (error: any) {
     console.error(`[Notification] Failed to send to ${notification.url}:`, error.message);
+  }
+}
+
+// Helper function to send notification to a user's channel
+async function sendUserNotification(channel: UserNotificationChannel, device: any, newStatus: string, oldStatus?: string) {
+  if (!channel.enabled) {
+    return;
+  }
+
+  const config = channel.config;
+  
+  try {
+    if (channel.type === 'webhook' && config.url) {
+      const message = renderMessageTemplate(config.messageTemplate || '[Device.Name] is now [Service.Status]', device, newStatus, oldStatus);
+      const method = (config.method || 'POST').toUpperCase();
+      
+      let finalUrl = config.url;
+      let fetchOptions: RequestInit = { method };
+      
+      if (method === 'GET') {
+        finalUrl = `${config.url}${encodeURIComponent(message)}`;
+      } else {
+        fetchOptions.headers = { 'Content-Type': 'text/plain' };
+        fetchOptions.body = message;
+      }
+      
+      const response = await fetch(finalUrl, fetchOptions);
+      if (!response.ok) {
+        console.error(`[UserNotification] HTTP ${response.status} from ${finalUrl}`);
+      }
+    }
+    // Future: Add email and telegram support here
+  } catch (error: any) {
+    console.error(`[UserNotification] Failed to send to ${channel.name}:`, error.message);
+  }
+}
+
+// Helper function to determine the currently on-duty team based on schedule
+async function getCurrentOnDutyTeam(): Promise<{ team: any; shift: 'day' | 'night'; members: any[] } | null> {
+  const config = await storage.getDutyShiftConfig();
+  if (!config) {
+    return null;
+  }
+
+  const now = new Date();
+  
+  // Parse shift times
+  const [dayStartHour, dayStartMin] = config.dayShiftStart.split(':').map(Number);
+  const [dayEndHour, dayEndMin] = config.dayShiftEnd.split(':').map(Number);
+  
+  // Get current hour and minute
+  const currentHour = now.getUTCHours();
+  const currentMinute = now.getUTCMinutes();
+  const currentTime = currentHour * 60 + currentMinute;
+  const dayStart = dayStartHour * 60 + dayStartMin;
+  const dayEnd = dayEndHour * 60 + dayEndMin;
+  
+  // Determine current shift
+  let shift: 'day' | 'night';
+  if (dayStart <= dayEnd) {
+    // Normal case: day shift doesn't cross midnight
+    shift = (currentTime >= dayStart && currentTime < dayEnd) ? 'day' : 'night';
+  } else {
+    // Edge case: day shift crosses midnight (unlikely but handle it)
+    shift = (currentTime >= dayStart || currentTime < dayEnd) ? 'day' : 'night';
+  }
+  
+  // Calculate which week of the rotation we're in
+  // Use a fixed reference point (epoch start) to calculate rotation week
+  const rotationWeeks = config.rotationWeeks || 4;
+  const weeksSinceEpoch = Math.floor(now.getTime() / (7 * 24 * 60 * 60 * 1000));
+  const currentWeek = (weeksSinceEpoch % rotationWeeks) + 1;
+  
+  // Get day of week (0 = Sunday, 1 = Monday, etc.)
+  const dayOfWeek = now.getUTCDay();
+  
+  // Find the schedule entry for this week, day, and shift
+  const schedules = await storage.getAllDutySchedules();
+  const matchingSchedule = schedules.find(s => 
+    s.weekNumber === currentWeek && 
+    s.dayOfWeek === dayOfWeek && 
+    s.shift === shift
+  );
+  
+  if (!matchingSchedule) {
+    return null;
+  }
+  
+  // Get the team and its members
+  const team = await storage.getDutyTeam(matchingSchedule.teamId);
+  if (!team) {
+    return null;
+  }
+  
+  const members = await storage.getDutyTeamMembers(team.id);
+  const memberUsers = await Promise.all(members.map(async (m) => {
+    const user = await storage.getUser(m.userId);
+    if (!user) return null;
+    const channels = await storage.getUserNotificationChannels(user.id);
+    return { 
+      id: user.id, 
+      username: user.username, 
+      displayName: user.displayName,
+      channels: channels.filter(c => c.enabled)
+    };
+  }));
+  
+  return {
+    team,
+    shift,
+    members: memberUsers.filter(Boolean),
+  };
+}
+
+// Helper function to send notifications for a device based on its notification mode
+async function sendDeviceNotifications(device: Device, newStatus: string, oldStatus?: string) {
+  const notificationMode = device.notificationMode || 'global';
+  
+  if (notificationMode === 'duty' && device.dutyTeamId) {
+    // On-duty mode: notify the currently on-duty team members
+    const onDuty = await getCurrentOnDutyTeam();
+    if (onDuty) {
+      for (const member of onDuty.members) {
+        for (const channel of member.channels || []) {
+          await sendUserNotification(channel, device, newStatus, oldStatus);
+        }
+      }
+    }
+  } else {
+    // Global mode: use the device's assigned notification channels
+    const deviceNotifications = await storage.getDeviceNotifications(device.id);
+    for (const dn of deviceNotifications) {
+      const notification = await storage.getNotification(dn.notificationId);
+      if (notification) {
+        await sendNotification(notification, device, newStatus, oldStatus);
+      }
+    }
   }
 }
 
@@ -1040,6 +1177,352 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error removing device notification:', error);
       res.status(500).json({ error: 'Failed to remove device notification' });
+    }
+  });
+
+  // =============================================
+  // User Notification Channels Routes
+  // =============================================
+  
+  // Get all user notification channels (admin only)
+  app.get("/api/user-notification-channels", requireAdmin as any, async (_req, res) => {
+    try {
+      const channels = await storage.getAllUserNotificationChannels();
+      res.json(channels);
+    } catch (error) {
+      console.error('Error fetching user notification channels:', error);
+      res.status(500).json({ error: 'Failed to fetch user notification channels' });
+    }
+  });
+
+  // Get notification channels for a specific user
+  app.get("/api/users/:userId/notification-channels", requireAuth as any, async (req, res) => {
+    try {
+      const channels = await storage.getUserNotificationChannels(req.params.userId);
+      res.json(channels);
+    } catch (error) {
+      console.error('Error fetching user notification channels:', error);
+      res.status(500).json({ error: 'Failed to fetch user notification channels' });
+    }
+  });
+
+  // Get current user's notification channels
+  app.get("/api/my-notification-channels", requireAuth as any, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      const channels = await storage.getUserNotificationChannels(userId);
+      res.json(channels);
+    } catch (error) {
+      console.error('Error fetching user notification channels:', error);
+      res.status(500).json({ error: 'Failed to fetch user notification channels' });
+    }
+  });
+
+  // Create notification channel for current user
+  app.post("/api/my-notification-channels", requireAuth as any, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: 'Not authenticated' });
+      }
+      const data = insertUserNotificationChannelSchema.parse({
+        ...req.body,
+        userId,
+      });
+      const channel = await storage.createUserNotificationChannel(data);
+      res.status(201).json(channel);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid channel data', details: error.errors });
+      }
+      console.error('Error creating user notification channel:', error);
+      res.status(500).json({ error: 'Failed to create user notification channel' });
+    }
+  });
+
+  // Update notification channel
+  app.patch("/api/user-notification-channels/:id", requireAuth as any, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = req.user?.id;
+      const channel = await storage.getUserNotificationChannel(req.params.id);
+      if (!channel) {
+        return res.status(404).json({ error: 'Channel not found' });
+      }
+      // Only allow updating own channels unless admin
+      if (channel.userId !== userId && req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Not authorized' });
+      }
+      const data = insertUserNotificationChannelSchema.partial().parse(req.body);
+      const updated = await storage.updateUserNotificationChannel(req.params.id, data);
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid channel data', details: error.errors });
+      }
+      console.error('Error updating user notification channel:', error);
+      res.status(500).json({ error: 'Failed to update user notification channel' });
+    }
+  });
+
+  // Delete notification channel
+  app.delete("/api/user-notification-channels/:id", requireAuth as any, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = req.user?.id;
+      const channel = await storage.getUserNotificationChannel(req.params.id);
+      if (!channel) {
+        return res.status(404).json({ error: 'Channel not found' });
+      }
+      // Only allow deleting own channels unless admin
+      if (channel.userId !== userId && req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Not authorized' });
+      }
+      await storage.deleteUserNotificationChannel(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting user notification channel:', error);
+      res.status(500).json({ error: 'Failed to delete user notification channel' });
+    }
+  });
+
+  // =============================================
+  // Duty Teams Routes
+  // =============================================
+
+  // Get all duty teams
+  app.get("/api/duty-teams", requireAuth as any, async (_req, res) => {
+    try {
+      const teams = await storage.getAllDutyTeams();
+      // Get members for each team
+      const teamsWithMembers = await Promise.all(teams.map(async (team) => {
+        const members = await storage.getDutyTeamMembers(team.id);
+        const memberUsers = await Promise.all(members.map(async (m) => {
+          const user = await storage.getUser(m.userId);
+          return user ? { id: user.id, username: user.username, displayName: user.displayName } : null;
+        }));
+        return {
+          ...team,
+          members: memberUsers.filter(Boolean),
+        };
+      }));
+      res.json(teamsWithMembers);
+    } catch (error) {
+      console.error('Error fetching duty teams:', error);
+      res.status(500).json({ error: 'Failed to fetch duty teams' });
+    }
+  });
+
+  // Get single duty team
+  app.get("/api/duty-teams/:id", requireAuth as any, async (req, res) => {
+    try {
+      const team = await storage.getDutyTeam(req.params.id);
+      if (!team) {
+        return res.status(404).json({ error: 'Team not found' });
+      }
+      const members = await storage.getDutyTeamMembers(team.id);
+      const memberUsers = await Promise.all(members.map(async (m) => {
+        const user = await storage.getUser(m.userId);
+        return user ? { id: user.id, username: user.username, displayName: user.displayName } : null;
+      }));
+      res.json({ ...team, members: memberUsers.filter(Boolean) });
+    } catch (error) {
+      console.error('Error fetching duty team:', error);
+      res.status(500).json({ error: 'Failed to fetch duty team' });
+    }
+  });
+
+  // Create duty team
+  app.post("/api/duty-teams", requireAdmin as any, async (req, res) => {
+    try {
+      const data = insertDutyTeamSchema.parse(req.body);
+      const team = await storage.createDutyTeam(data);
+      res.status(201).json(team);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid team data', details: error.errors });
+      }
+      console.error('Error creating duty team:', error);
+      res.status(500).json({ error: 'Failed to create duty team' });
+    }
+  });
+
+  // Update duty team
+  app.patch("/api/duty-teams/:id", requireAdmin as any, async (req, res) => {
+    try {
+      const data = insertDutyTeamSchema.partial().parse(req.body);
+      const team = await storage.updateDutyTeam(req.params.id, data);
+      if (!team) {
+        return res.status(404).json({ error: 'Team not found' });
+      }
+      res.json(team);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid team data', details: error.errors });
+      }
+      console.error('Error updating duty team:', error);
+      res.status(500).json({ error: 'Failed to update duty team' });
+    }
+  });
+
+  // Delete duty team
+  app.delete("/api/duty-teams/:id", requireAdmin as any, async (req, res) => {
+    try {
+      await storage.deleteDutyTeam(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting duty team:', error);
+      res.status(500).json({ error: 'Failed to delete duty team' });
+    }
+  });
+
+  // Add member to duty team
+  app.post("/api/duty-teams/:teamId/members", requireAdmin as any, async (req, res) => {
+    try {
+      const data = insertDutyTeamMemberSchema.parse({
+        teamId: req.params.teamId,
+        userId: req.body.userId,
+      });
+      const member = await storage.addDutyTeamMember(data);
+      res.status(201).json(member);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid member data', details: error.errors });
+      }
+      console.error('Error adding team member:', error);
+      res.status(500).json({ error: 'Failed to add team member' });
+    }
+  });
+
+  // Remove member from duty team
+  app.delete("/api/duty-teams/:teamId/members/:userId", requireAdmin as any, async (req, res) => {
+    try {
+      await storage.removeDutyTeamMember(req.params.teamId, req.params.userId);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error removing team member:', error);
+      res.status(500).json({ error: 'Failed to remove team member' });
+    }
+  });
+
+  // =============================================
+  // Duty Schedules Routes
+  // =============================================
+
+  // Get all duty schedules
+  app.get("/api/duty-schedules", requireAuth as any, async (_req, res) => {
+    try {
+      const schedules = await storage.getAllDutySchedules();
+      res.json(schedules);
+    } catch (error) {
+      console.error('Error fetching duty schedules:', error);
+      res.status(500).json({ error: 'Failed to fetch duty schedules' });
+    }
+  });
+
+  // Create duty schedule entry
+  app.post("/api/duty-schedules", requireAdmin as any, async (req, res) => {
+    try {
+      const data = insertDutyScheduleSchema.parse(req.body);
+      const schedule = await storage.createDutySchedule(data);
+      res.status(201).json(schedule);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid schedule data', details: error.errors });
+      }
+      console.error('Error creating duty schedule:', error);
+      res.status(500).json({ error: 'Failed to create duty schedule' });
+    }
+  });
+
+  // Bulk update duty schedules (replace all)
+  app.put("/api/duty-schedules", requireAdmin as any, async (req, res) => {
+    try {
+      const schedulesData = z.array(insertDutyScheduleSchema).parse(req.body);
+      // Clear existing schedules
+      await storage.clearDutySchedules();
+      // Create new schedules
+      const schedules = await Promise.all(
+        schedulesData.map(data => storage.createDutySchedule(data))
+      );
+      res.json(schedules);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid schedule data', details: error.errors });
+      }
+      console.error('Error updating duty schedules:', error);
+      res.status(500).json({ error: 'Failed to update duty schedules' });
+    }
+  });
+
+  // Delete duty schedule entry
+  app.delete("/api/duty-schedules/:id", requireAdmin as any, async (req, res) => {
+    try {
+      await storage.deleteDutySchedule(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting duty schedule:', error);
+      res.status(500).json({ error: 'Failed to delete duty schedule' });
+    }
+  });
+
+  // =============================================
+  // Duty Shift Config Routes
+  // =============================================
+
+  // Get shift configuration
+  app.get("/api/duty-shift-config", requireAuth as any, async (_req, res) => {
+    try {
+      let config = await storage.getDutyShiftConfig();
+      if (!config) {
+        // Return default config if none exists
+        config = await storage.updateDutyShiftConfig({
+          dayShiftStart: "07:00",
+          dayShiftEnd: "19:00",
+          nightShiftStart: "19:00",
+          nightShiftEnd: "07:00",
+          timezone: "UTC",
+          rotationWeeks: 4,
+        });
+      }
+      res.json(config);
+    } catch (error) {
+      console.error('Error fetching duty shift config:', error);
+      res.status(500).json({ error: 'Failed to fetch duty shift config' });
+    }
+  });
+
+  // Update shift configuration
+  app.patch("/api/duty-shift-config", requireAdmin as any, async (req, res) => {
+    try {
+      const data = insertDutyShiftConfigSchema.partial().parse(req.body);
+      const config = await storage.updateDutyShiftConfig(data);
+      res.json(config);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid config data', details: error.errors });
+      }
+      console.error('Error updating duty shift config:', error);
+      res.status(500).json({ error: 'Failed to update duty shift config' });
+    }
+  });
+
+  // =============================================
+  // Get Currently On-Duty Team
+  // =============================================
+
+  // Get the team that is currently on duty
+  app.get("/api/duty-on-call", requireAuth as any, async (_req, res) => {
+    try {
+      const onDutyTeam = await getCurrentOnDutyTeam();
+      if (!onDutyTeam) {
+        return res.json({ team: null, shift: null, message: 'No team scheduled' });
+      }
+      res.json(onDutyTeam);
+    } catch (error) {
+      console.error('Error getting on-duty team:', error);
+      res.status(500).json({ error: 'Failed to get on-duty team' });
     }
   });
 
