@@ -15,10 +15,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw, Users, Crown, Shield, Eye, Loader2 } from "lucide-react";
+import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw, Users, Crown, Shield, Eye, Loader2, UserCog, Calendar, Sun, Moon, Webhook, Mail, MessageSquare } from "lucide-react";
 import { Link } from "wouter";
 import { z } from "zod";
-import type { CredentialProfile, InsertCredentialProfile, Notification, InsertNotification, Backup } from "@shared/schema";
+import type { CredentialProfile, InsertCredentialProfile, Notification, InsertNotification, Backup, UserNotificationChannel, DutyTeam, DutySchedule } from "@shared/schema";
 
 const credentialFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -728,6 +728,808 @@ function UserManagementSection() {
             <AlertDialogAction
               onClick={() => deletingUser && deleteUserMutation.mutate(deletingUser.id)}
               data-testid="button-confirm-delete-user"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+
+// User Notification Channels schema
+const userChannelFormSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  type: z.enum(["webhook", "email", "telegram"]),
+  enabled: z.boolean().optional(),
+  config: z.object({
+    url: z.string().optional(),
+    method: z.enum(["GET", "POST"]).optional(),
+    messageTemplate: z.string().optional(),
+    emailAddress: z.string().email().optional().or(z.literal("")),
+    botToken: z.string().optional(),
+    chatId: z.string().optional(),
+  }),
+});
+
+type UserChannelFormData = z.infer<typeof userChannelFormSchema>;
+
+function MyNotificationChannelsSection() {
+  const { toast } = useToast();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingChannel, setEditingChannel] = useState<UserNotificationChannel | null>(null);
+  const [deletingChannel, setDeletingChannel] = useState<UserNotificationChannel | null>(null);
+
+  const { data: channels = [], isLoading } = useQuery<UserNotificationChannel[]>({
+    queryKey: ["/api/my-notification-channels"],
+  });
+
+  const form = useForm<UserChannelFormData>({
+    resolver: zodResolver(userChannelFormSchema),
+    defaultValues: {
+      name: "",
+      type: "webhook",
+      enabled: true,
+      config: {
+        url: "",
+        method: "POST",
+        messageTemplate: "Device [Device.Name] ([Device.Address]) is now [Service.Status]",
+        emailAddress: "",
+        botToken: "",
+        chatId: "",
+      },
+    },
+  });
+
+  const selectedType = form.watch("type");
+
+  useEffect(() => {
+    if (editingChannel) {
+      const config = editingChannel.config || {};
+      form.reset({
+        name: editingChannel.name,
+        type: editingChannel.type as "webhook" | "email" | "telegram",
+        enabled: editingChannel.enabled,
+        config: {
+          url: config.url || "",
+          method: (config.method as "GET" | "POST") || "POST",
+          messageTemplate: config.messageTemplate || "",
+          emailAddress: config.emailAddress || "",
+          botToken: config.botToken || "",
+          chatId: config.chatId || "",
+        },
+      });
+    } else {
+      form.reset({
+        name: "",
+        type: "webhook",
+        enabled: true,
+        config: {
+          url: "",
+          method: "POST",
+          messageTemplate: "Device [Device.Name] ([Device.Address]) is now [Service.Status]",
+          emailAddress: "",
+          botToken: "",
+          chatId: "",
+        },
+      });
+    }
+  }, [editingChannel, dialogOpen, form]);
+
+  const createMutation = useMutation({
+    mutationFn: async (data: UserChannelFormData) =>
+      apiRequest("POST", "/api/my-notification-channels", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/my-notification-channels"] });
+      toast({ description: "Notification channel created" });
+      handleDialogClose();
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to create channel" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<UserChannelFormData> }) =>
+      apiRequest("PATCH", `/api/user-notification-channels/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/my-notification-channels"] });
+      toast({ description: "Channel updated" });
+      handleDialogClose();
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to update channel" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) =>
+      apiRequest("DELETE", `/api/user-notification-channels/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/my-notification-channels"] });
+      toast({ description: "Channel deleted" });
+      setDeletingChannel(null);
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to delete channel" });
+    },
+  });
+
+  const handleDialogClose = () => {
+    setDialogOpen(false);
+    setEditingChannel(null);
+    form.reset();
+  };
+
+  const handleSubmit = (data: UserChannelFormData) => {
+    if (editingChannel) {
+      updateMutation.mutate({ id: editingChannel.id, data });
+    } else {
+      createMutation.mutate(data);
+    }
+  };
+
+  const getChannelIcon = (type: string) => {
+    switch (type) {
+      case "webhook": return <Webhook className="h-4 w-4" />;
+      case "email": return <Mail className="h-4 w-4" />;
+      case "telegram": return <MessageSquare className="h-4 w-4" />;
+      default: return <Bell className="h-4 w-4" />;
+    }
+  };
+
+  return (
+    <Card data-testid="card-my-notification-channels">
+      <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <UserCog className="h-5 w-5" />
+            My Notification Channels
+          </CardTitle>
+          <CardDescription>
+            Configure how you receive device alerts when on duty
+          </CardDescription>
+        </div>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" data-testid="button-add-channel">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Channel
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editingChannel ? "Edit Channel" : "Add Notification Channel"}</DialogTitle>
+              <DialogDescription>
+                Configure where you receive alerts when you're on duty
+              </DialogDescription>
+            </DialogHeader>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Channel Name</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="e.g., My Telegram" data-testid="input-channel-name" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Channel Type</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-channel-type">
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="webhook">Webhook (HTTP)</SelectItem>
+                          <SelectItem value="email">Email (Coming Soon)</SelectItem>
+                          <SelectItem value="telegram">Telegram (Coming Soon)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                {selectedType === "webhook" && (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="config.url"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Webhook URL</FormLabel>
+                          <FormControl>
+                            <Input {...field} placeholder="https://..." data-testid="input-webhook-url" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="config.method"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>HTTP Method</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value || "POST"}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-webhook-method">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="POST">POST</SelectItem>
+                              <SelectItem value="GET">GET</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="config.messageTemplate"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Message Template</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              {...field}
+                              rows={3}
+                              placeholder="Device [Device.Name] is now [Service.Status]"
+                              data-testid="input-message-template"
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Use [Device.Name], [Device.Address], [Service.Status], [Status.Old], [Status.New]
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
+                <FormField
+                  control={form.control}
+                  name="enabled"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center justify-between p-4 border rounded-md">
+                      <div>
+                        <FormLabel className="text-base">Enabled</FormLabel>
+                        <FormDescription>Receive notifications through this channel</FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          data-testid="switch-channel-enabled"
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <DialogFooter>
+                  <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-save-channel">
+                    {createMutation.isPending || updateMutation.isPending ? "Saving..." : "Save"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : channels.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            No notification channels configured. Add one to receive alerts when on duty.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {channels.map((channel) => (
+              <div
+                key={channel.id}
+                className="flex items-center justify-between p-4 border rounded-md hover-elevate"
+                data-testid={`channel-item-${channel.id}`}
+              >
+                <div className="flex items-center gap-3">
+                  {channel.enabled ? (
+                    <div className="text-primary">{getChannelIcon(channel.type)}</div>
+                  ) : (
+                    <div className="text-muted-foreground">{getChannelIcon(channel.type)}</div>
+                  )}
+                  <div>
+                    <div className="font-medium text-foreground flex items-center gap-2">
+                      {channel.name}
+                      {!channel.enabled && (
+                        <span className="text-xs bg-muted px-2 py-0.5 rounded">Disabled</span>
+                      )}
+                    </div>
+                    <div className="text-sm text-muted-foreground capitalize">
+                      {channel.type}
+                      {channel.type === "webhook" && channel.config?.url && (
+                        <span className="ml-2 truncate max-w-[200px] inline-block align-bottom">
+                          · {channel.config.url}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      setEditingChannel(channel);
+                      setDialogOpen(true);
+                    }}
+                    data-testid={`button-edit-channel-${channel.id}`}
+                  >
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setDeletingChannel(channel)}
+                    data-testid={`button-delete-channel-${channel.id}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+
+      <AlertDialog open={!!deletingChannel} onOpenChange={(open) => !open && setDeletingChannel(null)}>
+        <AlertDialogContent data-testid="dialog-delete-channel-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Notification Channel</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{deletingChannel?.name}"?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-channel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deletingChannel && deleteMutation.mutate(deletingChannel.id)}
+              data-testid="button-confirm-delete-channel"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+
+interface DutyTeamWithMembers extends DutyTeam {
+  members: { id: string; username: string; displayName: string | null }[];
+}
+
+const dutyTeamFormSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+});
+
+type DutyTeamFormData = z.infer<typeof dutyTeamFormSchema>;
+
+function DutyTeamsSection() {
+  const { toast } = useToast();
+  const { isAdmin } = useAuth();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingTeam, setEditingTeam] = useState<DutyTeamWithMembers | null>(null);
+  const [deletingTeam, setDeletingTeam] = useState<DutyTeamWithMembers | null>(null);
+  const [addingMemberToTeam, setAddingMemberToTeam] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+
+  const { data: teams = [], isLoading } = useQuery<DutyTeamWithMembers[]>({
+    queryKey: ["/api/duty-teams"],
+    enabled: isAdmin,
+  });
+
+  const { data: users = [] } = useQuery<User[]>({
+    queryKey: ["/api/users"],
+    enabled: isAdmin,
+  });
+
+  const { data: shiftConfig } = useQuery<{
+    dayShiftStart: string;
+    dayShiftEnd: string;
+    nightShiftStart: string;
+    nightShiftEnd: string;
+    timezone: string;
+    rotationWeeks: number;
+  }>({
+    queryKey: ["/api/duty-shift-config"],
+    enabled: isAdmin,
+  });
+
+  const { data: onDutyNow } = useQuery<{ team: DutyTeam | null; shift: string | null; members: any[] }>({
+    queryKey: ["/api/duty-on-call"],
+    enabled: isAdmin,
+    refetchInterval: 60000,
+  });
+
+  const form = useForm<DutyTeamFormData>({
+    resolver: zodResolver(dutyTeamFormSchema),
+    defaultValues: {
+      name: "",
+      description: "",
+    },
+  });
+
+  useEffect(() => {
+    if (editingTeam) {
+      form.reset({
+        name: editingTeam.name,
+        description: editingTeam.description || "",
+      });
+    } else {
+      form.reset({
+        name: "",
+        description: "",
+      });
+    }
+  }, [editingTeam, dialogOpen, form]);
+
+  const createTeamMutation = useMutation({
+    mutationFn: async (data: DutyTeamFormData) =>
+      apiRequest("POST", "/api/duty-teams", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/duty-teams"] });
+      toast({ description: "Team created" });
+      handleDialogClose();
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to create team" });
+    },
+  });
+
+  const updateTeamMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<DutyTeamFormData> }) =>
+      apiRequest("PATCH", `/api/duty-teams/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/duty-teams"] });
+      toast({ description: "Team updated" });
+      handleDialogClose();
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to update team" });
+    },
+  });
+
+  const deleteTeamMutation = useMutation({
+    mutationFn: async (id: string) =>
+      apiRequest("DELETE", `/api/duty-teams/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/duty-teams"] });
+      toast({ description: "Team deleted" });
+      setDeletingTeam(null);
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to delete team" });
+    },
+  });
+
+  const addMemberMutation = useMutation({
+    mutationFn: async ({ teamId, userId }: { teamId: string; userId: string }) =>
+      apiRequest("POST", `/api/duty-teams/${teamId}/members`, { userId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/duty-teams"] });
+      toast({ description: "Member added" });
+      setAddingMemberToTeam(null);
+      setSelectedUserId("");
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to add member" });
+    },
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: async ({ teamId, userId }: { teamId: string; userId: string }) =>
+      apiRequest("DELETE", `/api/duty-teams/${teamId}/members/${userId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/duty-teams"] });
+      toast({ description: "Member removed" });
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to remove member" });
+    },
+  });
+
+  const handleDialogClose = () => {
+    setDialogOpen(false);
+    setEditingTeam(null);
+    form.reset();
+  };
+
+  const handleSubmit = (data: DutyTeamFormData) => {
+    if (editingTeam) {
+      updateTeamMutation.mutate({ id: editingTeam.id, data });
+    } else {
+      createTeamMutation.mutate(data);
+    }
+  };
+
+  if (!isAdmin) {
+    return null;
+  }
+
+  return (
+    <Card data-testid="card-duty-teams">
+      <CardHeader className="flex flex-row items-center justify-between gap-4">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            Duty Teams & Schedule
+          </CardTitle>
+          <CardDescription>
+            Manage on-call teams for shift-based notifications
+          </CardDescription>
+        </div>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" data-testid="button-add-team">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Team
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editingTeam ? "Edit Team" : "Create Duty Team"}</DialogTitle>
+              <DialogDescription>
+                Create a team of operators for on-call rotations
+              </DialogDescription>
+            </DialogHeader>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Team Name</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="e.g., Night Shift Team" data-testid="input-team-name" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Description</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Optional description" data-testid="input-team-description" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <DialogFooter>
+                  <Button type="submit" disabled={createTeamMutation.isPending || updateTeamMutation.isPending} data-testid="button-save-team">
+                    {createTeamMutation.isPending || updateTeamMutation.isPending ? "Saving..." : "Save"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {onDutyNow && onDutyNow.team && (
+          <div className="p-4 border rounded-md bg-primary/5 border-primary/20">
+            <div className="flex items-center gap-3">
+              {onDutyNow.shift === "day" ? (
+                <Sun className="h-5 w-5 text-yellow-500" />
+              ) : (
+                <Moon className="h-5 w-5 text-blue-400" />
+              )}
+              <div>
+                <div className="font-medium text-foreground">
+                  Currently On Duty: {onDutyNow.team.name}
+                </div>
+                <div className="text-sm text-muted-foreground capitalize">
+                  {onDutyNow.shift} shift · {onDutyNow.members?.length || 0} operator(s)
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {shiftConfig && (
+          <div className="p-4 border rounded-md">
+            <h4 className="font-medium mb-2 flex items-center gap-2">
+              <Clock className="h-4 w-4" />
+              Shift Configuration
+            </h4>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <Sun className="h-4 w-4 text-yellow-500" />
+                <span>Day: {shiftConfig.dayShiftStart} - {shiftConfig.dayShiftEnd}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Moon className="h-4 w-4 text-blue-400" />
+                <span>Night: {shiftConfig.nightShiftStart} - {shiftConfig.nightShiftEnd}</span>
+              </div>
+              <div className="col-span-2 text-muted-foreground">
+                Rotation: {shiftConfig.rotationWeeks} week cycle · Timezone: {shiftConfig.timezone}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <h4 className="font-medium flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Teams
+          </h4>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : teams.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No duty teams created yet. Create a team to get started.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {teams.map((team) => (
+                <div
+                  key={team.id}
+                  className="p-4 border rounded-md"
+                  data-testid={`team-item-${team.id}`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <div className="font-medium text-foreground">{team.name}</div>
+                      {team.description && (
+                        <div className="text-sm text-muted-foreground">{team.description}</div>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setEditingTeam(team);
+                          setDialogOpen(true);
+                        }}
+                        data-testid={`button-edit-team-${team.id}`}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setDeletingTeam(team)}
+                        data-testid={`button-delete-team-${team.id}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">
+                        {team.members.length} member(s)
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAddingMemberToTeam(team.id)}
+                        data-testid={`button-add-member-${team.id}`}
+                      >
+                        <Plus className="h-3 w-3 mr-1" />
+                        Add Member
+                      </Button>
+                    </div>
+                    {team.members.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {team.members.map((member) => (
+                          <div
+                            key={member.id}
+                            className="flex items-center gap-1 px-2 py-1 bg-muted rounded text-sm"
+                          >
+                            <span>{member.displayName || member.username}</span>
+                            <button
+                              className="ml-1 text-muted-foreground hover:text-destructive"
+                              onClick={() =>
+                                removeMemberMutation.mutate({ teamId: team.id, userId: member.id })
+                              }
+                              data-testid={`button-remove-member-${member.id}`}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </CardContent>
+
+      <Dialog open={!!addingMemberToTeam} onOpenChange={(open) => !open && setAddingMemberToTeam(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Team Member</DialogTitle>
+            <DialogDescription>
+              Select a user to add to this duty team
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+              <SelectTrigger data-testid="select-member-user">
+                <SelectValue placeholder="Select user" />
+              </SelectTrigger>
+              <SelectContent>
+                {users
+                  .filter((u) => {
+                    const team = teams.find((t) => t.id === addingMemberToTeam);
+                    return !team?.members.some((m) => m.id === u.id);
+                  })
+                  .map((user) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.displayName || user.username}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <DialogFooter>
+              <Button
+                onClick={() => {
+                  if (addingMemberToTeam && selectedUserId) {
+                    addMemberMutation.mutate({ teamId: addingMemberToTeam, userId: selectedUserId });
+                  }
+                }}
+                disabled={!selectedUserId || addMemberMutation.isPending}
+                data-testid="button-confirm-add-member"
+              >
+                {addMemberMutation.isPending ? "Adding..." : "Add Member"}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deletingTeam} onOpenChange={(open) => !open && setDeletingTeam(null)}>
+        <AlertDialogContent data-testid="dialog-delete-team-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Duty Team</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{deletingTeam?.name}"? This will also remove all schedule assignments.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-team">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deletingTeam && deleteTeamMutation.mutate(deletingTeam.id)}
+              data-testid="button-confirm-delete-team"
             >
               Delete
             </AlertDialogAction>
@@ -2136,6 +2938,10 @@ export default function Settings() {
           </Card>
 
           <BackupSection />
+
+          <MyNotificationChannelsSection />
+
+          <DutyTeamsSection />
 
           <UserManagementSection />
         </div>
