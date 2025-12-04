@@ -2791,14 +2791,24 @@ export default function Settings() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {((typeof Intl !== 'undefined' && Intl.supportedValuesOf?.("timeZone")) || [
-                        "UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
-                        "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Amsterdam", "Europe/Stockholm",
-                        "Asia/Tokyo", "Asia/Shanghai", "Asia/Hong_Kong", "Asia/Singapore", "Asia/Bangkok",
-                        "Australia/Sydney", "Australia/Melbourne", "Australia/Brisbane",
-                      ]).map((tz: string) => (
-                        <SelectItem key={tz} value={tz}>{tz}</SelectItem>
-                      ))}
+                      <SelectItem value="UTC">UTC</SelectItem>
+                      <SelectItem value="America/New_York">America/New_York (EST)</SelectItem>
+                      <SelectItem value="America/Chicago">America/Chicago (CST)</SelectItem>
+                      <SelectItem value="America/Denver">America/Denver (MST)</SelectItem>
+                      <SelectItem value="America/Los_Angeles">America/Los_Angeles (PST)</SelectItem>
+                      <SelectItem value="Europe/London">Europe/London (GMT)</SelectItem>
+                      <SelectItem value="Europe/Paris">Europe/Paris (CET)</SelectItem>
+                      <SelectItem value="Europe/Berlin">Europe/Berlin (CET)</SelectItem>
+                      <SelectItem value="Europe/Amsterdam">Europe/Amsterdam (CET)</SelectItem>
+                      <SelectItem value="Europe/Stockholm">Europe/Stockholm (CET)</SelectItem>
+                      <SelectItem value="Asia/Tokyo">Asia/Tokyo (JST)</SelectItem>
+                      <SelectItem value="Asia/Shanghai">Asia/Shanghai (CST)</SelectItem>
+                      <SelectItem value="Asia/Hong_Kong">Asia/Hong_Kong (HKT)</SelectItem>
+                      <SelectItem value="Asia/Singapore">Asia/Singapore (SGT)</SelectItem>
+                      <SelectItem value="Asia/Bangkok">Asia/Bangkok (ICT)</SelectItem>
+                      <SelectItem value="Australia/Sydney">Australia/Sydney (AEDT)</SelectItem>
+                      <SelectItem value="Australia/Melbourne">Australia/Melbourne (AEDT)</SelectItem>
+                      <SelectItem value="Australia/Brisbane">Australia/Brisbane (AEST)</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground mt-1">
