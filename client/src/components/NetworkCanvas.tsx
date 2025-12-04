@@ -151,6 +151,8 @@ export function NetworkCanvas({
     setIsPanning(false);
   };
 
+  const dragStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  
   const handleDeviceDragStart = (deviceId: string, e: React.MouseEvent) => {
     const device = devices.find(d => d.id === deviceId);
     if (!device) return;
@@ -160,6 +162,7 @@ export function NetworkCanvas({
 
     setDraggedDevice(deviceId);
     setDeviceWasDragged(false);
+    dragStartPosRef.current = { x: e.clientX, y: e.clientY };
     setDragOffset({
       x: e.clientX - (device.position.x * zoom + pan.x + rect.left),
       y: e.clientY - (device.position.y * zoom + pan.y + rect.top),
@@ -170,7 +173,15 @@ export function NetworkCanvas({
     handleMouseMove(e);
     
     if (draggedDevice) {
-      setDeviceWasDragged(true);
+      // Only mark as dragged if moved more than 5 pixels (prevents accidental drag on click)
+      if (dragStartPosRef.current) {
+        const dx = Math.abs(e.clientX - dragStartPosRef.current.x);
+        const dy = Math.abs(e.clientY - dragStartPosRef.current.y);
+        if (dx > 5 || dy > 5) {
+          setDeviceWasDragged(true);
+        }
+      }
+      
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
 
@@ -215,8 +226,10 @@ export function NetworkCanvas({
       setDraggedDevice(null);
       setTempPosition(null);
       pendingPositionRef.current = null;
+      dragStartPosRef.current = null;
     } else if (draggedDevice) {
       setDraggedDevice(null);
+      dragStartPosRef.current = null;
     }
 
     if (draggingDeviceId && onDeviceDropFromSidebar) {
