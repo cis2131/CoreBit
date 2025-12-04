@@ -2248,6 +2248,7 @@ export default function Settings() {
   const [concurrentProbeThreads, setConcurrentProbeThreads] = useState("80");
   const [mikrotikKeepConnections, setMikrotikKeepConnections] = useState(false);
   const [pingFallbackEnabled, setPingFallbackEnabled] = useState(false);
+  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone);
 
   // Only admins can access settings
   if (!isAdmin) {
@@ -2358,6 +2359,15 @@ export default function Settings() {
     },
   });
 
+  const { data: timezoneData } = useQuery<{ key: string; value: string }>({
+    queryKey: ["/api/settings", "timezone"],
+    queryFn: async () => {
+      const response = await fetch("/api/settings/timezone");
+      if (!response.ok) return { key: "timezone", value: Intl.DateTimeFormat().resolvedOptions().timeZone };
+      return response.json();
+    },
+  });
+
   // Sync state with fetched data
   useEffect(() => {
     if (pollingIntervalData?.value !== undefined) {
@@ -2394,6 +2404,12 @@ export default function Settings() {
       setPingFallbackEnabled(pingFallbackEnabledData.value);
     }
   }, [pingFallbackEnabledData]);
+
+  useEffect(() => {
+    if (timezoneData?.value) {
+      setTimezone(timezoneData.value);
+    }
+  }, [timezoneData]);
 
   const deleteProfileMutation = useMutation({
     mutationFn: async (id: string) => 
@@ -2513,6 +2529,21 @@ export default function Settings() {
       toast({ 
         variant: "destructive",
         description: "Failed to update ping fallback setting" 
+      });
+    },
+  });
+
+  const updateTimezoneMutation = useMutation({
+    mutationFn: async (value: string) => 
+      apiRequest("PUT", `/api/settings/timezone`, { value }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings", "timezone"] });
+      toast({ description: "Timezone updated successfully" });
+    },
+    onError: () => {
+      toast({ 
+        variant: "destructive",
+        description: "Failed to update timezone" 
       });
     },
   });
@@ -2748,6 +2779,27 @@ export default function Settings() {
                   disabled={updatePingFallbackMutation.isPending}
                   data-testid="switch-ping-fallback-enabled"
                 />
+              </div>
+              <div className="flex items-end gap-4">
+                <div className="flex-1 max-w-xs">
+                  <Label htmlFor="timezone">Timezone</Label>
+                  <Select value={timezone} onValueChange={(value) => {
+                    setTimezone(value);
+                    updateTimezoneMutation.mutate(value);
+                  }}>
+                    <SelectTrigger id="timezone" data-testid="select-timezone">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Intl.supportedValuesOf("timeZone").map((tz) => (
+                        <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Timezone for displaying logs and timestamps
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
