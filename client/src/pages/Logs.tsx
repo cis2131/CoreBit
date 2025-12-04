@@ -14,6 +14,8 @@ import { useToast } from '@/hooks/use-toast';
 
 export default function Logs() {
   const [selectedDevice, setSelectedDevice] = useState<string>('all');
+  const [selectedEventType, setSelectedEventType] = useState<string>('all');
+  const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const { toast } = useToast();
 
@@ -60,10 +62,23 @@ export default function Logs() {
   };
 
   const filteredLogs = useMemo(() => {
-    if (!searchQuery.trim()) return logs;
+    let result = logs;
+    
+    // Filter by event type
+    if (selectedEventType !== 'all') {
+      result = result.filter(log => log.eventType === selectedEventType);
+    }
+    
+    // Filter by severity
+    if (selectedSeverity !== 'all') {
+      result = result.filter(log => log.severity === selectedSeverity);
+    }
+    
+    // Filter by search query
+    if (!searchQuery.trim()) return result;
     
     const query = searchQuery.toLowerCase().trim();
-    return logs.filter(log => {
+    return result.filter(log => {
       const deviceName = getDeviceName(log.deviceId).toLowerCase();
       const message = (log.message || '').toLowerCase();
       const severity = (log.severity || '').toLowerCase();
@@ -82,7 +97,18 @@ export default function Logs() {
         ipAddress.includes(query)
       );
     });
-  }, [logs, searchQuery, devices]);
+  }, [logs, searchQuery, devices, selectedEventType, selectedSeverity]);
+
+  // Extract unique event types and severities from logs
+  const eventTypes = useMemo(() => {
+    const types = new Set(logs.map(log => log.eventType).filter(Boolean));
+    return Array.from(types).sort();
+  }, [logs]);
+
+  const severities = useMemo(() => {
+    const sev = new Set(logs.map(log => log.severity).filter(Boolean));
+    return Array.from(sev).sort();
+  }, [logs]);
 
   const getStatusIcon = (log: Log) => {
     if (log.eventType === 'status_change') {
@@ -173,6 +199,40 @@ export default function Logs() {
                         data-testid={`select-device-${device.id}`}
                       >
                         {device.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={selectedEventType} onValueChange={setSelectedEventType}>
+                  <SelectTrigger className="w-[160px]" data-testid="select-event-type-filter">
+                    <SelectValue placeholder="All types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" data-testid="select-event-type-all">All types</SelectItem>
+                    {eventTypes.map(type => (
+                      <SelectItem 
+                        key={type} 
+                        value={type}
+                        data-testid={`select-event-type-${type}`}
+                      >
+                        {type.replace(/_/g, ' ').charAt(0).toUpperCase() + type.replace(/_/g, ' ').slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={selectedSeverity} onValueChange={setSelectedSeverity}>
+                  <SelectTrigger className="w-[140px]" data-testid="select-severity-filter">
+                    <SelectValue placeholder="All levels" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" data-testid="select-severity-all">All levels</SelectItem>
+                    {severities.map(severity => (
+                      <SelectItem 
+                        key={severity} 
+                        value={severity}
+                        data-testid={`select-severity-${severity}`}
+                      >
+                        {severity.charAt(0).toUpperCase() + severity.slice(1)}
                       </SelectItem>
                     ))}
                   </SelectContent>
