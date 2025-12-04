@@ -2791,7 +2791,12 @@ export default function Settings() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Intl.supportedValuesOf("timeZone").map((tz) => (
+                      {((typeof Intl !== 'undefined' && Intl.supportedValuesOf?.("timeZone")) || [
+                        "UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+                        "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Amsterdam", "Europe/Stockholm",
+                        "Asia/Tokyo", "Asia/Shanghai", "Asia/Hong_Kong", "Asia/Singapore", "Asia/Bangkok",
+                        "Australia/Sydney", "Australia/Melbourne", "Australia/Brisbane",
+                      ]).map((tz: string) => (
                         <SelectItem key={tz} value={tz}>{tz}</SelectItem>
                       ))}
                     </SelectContent>
