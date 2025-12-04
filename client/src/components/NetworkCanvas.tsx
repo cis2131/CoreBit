@@ -491,6 +491,7 @@ export function NetworkCanvas({
                 device={displayDevice}
                 isSelected={selectedDeviceId === device.id}
                 isHighlighted={matchesSearch(device)}
+                isOffline={device.status === 'offline'}
                 onClick={() => {
                   if (!deviceWasDragged) {
                     onDeviceClick(device.id);

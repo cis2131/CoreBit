@@ -6,6 +6,7 @@ interface DeviceNodeProps {
   device: Device & { position: { x: number; y: number } };
   isSelected: boolean;
   isHighlighted: boolean;
+  isOffline: boolean;
   onClick: () => void;
   onDragStart: (e: React.MouseEvent) => void;
   onMapLinkClick?: (mapId: string) => void;
@@ -61,7 +62,7 @@ function parseUptime(uptime: string | undefined): { value: number; unit: string 
   return { value: 0, unit: 'h' };
 }
 
-export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragStart, onMapLinkClick }: DeviceNodeProps) {
+export function DeviceNode({ device, isSelected, isHighlighted, isOffline, onClick, onDragStart, onMapLinkClick }: DeviceNodeProps) {
   const Icon = deviceIcons[device.type as keyof typeof deviceIcons] || Activity;
 
   // Calculate port status counts
@@ -78,7 +79,7 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
   return (
     <div
       className={`absolute cursor-move select-none ${
-        isHighlighted ? 'animate-pulse' : ''
+        isHighlighted || isOffline ? 'animate-pulse' : ''
       }`}
       style={{
         left: `${device.position.x}px`,
@@ -97,6 +98,8 @@ export function DeviceNode({ device, isSelected, isHighlighted, onClick, onDragS
         className={`relative bg-slate-50 dark:bg-gray-800 rounded-lg border-2 shadow-sm transition-all hover-elevate ${
           isSelected
             ? 'border-primary shadow-lg'
+            : isOffline
+            ? 'border-red-500 shadow-md'
             : isHighlighted
             ? 'border-yellow-400 shadow-md'
             : 'border-slate-200 dark:border-border'
