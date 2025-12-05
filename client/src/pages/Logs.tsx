@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ArrowUpCircle, ArrowDownCircle, AlertCircle, Info, ArrowLeft, Trash2, Search, X } from 'lucide-react';
-import { format } from 'date-fns';
 import { Link } from 'wouter';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
@@ -18,6 +17,31 @@ export default function Logs() {
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const { toast } = useToast();
+
+  const { data: timezoneData } = useQuery<{ key: string; value: string }>({
+    queryKey: ["/api/settings", "timezone"],
+    queryFn: async () => {
+      const response = await fetch("/api/settings/timezone");
+      if (!response.ok) return { key: "timezone", value: Intl.DateTimeFormat().resolvedOptions().timeZone };
+      return response.json();
+    },
+  });
+
+  const timezone = timezoneData?.value || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  const formatTimestamp = (timestamp: Date | string) => {
+    const date = new Date(timestamp);
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZone: timezone,
+    }).format(date);
+  };
 
   const { data: devices = [], isLoading: devicesLoading } = useQuery<Device[]>({
     queryKey: ['/api/devices'],
@@ -282,7 +306,7 @@ export default function Logs() {
                         </span>
                         {getSeverityBadge(log.severity)}
                         <span className="text-xs text-muted-foreground ml-auto" data-testid={`log-timestamp-${log.id}`}>
-                          {format(new Date(log.timestamp), 'MMM dd, yyyy HH:mm:ss')}
+                          {formatTimestamp(log.timestamp)}
                         </span>
                       </div>
                       <p className="text-sm text-muted-foreground" data-testid={`log-message-${log.id}`}>
