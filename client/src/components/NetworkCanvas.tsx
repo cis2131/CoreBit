@@ -12,7 +12,7 @@ interface MapHealthSummary {
 
 interface NetworkCanvasProps {
   mapId: string;
-  devices: (Device & { placementId: string; position: { x: number; y: number } })[];
+  devices: (Device & { placementId: string; position: { x: number; y: number }; placementLinkedMapId?: string | null })[];
   connections: Connection[];
   selectedDeviceId: string | null;
   selectedConnectionId: string | null;
@@ -505,9 +505,12 @@ export function NetworkCanvas({
               ? { ...device, position: tempPosition }
               : device;
             
+            // Use placement's linkedMapId (per-placement link) instead of device's global linkedMapId
+            const placementLinkedMapId = device.placementLinkedMapId;
+            
             // Check if the linked map has offline devices
-            const linkedMapHealth = device.linkedMapId 
-              ? mapHealthSummary.find(m => m.mapId === device.linkedMapId)
+            const linkedMapHealth = placementLinkedMapId 
+              ? mapHealthSummary.find(m => m.mapId === placementLinkedMapId)
               : undefined;
             
             return (
@@ -517,6 +520,7 @@ export function NetworkCanvas({
                 isSelected={selectedDeviceId === device.id}
                 isHighlighted={matchesSearch(device)}
                 isOffline={device.status === 'offline'}
+                linkedMapId={placementLinkedMapId}
                 linkedMapHasOffline={linkedMapHealth?.hasOffline}
                 onClick={() => {
                   if (!deviceWasDragged) {

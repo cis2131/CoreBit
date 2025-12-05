@@ -7,6 +7,7 @@ interface DeviceNodeProps {
   isSelected: boolean;
   isHighlighted: boolean;
   isOffline: boolean;
+  linkedMapId?: string | null;
   linkedMapHasOffline?: boolean;
   onClick: () => void;
   onDragStart: (e: React.MouseEvent) => void;
@@ -63,7 +64,7 @@ function parseUptime(uptime: string | undefined): { value: number; unit: string 
   return { value: 0, unit: 'h' };
 }
 
-export function DeviceNode({ device, isSelected, isHighlighted, isOffline, linkedMapHasOffline, onClick, onDragStart, onMapLinkClick }: DeviceNodeProps) {
+export function DeviceNode({ device, isSelected, isHighlighted, isOffline, linkedMapId, linkedMapHasOffline, onClick, onDragStart, onMapLinkClick }: DeviceNodeProps) {
   const Icon = deviceIcons[device.type as keyof typeof deviceIcons] || Activity;
 
   // Calculate port status counts
@@ -131,8 +132,8 @@ export function DeviceNode({ device, isSelected, isHighlighted, isOffline, linke
               </h3>
             </div>
 
-            {/* Map link button - shows when device has a linked map */}
-            {device.linkedMapId && onMapLinkClick && (
+            {/* Map link button - shows when placement has a linked map */}
+            {linkedMapId && onMapLinkClick && (
               <Button
                 size="icon"
                 variant="ghost"
@@ -143,7 +144,7 @@ export function DeviceNode({ device, isSelected, isHighlighted, isOffline, linke
                 }`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onMapLinkClick(device.linkedMapId!);
+                  onMapLinkClick(linkedMapId);
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
                 title={linkedMapHasOffline ? "Go to linked map (has offline devices)" : "Go to linked map"}

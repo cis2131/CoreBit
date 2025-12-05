@@ -156,8 +156,9 @@ export default function NetworkTopology() {
       ...device,
       placementId: placement.id,
       position: placement.position,
+      placementLinkedMapId: placement.linkedMapId,
     };
-  }).filter(Boolean) as (Device & { placementId: string; position: { x: number; y: number } })[];
+  }).filter(Boolean) as (Device & { placementId: string; position: { x: number; y: number }; placementLinkedMapId?: string | null })[];
 
   const createMapMutation = useMutation({
     mutationFn: async (data: { name: string; description: string }) => {
