@@ -4,6 +4,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChevronLeft, ChevronRight, Server, Router, Wifi, HardDrive, Settings, Eye, EyeOff } from 'lucide-react';
+import { OnDutyPanel } from './OnDutyPanel';
 
 interface DeviceListSidebarProps {
   devices: Device[];
@@ -87,6 +88,8 @@ export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragS
           {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </Button>
       </div>
+
+      <OnDutyPanel isCollapsed={isCollapsed} />
 
       {!isCollapsed && (
         <>

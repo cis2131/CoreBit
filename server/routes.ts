@@ -12,6 +12,7 @@ import {
   requireAuth, 
   requireRole, 
   requireAdmin, 
+  requireSuperuserOrAdmin,
   canModify,
   hashPassword, 
   verifyPassword, 
@@ -1488,7 +1489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create alarm mute (requires admin or superuser)
-  app.post("/api/alarm-mutes", requireSuperuser as any, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/alarm-mutes", requireSuperuserOrAdmin as any, async (req: AuthenticatedRequest, res) => {
     try {
       const { userId, duration, reason } = req.body;
       
@@ -1524,7 +1525,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete alarm mute (requires admin or superuser)
-  app.delete("/api/alarm-mutes/:id", requireSuperuser as any, async (req, res) => {
+  app.delete("/api/alarm-mutes/:id", requireSuperuserOrAdmin as any, async (req, res) => {
     try {
       await storage.deleteAlarmMute(req.params.id);
       res.json({ success: true });
