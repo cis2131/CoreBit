@@ -44,6 +44,13 @@ The application is built with a client-server architecture.
     -   Devices have a `useOnDuty` boolean flag - when enabled, alerts go to on-duty operators in addition to global notifications
     -   Global notifications and on-duty notifications can be active simultaneously for redundancy
     -   On-duty checkbox appears in Device Properties Panel under Notifications section
+-   **Alarm Muting System:** Allows admins/superusers to temporarily silence alarm notifications:
+    -   Global mutes: Mute all alarms for everyone (userId is null)
+    -   Per-user mutes: Mute alarms for specific on-duty operators
+    -   Configurable durations: 1h, 3h, 10h, 24h, or Forever
+    -   Automatic cleanup of expired mutes
+    -   OnDutyPanel component in device sidebar shows current on-duty users and mute status
+    -   Permission-gated: Only Admin/Superuser roles can create or delete mutes
 
 **Technical Implementations:**
 -   TypeScript strict mode.
