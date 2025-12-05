@@ -131,9 +131,10 @@ export function DevicePropertiesPanel({
       throw new Error("Device not placed on map");
     },
     onSuccess: () => {
-      // Invalidate all placement queries and map health summary
+      // Invalidate all placement, device, and map health queries
       queryClient.invalidateQueries({ queryKey: ["/api/placements", currentMapId] });
       queryClient.invalidateQueries({ queryKey: ["/api/placements/all"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/map-health/summary"] });
       toast({ description: "Map link updated" });
     },
