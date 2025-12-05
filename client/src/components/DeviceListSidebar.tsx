@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Device } from '@shared/schema';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ interface DeviceListSidebarProps {
   onEditDevice?: (device: Device) => void;
   onDeviceClick?: (deviceId: string) => void;
   canModify?: boolean;
+  highlightedDeviceId?: string | null;
 }
 
 const deviceTypeIcons: Record<string, React.ElementType> = {
@@ -38,10 +39,25 @@ function getStatusColor(status: string): string {
   }
 }
 
-export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragStart, onDeviceDragEnd, onEditDevice, onDeviceClick, canModify = true }: DeviceListSidebarProps) {
+export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragStart, onDeviceDragEnd, onEditDevice, onDeviceClick, canModify = true, highlightedDeviceId }: DeviceListSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [hideUnplaced, setHideUnplaced] = useState(false);
+  const highlightedDeviceRef = useRef<HTMLDivElement>(null);
+  
+  // Scroll to highlighted device when it changes
+  useEffect(() => {
+    if (highlightedDeviceId && highlightedDeviceRef.current) {
+      // Expand sidebar if collapsed
+      if (isCollapsed) {
+        setIsCollapsed(false);
+      }
+      // Scroll into view with smooth animation
+      setTimeout(() => {
+        highlightedDeviceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    }
+  }, [highlightedDeviceId, isCollapsed]);
 
   // Filter devices based on search query and placement status
   const filteredDevices = devices.filter(device => {
@@ -103,10 +119,16 @@ export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragS
                 filteredDevices.map((device) => {
                   const Icon = deviceTypeIcons[device.type] || Server;
                   const isPlaced = placedDeviceIds.includes(device.id);
+                  const isHighlighted = highlightedDeviceId === device.id;
                   return (
                     <div
                       key={device.id}
-                      className={`p-2 rounded-md cursor-grab active:cursor-grabbing hover-elevate border border-border ${isPlaced ? 'opacity-60' : ''}`}
+                      ref={isHighlighted ? highlightedDeviceRef : undefined}
+                      className={`p-2 rounded-md cursor-grab active:cursor-grabbing hover-elevate border ${
+                        isHighlighted 
+                          ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 animate-pulse' 
+                          : 'border-border'
+                      } ${isPlaced ? 'opacity-60' : ''}`}
                       draggable={!isPlaced}
                       onDragStart={() => onDeviceDragStart?.(device.id)}
                       onDragEnd={() => onDeviceDragEnd?.()}

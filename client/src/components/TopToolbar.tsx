@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Map, Device } from '@shared/schema';
+import { useState, useRef, useEffect } from 'react';
+import { Map, Device, DevicePlacement } from '@shared/schema';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -26,13 +26,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
-import { Search, Plus, Network, Moon, Sun, Link2, Settings, MoreVertical, Pencil, Trash2, FileText, Radar, User, LogOut, Shield, Eye, Crown } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Search, Plus, Network, Moon, Sun, Link2, Settings, MoreVertical, Pencil, Trash2, FileText, Radar, User, LogOut, Shield, Eye, Crown, MapPin, ExternalLink, Server, Router, Wifi, HardDrive } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { Link } from 'wouter';
 import { DeviceStatusInfo } from '@/components/DeviceStatusInfo';
 import { NetworkScanner } from '@/components/NetworkScanner';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { useQuery } from '@tanstack/react-query';
 
 interface TopToolbarProps {
   maps: Map[];
@@ -48,6 +50,26 @@ interface TopToolbarProps {
   onConnectionModeToggle: () => void;
   onAddDevice?: () => void;
   onDeviceStatusSelect?: (deviceId: string) => void;
+  onNavigateToDevice?: (deviceId: string, mapId: string) => void;
+  onHighlightUnplacedDevice?: (deviceId: string) => void;
+}
+
+const deviceTypeIcons: Record<string, React.ElementType> = {
+  'mikrotik_router': Router,
+  'mikrotik_switch': Server,
+  'generic_snmp': Server,
+  'server': HardDrive,
+  'access_point': Wifi,
+};
+
+function getStatusColor(status: string): string {
+  switch (status) {
+    case 'online': return 'bg-green-500';
+    case 'warning': return 'bg-yellow-500';
+    case 'stale': return 'bg-orange-500';
+    case 'offline': return 'bg-red-500';
+    default: return 'bg-gray-400';
+  }
 }
 
 export function TopToolbar({
@@ -64,16 +86,81 @@ export function TopToolbar({
   onConnectionModeToggle,
   onAddDevice,
   onDeviceStatusSelect,
+  onNavigateToDevice,
+  onHighlightUnplacedDevice,
 }: TopToolbarProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [newMapName, setNewMapName] = useState('');
   const [newMapDescription, setNewMapDescription] = useState('');
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
   const { theme, setTheme } = useTheme();
   const { user, logout, isAdmin, canModify } = useAuth();
   const { toast } = useToast();
   
   const currentMap = maps.find(m => m.id === currentMapId);
+  
+  // Fetch all placements to know which devices are on which maps
+  const { data: allPlacements = [] } = useQuery<DevicePlacement[]>({
+    queryKey: ['/api/placements/all'],
+  });
+  
+  // Close search results when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setShowSearchResults(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+  
+  // Categorize search results
+  const getSearchResults = () => {
+    if (!searchQuery.trim()) return { onCurrentMap: [], onOtherMaps: [], unplaced: [] };
+    
+    const query = searchQuery.toLowerCase();
+    const matchingDevices = devices.filter(device => 
+      device.name.toLowerCase().includes(query) ||
+      device.ipAddress?.toLowerCase().includes(query) ||
+      device.type.toLowerCase().includes(query)
+    );
+    
+    const onCurrentMap: Device[] = [];
+    const onOtherMaps: { device: Device; mapId: string; mapName: string }[] = [];
+    const unplaced: Device[] = [];
+    
+    for (const device of matchingDevices) {
+      const devicePlacements = allPlacements.filter(p => p.deviceId === device.id);
+      
+      if (devicePlacements.length === 0) {
+        unplaced.push(device);
+      } else {
+        const isOnCurrentMap = devicePlacements.some(p => p.mapId === currentMapId);
+        if (isOnCurrentMap) {
+          onCurrentMap.push(device);
+        }
+        // Also show on other maps (device can be on multiple maps)
+        for (const placement of devicePlacements) {
+          if (placement.mapId !== currentMapId) {
+            const map = maps.find(m => m.id === placement.mapId);
+            if (map) {
+              onOtherMaps.push({ device, mapId: placement.mapId, mapName: map.name });
+            }
+          }
+        }
+      }
+    }
+    
+    return { onCurrentMap, onOtherMaps, unplaced };
+  };
+  
+  const searchResults = getSearchResults();
+  const hasResults = searchResults.onCurrentMap.length > 0 || 
+                     searchResults.onOtherMaps.length > 0 || 
+                     searchResults.unplaced.length > 0;
   
   const getRoleIcon = (role: string) => {
     switch (role) {
@@ -259,15 +346,132 @@ export function TopToolbar({
           </Button>
         )}
 
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <div className="relative" ref={searchContainerRef}>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
           <Input
             placeholder="Search devices..."
             value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
+            onChange={(e) => {
+              onSearchChange(e.target.value);
+              setShowSearchResults(true);
+            }}
+            onFocus={() => setShowSearchResults(true)}
             className="pl-9 w-64"
             data-testid="input-search-devices"
           />
+          
+          {showSearchResults && searchQuery.trim() && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-border rounded-md shadow-lg z-50 max-h-96 overflow-hidden">
+              <ScrollArea className="max-h-96">
+                {!hasResults ? (
+                  <div className="p-3 text-sm text-muted-foreground text-center">
+                    No devices found matching "{searchQuery}"
+                  </div>
+                ) : (
+                  <div className="py-1">
+                    {/* Devices on current map */}
+                    {searchResults.onCurrentMap.length > 0 && (
+                      <div>
+                        <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50">
+                          On this map ({searchResults.onCurrentMap.length})
+                        </div>
+                        {searchResults.onCurrentMap.map(device => {
+                          const Icon = deviceTypeIcons[device.type] || Server;
+                          return (
+                            <button
+                              key={`current-${device.id}`}
+                              className="w-full px-3 py-2 flex items-center gap-2 hover-elevate text-left"
+                              onClick={() => {
+                                onDeviceStatusSelect?.(device.id);
+                                setShowSearchResults(false);
+                                onSearchChange('');
+                              }}
+                              data-testid={`search-result-current-${device.id}`}
+                            >
+                              <div className={`h-2 w-2 rounded-full flex-shrink-0 ${getStatusColor(device.status)}`} />
+                              <Icon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium truncate">{device.name}</div>
+                                <div className="text-xs text-muted-foreground truncate">{device.ipAddress || 'No IP'}</div>
+                              </div>
+                              <MapPin className="h-3 w-3 text-green-500 flex-shrink-0" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    
+                    {/* Devices on other maps */}
+                    {searchResults.onOtherMaps.length > 0 && (
+                      <div>
+                        <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50">
+                          On other maps ({searchResults.onOtherMaps.length})
+                        </div>
+                        {searchResults.onOtherMaps.map(({ device, mapId, mapName }) => {
+                          const Icon = deviceTypeIcons[device.type] || Server;
+                          return (
+                            <button
+                              key={`other-${device.id}-${mapId}`}
+                              className="w-full px-3 py-2 flex items-center gap-2 hover-elevate text-left"
+                              onClick={() => {
+                                onNavigateToDevice?.(device.id, mapId);
+                                setShowSearchResults(false);
+                                onSearchChange('');
+                              }}
+                              data-testid={`search-result-other-${device.id}-${mapId}`}
+                            >
+                              <div className={`h-2 w-2 rounded-full flex-shrink-0 ${getStatusColor(device.status)}`} />
+                              <Icon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium truncate">{device.name}</div>
+                                <div className="text-xs text-muted-foreground truncate">{device.ipAddress || 'No IP'}</div>
+                              </div>
+                              <div className="flex items-center gap-1 text-xs text-blue-500 flex-shrink-0">
+                                <ExternalLink className="h-3 w-3" />
+                                <span className="max-w-20 truncate">{mapName}</span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    
+                    {/* Unplaced devices */}
+                    {searchResults.unplaced.length > 0 && (
+                      <div>
+                        <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50">
+                          Not placed on any map ({searchResults.unplaced.length})
+                        </div>
+                        {searchResults.unplaced.map(device => {
+                          const Icon = deviceTypeIcons[device.type] || Server;
+                          return (
+                            <button
+                              key={`unplaced-${device.id}`}
+                              className="w-full px-3 py-2 flex items-center gap-2 hover-elevate text-left"
+                              onClick={() => {
+                                onHighlightUnplacedDevice?.(device.id);
+                                setShowSearchResults(false);
+                                onSearchChange('');
+                              }}
+                              data-testid={`search-result-unplaced-${device.id}`}
+                            >
+                              <div className={`h-2 w-2 rounded-full flex-shrink-0 ${getStatusColor(device.status)}`} />
+                              <Icon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium truncate">{device.name}</div>
+                                <div className="text-xs text-muted-foreground truncate">{device.ipAddress || 'No IP'}</div>
+                              </div>
+                              <span className="text-xs text-orange-500 flex-shrink-0">Sidebar</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
+          )}
         </div>
 
         <Link href="/logs">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Map, Device, DevicePlacement, Connection, InsertDevice, InsertDevicePlacement, InsertConnection } from '@shared/schema';
 import { NetworkCanvas } from '@/components/NetworkCanvas';
@@ -38,8 +38,51 @@ export default function NetworkTopology() {
   const [editMapDescription, setEditMapDescription] = useState('');
   const [editMapIsDefault, setEditMapIsDefault] = useState(false);
   const [focusDeviceId, setFocusDeviceId] = useState<string | null>(null);
+  const [highlightedSidebarDeviceId, setHighlightedSidebarDeviceId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const { toast } = useToast();
   const { canModify, user } = useAuth();
+  
+  // Handler for navigating to a device on a different map
+  const handleNavigateToDevice = useCallback((deviceId: string, mapId: string) => {
+    setCurrentMapId(mapId);
+    setSelectedDeviceId(deviceId);
+    setFocusDeviceId(deviceId);
+    // Clear any highlighted sidebar device and cancel any pending timeout
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = null;
+    }
+    setHighlightedSidebarDeviceId(null);
+  }, []);
+  
+  // Handler for highlighting an unplaced device in the sidebar
+  const handleHighlightUnplacedDevice = useCallback((deviceId: string) => {
+    // Cancel any pending highlight clear timeout
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+    }
+    
+    setHighlightedSidebarDeviceId(deviceId);
+    // Open the device properties panel
+    setSelectedDeviceId(deviceId);
+    setSelectedPlacementId(null);
+    
+    // Clear the highlight after 3 seconds
+    highlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedSidebarDeviceId(null);
+      highlightTimeoutRef.current = null;
+    }, 3000);
+  }, []);
+  
+  // Cleanup timeout on component unmount
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Real-time map sync - detect changes made by other users
   const handleRemoteChange = useCallback(() => {
@@ -487,6 +530,8 @@ export default function NetworkTopology() {
           onConnectionModeToggle={handleConnectionModeToggle}
           onAddDevice={handleAddDevice}
           onDeviceStatusSelect={handleDeviceStatusSelect}
+          onNavigateToDevice={handleNavigateToDevice}
+          onHighlightUnplacedDevice={handleHighlightUnplacedDevice}
         />
         <div className="flex-1 flex items-center justify-center bg-background">
           <div className="text-center space-y-4 max-w-md p-8">
@@ -516,6 +561,8 @@ export default function NetworkTopology() {
         onConnectionModeToggle={handleConnectionModeToggle}
         onAddDevice={handleAddDevice}
         onDeviceStatusSelect={handleDeviceStatusSelect}
+        onNavigateToDevice={handleNavigateToDevice}
+        onHighlightUnplacedDevice={handleHighlightUnplacedDevice}
       />
 
       {/* Remote changes banner */}
@@ -558,6 +605,7 @@ export default function NetworkTopology() {
             }
           }}
           canModify={canModify}
+          highlightedDeviceId={highlightedSidebarDeviceId}
         />
 
         <div className="flex-1">
