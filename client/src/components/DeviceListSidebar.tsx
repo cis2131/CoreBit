@@ -75,10 +75,7 @@ export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragS
 
   return (
     <div className={`h-full bg-background border-r border-border transition-all duration-300 ${isCollapsed ? 'w-12' : 'w-64'} flex flex-col`}>
-      <div className="h-14 flex items-center justify-between px-4 border-b border-border">
-        {!isCollapsed && (
-          <h2 className="text-sm font-semibold text-foreground">Devices</h2>
-        )}
+      <div className="h-14 flex items-center justify-end px-4 border-b border-border">
         <Button
           size="icon"
           variant="ghost"
@@ -89,10 +86,18 @@ export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragS
         </Button>
       </div>
 
+      {!isCollapsed && (
+        <div className="px-4 py-2 border-b border-border">
+          <h2 className="text-sm font-semibold text-foreground">On Duty</h2>
+        </div>
+      )}
       <OnDutyPanel isCollapsed={isCollapsed} />
 
       {!isCollapsed && (
         <>
+          <div className="px-4 py-2 border-b border-border">
+            <h2 className="text-sm font-semibold text-foreground">Devices</h2>
+          </div>
           <div className="px-2 pt-2 space-y-2 border-b border-border pb-2">
             <Input
               placeholder="Search devices..."
