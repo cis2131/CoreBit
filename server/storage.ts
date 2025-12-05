@@ -156,6 +156,9 @@ export interface IStorage {
   // Duty Shift Config
   getDutyShiftConfig(): Promise<DutyShiftConfig | undefined>;
   updateDutyShiftConfig(config: Partial<InsertDutyShiftConfig>): Promise<DutyShiftConfig>;
+
+  // Map Health Summary
+  getMapHealthSummary(): Promise<{ mapId: string; hasOffline: boolean }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -638,6 +641,40 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return config;
     }
+  }
+
+  // Map Health Summary - aggregate device statuses per map
+  async getMapHealthSummary(): Promise<{ mapId: string; hasOffline: boolean }[]> {
+    // Get all placements with their device statuses
+    const allPlacements = await db.select().from(devicePlacements);
+    const allDevices = await db.select().from(devices);
+    
+    // Build a device status lookup
+    const deviceStatusMap = new Map<string, string>();
+    for (const device of allDevices) {
+      deviceStatusMap.set(device.id, device.status);
+    }
+    
+    // Group placements by mapId and check for offline devices
+    const mapHealthMap = new Map<string, boolean>();
+    
+    for (const placement of allPlacements) {
+      const deviceStatus = deviceStatusMap.get(placement.deviceId);
+      const hasOffline = mapHealthMap.get(placement.mapId) || false;
+      
+      // Mark map as having offline if any device is offline
+      if (deviceStatus === 'offline') {
+        mapHealthMap.set(placement.mapId, true);
+      } else if (!mapHealthMap.has(placement.mapId)) {
+        mapHealthMap.set(placement.mapId, false);
+      }
+    }
+    
+    // Convert to array format
+    return Array.from(mapHealthMap.entries()).map(([mapId, hasOffline]) => ({
+      mapId,
+      hasOffline
+    }));
   }
 }
 

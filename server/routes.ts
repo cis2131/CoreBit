@@ -696,6 +696,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Map health summary - returns offline device status per map
+  app.get("/api/map-health/summary", async (req, res) => {
+    try {
+      const summary = await storage.getMapHealthSummary();
+      res.json(summary);
+    } catch (error) {
+      console.error('Error fetching map health summary:', error);
+      res.status(500).json({ error: 'Failed to fetch map health summary' });
+    }
+  });
+
   app.get("/api/placements/:mapId", async (req, res) => {
     try {
       const mapId = req.params.mapId;
