@@ -426,9 +426,9 @@ export function TopToolbar({
                                 <div className="text-sm font-medium truncate">{device.name}</div>
                                 <div className="text-xs text-muted-foreground truncate">{device.ipAddress || 'No IP'}</div>
                               </div>
-                              <div className="flex items-center gap-1 text-xs text-blue-500 flex-shrink-0">
-                                <ExternalLink className="h-3 w-3" />
-                                <span className="max-w-20 truncate">{mapName}</span>
+                              <div className="flex items-center gap-1 text-xs text-blue-500 flex-shrink-0 max-w-36">
+                                <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                                <span className="truncate">{mapName}</span>
                               </div>
                             </button>
                           );
