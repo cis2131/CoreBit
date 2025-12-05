@@ -16,6 +16,7 @@ import {
   userNotificationChannels,
   dutyUserSchedules,
   dutyShiftConfig,
+  alarmMutes,
   type Map, 
   type InsertMap,
   type Device,
@@ -45,10 +46,12 @@ import {
   type DutyUserSchedule,
   type InsertDutyUserSchedule,
   type DutyShiftConfig,
-  type InsertDutyShiftConfig
+  type InsertDutyShiftConfig,
+  type AlarmMute,
+  type InsertAlarmMute
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, isNotNull } from "drizzle-orm";
+import { eq, and, desc, isNotNull, isNull, or, gt } from "drizzle-orm";
 
 export interface IStorage {
   // Maps
@@ -156,6 +159,15 @@ export interface IStorage {
   // Duty Shift Config
   getDutyShiftConfig(): Promise<DutyShiftConfig | undefined>;
   updateDutyShiftConfig(config: Partial<InsertDutyShiftConfig>): Promise<DutyShiftConfig>;
+
+  // Alarm Mutes
+  getAllAlarmMutes(): Promise<AlarmMute[]>;
+  getActiveAlarmMutes(): Promise<AlarmMute[]>;
+  getAlarmMuteForUser(userId: string): Promise<AlarmMute | undefined>;
+  getGlobalAlarmMute(): Promise<AlarmMute | undefined>;
+  createAlarmMute(mute: InsertAlarmMute): Promise<AlarmMute>;
+  deleteAlarmMute(id: string): Promise<void>;
+  clearExpiredAlarmMutes(): Promise<void>;
 
   // Map Health Summary
   getMapHealthSummary(): Promise<{ mapId: string; hasOffline: boolean }[]>;
@@ -641,6 +653,78 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return config;
     }
+  }
+
+  // Alarm Mutes
+  async getAllAlarmMutes(): Promise<AlarmMute[]> {
+    return await db.select().from(alarmMutes).orderBy(desc(alarmMutes.createdAt));
+  }
+
+  async getActiveAlarmMutes(): Promise<AlarmMute[]> {
+    const now = new Date();
+    return await db.select().from(alarmMutes).where(
+      or(
+        isNull(alarmMutes.muteUntil), // Forever mutes
+        gt(alarmMutes.muteUntil, now) // Not yet expired
+      )
+    );
+  }
+
+  async getAlarmMuteForUser(userId: string): Promise<AlarmMute | undefined> {
+    const now = new Date();
+    const [mute] = await db.select().from(alarmMutes).where(
+      and(
+        eq(alarmMutes.userId, userId),
+        or(
+          isNull(alarmMutes.muteUntil),
+          gt(alarmMutes.muteUntil, now)
+        )
+      )
+    );
+    return mute || undefined;
+  }
+
+  async getGlobalAlarmMute(): Promise<AlarmMute | undefined> {
+    const now = new Date();
+    const [mute] = await db.select().from(alarmMutes).where(
+      and(
+        isNull(alarmMutes.userId), // Global mute has no userId
+        or(
+          isNull(alarmMutes.muteUntil),
+          gt(alarmMutes.muteUntil, now)
+        )
+      )
+    );
+    return mute || undefined;
+  }
+
+  async createAlarmMute(mute: InsertAlarmMute): Promise<AlarmMute> {
+    // First delete any existing mute for this user (or global if userId is null)
+    if (mute.userId) {
+      await db.delete(alarmMutes).where(eq(alarmMutes.userId, mute.userId));
+    } else {
+      await db.delete(alarmMutes).where(isNull(alarmMutes.userId));
+    }
+    
+    const [created] = await db.insert(alarmMutes).values(mute).returning();
+    return created;
+  }
+
+  async deleteAlarmMute(id: string): Promise<void> {
+    await db.delete(alarmMutes).where(eq(alarmMutes.id, id));
+  }
+
+  async clearExpiredAlarmMutes(): Promise<void> {
+    const now = new Date();
+    // Delete mutes where muteUntil is in the past (now > muteUntil)
+    // Using lt(column, now) instead of gt(now, column)
+    const { lt } = await import('drizzle-orm');
+    await db.delete(alarmMutes).where(
+      and(
+        isNotNull(alarmMutes.muteUntil),
+        lt(alarmMutes.muteUntil, now)
+      )
+    );
   }
 
   // Map Health Summary - aggregate device statuses per map

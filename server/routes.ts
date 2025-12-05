@@ -1459,6 +1459,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // =============================================
+  // Alarm Mutes
+  // =============================================
+
+  // Get all active alarm mutes (with user details)
+  app.get("/api/alarm-mutes", requireAuth as any, async (_req, res) => {
+    try {
+      // Clean up expired mutes first
+      await storage.clearExpiredAlarmMutes();
+      
+      const mutes = await storage.getActiveAlarmMutes();
+      // Get user details for each mute
+      const mutesWithDetails = await Promise.all(mutes.map(async (mute) => {
+        const mutedUser = mute.userId ? await storage.getUser(mute.userId) : null;
+        const mutedByUser = await storage.getUser(mute.mutedBy);
+        return {
+          ...mute,
+          mutedUser: mutedUser ? { id: mutedUser.id, username: mutedUser.username, displayName: mutedUser.displayName } : null,
+          mutedByUser: mutedByUser ? { id: mutedByUser.id, username: mutedByUser.username, displayName: mutedByUser.displayName } : null,
+        };
+      }));
+      res.json(mutesWithDetails);
+    } catch (error) {
+      console.error('Error fetching alarm mutes:', error);
+      res.status(500).json({ error: 'Failed to fetch alarm mutes' });
+    }
+  });
+
+  // Create alarm mute (requires admin or superuser)
+  app.post("/api/alarm-mutes", requireSuperuser as any, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { userId, duration, reason } = req.body;
+      
+      // Calculate mute end time
+      let muteUntil: Date | null = null;
+      if (duration && duration !== 'forever') {
+        const hours = parseInt(duration);
+        if (!isNaN(hours)) {
+          muteUntil = new Date(Date.now() + hours * 60 * 60 * 1000);
+        }
+      }
+      
+      const mute = await storage.createAlarmMute({
+        userId: userId || null, // null = global mute
+        mutedBy: req.user!.id,
+        muteUntil,
+        reason: reason || null,
+      });
+      
+      // Get user details for response
+      const mutedUser = mute.userId ? await storage.getUser(mute.userId) : null;
+      const mutedByUser = await storage.getUser(mute.mutedBy);
+      
+      res.json({
+        ...mute,
+        mutedUser: mutedUser ? { id: mutedUser.id, username: mutedUser.username, displayName: mutedUser.displayName } : null,
+        mutedByUser: mutedByUser ? { id: mutedByUser.id, username: mutedByUser.username, displayName: mutedByUser.displayName } : null,
+      });
+    } catch (error) {
+      console.error('Error creating alarm mute:', error);
+      res.status(500).json({ error: 'Failed to create alarm mute' });
+    }
+  });
+
+  // Delete alarm mute (requires admin or superuser)
+  app.delete("/api/alarm-mutes/:id", requireSuperuser as any, async (req, res) => {
+    try {
+      await storage.deleteAlarmMute(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting alarm mute:', error);
+      res.status(500).json({ error: 'Failed to delete alarm mute' });
+    }
+  });
+
   // Scan Profile routes
   app.get("/api/scan-profiles", async (_req, res) => {
     try {
