@@ -138,6 +138,7 @@ export const devicePlacements = pgTable("device_placements", {
   deviceId: varchar("device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
   mapId: varchar("map_id").notNull().references(() => maps.id, { onDelete: "cascade" }),
   position: jsonb("position").notNull().$type<{ x: number; y: number }>(),
+  linkedMapId: varchar("linked_map_id").references(() => maps.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
