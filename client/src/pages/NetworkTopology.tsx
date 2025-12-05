@@ -142,6 +142,12 @@ export default function NetworkTopology() {
     refetchInterval: 10000, // Refetch every 10 seconds to show live traffic stats
   });
 
+  // Map health summary - tracks which maps have offline devices
+  const { data: mapHealthSummary = [] } = useQuery<{ mapId: string; hasOffline: boolean }[]>({
+    queryKey: ['/api/map-health/summary'],
+    refetchInterval: 10000, // Refetch every 10 seconds to match device status refresh
+  });
+
   // Merge devices with their placements for the current map
   const devicesOnMap = placements.map(placement => {
     const device = allDevices.find(d => d.id === placement.deviceId);
@@ -638,6 +644,7 @@ export default function NetworkTopology() {
                 setSelectedDeviceId(null);
                 setSelectedConnectionId(null);
               }}
+              mapHealthSummary={mapHealthSummary}
             />
           ) : (
             <div className="h-full flex items-center justify-center bg-white dark:bg-gray-950">

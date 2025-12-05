@@ -7,6 +7,7 @@ interface DeviceNodeProps {
   isSelected: boolean;
   isHighlighted: boolean;
   isOffline: boolean;
+  linkedMapHasOffline?: boolean;
   onClick: () => void;
   onDragStart: (e: React.MouseEvent) => void;
   onMapLinkClick?: (mapId: string) => void;
@@ -62,7 +63,7 @@ function parseUptime(uptime: string | undefined): { value: number; unit: string 
   return { value: 0, unit: 'h' };
 }
 
-export function DeviceNode({ device, isSelected, isHighlighted, isOffline, onClick, onDragStart, onMapLinkClick }: DeviceNodeProps) {
+export function DeviceNode({ device, isSelected, isHighlighted, isOffline, linkedMapHasOffline, onClick, onDragStart, onMapLinkClick }: DeviceNodeProps) {
   const Icon = deviceIcons[device.type as keyof typeof deviceIcons] || Activity;
 
   // Calculate port status counts
@@ -135,13 +136,17 @@ export function DeviceNode({ device, isSelected, isHighlighted, isOffline, onCli
               <Button
                 size="icon"
                 variant="ghost"
-                className="h-7 w-7 flex-shrink-0"
+                className={`h-7 w-7 flex-shrink-0 ${
+                  linkedMapHasOffline 
+                    ? 'text-red-500 animate-pulse shadow-[0_0_8px_2px_rgba(239,68,68,0.6)] rounded-md' 
+                    : ''
+                }`}
                 onClick={(e) => {
                   e.stopPropagation();
                   onMapLinkClick(device.linkedMapId!);
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
-                title="Go to linked map"
+                title={linkedMapHasOffline ? "Go to linked map (has offline devices)" : "Go to linked map"}
                 data-testid={`button-go-linked-map-${device.id}`}
               >
                 <ExternalLink className="h-4 w-4" />

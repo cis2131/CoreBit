@@ -5,6 +5,11 @@ import { ConnectionLine } from './ConnectionLine';
 import { Plus, Minus, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
+interface MapHealthSummary {
+  mapId: string;
+  hasOffline: boolean;
+}
+
 interface NetworkCanvasProps {
   mapId: string;
   devices: (Device & { placementId: string; position: { x: number; y: number } })[];
@@ -22,6 +27,7 @@ interface NetworkCanvasProps {
   focusDeviceId?: string | null;
   onFocusComplete?: () => void;
   onMapLinkClick?: (mapId: string) => void;
+  mapHealthSummary?: MapHealthSummary[];
 }
 
 export function NetworkCanvas({
@@ -41,6 +47,7 @@ export function NetworkCanvas({
   focusDeviceId,
   onFocusComplete,
   onMapLinkClick,
+  mapHealthSummary = [],
 }: NetworkCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -498,6 +505,11 @@ export function NetworkCanvas({
               ? { ...device, position: tempPosition }
               : device;
             
+            // Check if the linked map has offline devices
+            const linkedMapHealth = device.linkedMapId 
+              ? mapHealthSummary.find(m => m.mapId === device.linkedMapId)
+              : undefined;
+            
             return (
               <DeviceNode
                 key={device.id}
@@ -505,6 +517,7 @@ export function NetworkCanvas({
                 isSelected={selectedDeviceId === device.id}
                 isHighlighted={matchesSearch(device)}
                 isOffline={device.status === 'offline'}
+                linkedMapHasOffline={linkedMapHealth?.hasOffline}
                 onClick={() => {
                   if (!deviceWasDragged) {
                     onDeviceClick(device.id);
