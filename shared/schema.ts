@@ -443,6 +443,16 @@ export const dutyShiftConfig = pgTable("duty_shift_config", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Alarm mutes - mute notifications for specific users or globally
+export const alarmMutes = pgTable("alarm_mutes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }), // null = global mute for all on-duty
+  mutedBy: varchar("muted_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  muteUntil: timestamp("mute_until"), // null = forever
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertUserNotificationChannelSchema = createInsertSchema(userNotificationChannels).omit({
   id: true,
   createdAt: true,
@@ -478,6 +488,11 @@ export const insertDutyShiftConfigSchema = createInsertSchema(dutyShiftConfig).o
   rotationWeeks: z.number().int().min(1).max(52).optional(),
 });
 
+export const insertAlarmMuteSchema = createInsertSchema(alarmMutes).omit({
+  id: true,
+  createdAt: true,
+});
+
 export type Map = typeof maps.$inferSelect;
 export type InsertMap = z.infer<typeof insertMapSchema>;
 export type Device = typeof devices.$inferSelect;
@@ -508,3 +523,5 @@ export type DutyUserSchedule = typeof dutyUserSchedules.$inferSelect;
 export type InsertDutyUserSchedule = z.infer<typeof insertDutyUserScheduleSchema>;
 export type DutyShiftConfig = typeof dutyShiftConfig.$inferSelect;
 export type InsertDutyShiftConfig = z.infer<typeof insertDutyShiftConfigSchema>;
+export type AlarmMute = typeof alarmMutes.$inferSelect;
+export type InsertAlarmMute = z.infer<typeof insertAlarmMuteSchema>;
