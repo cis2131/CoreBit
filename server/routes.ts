@@ -686,6 +686,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Device Placement routes
+  app.get("/api/placements/all", async (req, res) => {
+    try {
+      const placements = await storage.getAllPlacements();
+      res.json(placements);
+    } catch (error) {
+      console.error('Error fetching all placements:', error);
+      res.status(500).json({ error: 'Failed to fetch all placements' });
+    }
+  });
+
   app.get("/api/placements/:mapId", async (req, res) => {
     try {
       const mapId = req.params.mapId;

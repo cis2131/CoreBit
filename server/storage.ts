@@ -66,6 +66,7 @@ export interface IStorage {
   deleteDevice(id: string): Promise<void>;
 
   // Device Placements
+  getAllPlacements(): Promise<DevicePlacement[]>;
   getPlacementsByMapId(mapId: string): Promise<DevicePlacement[]>;
   getPlacement(id: string): Promise<DevicePlacement | undefined>;
   createPlacement(placement: InsertDevicePlacement): Promise<DevicePlacement>;
@@ -221,6 +222,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Device Placements
+  async getAllPlacements(): Promise<DevicePlacement[]> {
+    return await db.select().from(devicePlacements);
+  }
+
   async getPlacementsByMapId(mapId: string): Promise<DevicePlacement[]> {
     return await db.select().from(devicePlacements).where(eq(devicePlacements.mapId, mapId));
   }
