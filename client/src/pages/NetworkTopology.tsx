@@ -676,6 +676,7 @@ export default function NetworkTopology() {
             }}
             onStartConnectionFromPort={handleStartConnectionFromPort}
             canModify={canModify}
+            currentMapId={currentMapId}
           />
         )}
 

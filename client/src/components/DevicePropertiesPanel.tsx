@@ -45,6 +45,7 @@ interface DevicePropertiesPanelProps {
   device: Device & {
     placementId?: string;
     position?: { x: number; y: number };
+    placementLinkedMapId?: string | null;
   };
   connections?: Connection[];
   allDevices?: Device[];
@@ -55,6 +56,7 @@ interface DevicePropertiesPanelProps {
   onStartConnectionFromPort?: (deviceId: string, portName: string) => void;
   onNavigateToMap?: (mapId: string) => void;
   canModify?: boolean;
+  currentMapId?: string | null;
 }
 
 const statusLabels = {
@@ -97,6 +99,7 @@ export function DevicePropertiesPanel({
   onStartConnectionFromPort,
   onNavigateToMap,
   canModify = true,
+  currentMapId,
 }: DevicePropertiesPanelProps) {
   const { toast } = useToast();
   const [probing, setProbing] = useState(false);
@@ -120,10 +123,18 @@ export function DevicePropertiesPanel({
   });
 
   const updateLinkedMapMutation = useMutation({
-    mutationFn: async (linkedMapId: string | null) =>
-      apiRequest("PATCH", `/api/devices/${device.id}`, { linkedMapId }),
+    mutationFn: async (linkedMapId: string | null) => {
+      // Update the placement's linkedMapId (per-placement link)
+      if (device.placementId) {
+        return apiRequest("PATCH", `/api/placements/${device.placementId}`, { linkedMapId });
+      }
+      throw new Error("Device not placed on map");
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      // Invalidate all placement queries and map health summary
+      queryClient.invalidateQueries({ queryKey: ["/api/placements", currentMapId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/placements/all"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/map-health/summary"] });
       toast({ description: "Map link updated" });
     },
     onError: () => {
@@ -914,45 +925,53 @@ export function DevicePropertiesPanel({
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-xs text-muted-foreground">
-                Link this device to another map. A link icon will appear on the
+                Link this device placement to another map. A link icon will appear on the
                 device in the canvas.
               </p>
-              <Select
-                value={device.linkedMapId || "none"}
-                onValueChange={(value) => {
-                  if (canModify) {
-                    updateLinkedMapMutation.mutate(
-                      value === "none" ? null : value,
-                    );
-                  }
-                }}
-                disabled={!canModify}
-              >
-                <SelectTrigger data-testid="select-linked-map">
-                  <SelectValue placeholder="No map linked" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No map linked</SelectItem>
-                  {maps.map((map) => (
-                    <SelectItem key={map.id} value={map.id}>
-                      {map.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {device.linkedMapId && onNavigateToMap && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full gap-2"
-                  onClick={() => onNavigateToMap(device.linkedMapId!)}
-                  data-testid="button-go-to-linked-map"
-                >
-                  <LinkIcon className="h-3 w-3" />
-                  Go to{" "}
-                  {maps.find((m) => m.id === device.linkedMapId)?.name ||
-                    "Linked Map"}
-                </Button>
+              {device.placementId ? (
+                <>
+                  <Select
+                    value={device.placementLinkedMapId || "none"}
+                    onValueChange={(value) => {
+                      if (canModify) {
+                        updateLinkedMapMutation.mutate(
+                          value === "none" ? null : value,
+                        );
+                      }
+                    }}
+                    disabled={!canModify}
+                  >
+                    <SelectTrigger data-testid="select-linked-map">
+                      <SelectValue placeholder="No map linked" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No map linked</SelectItem>
+                      {maps.map((map) => (
+                        <SelectItem key={map.id} value={map.id}>
+                          {map.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {device.placementLinkedMapId && onNavigateToMap && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full gap-2"
+                      onClick={() => onNavigateToMap(device.placementLinkedMapId!)}
+                      data-testid="button-go-to-linked-map"
+                    >
+                      <LinkIcon className="h-3 w-3" />
+                      Go to{" "}
+                      {maps.find((m) => m.id === device.placementLinkedMapId)?.name ||
+                        "Linked Map"}
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">
+                  Place this device on a map to configure map links.
+                </p>
               )}
             </CardContent>
           </Card>
