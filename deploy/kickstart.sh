@@ -431,8 +431,31 @@ install_application() {
     cd "$INSTALL_DIR"
     
     # Install npm dependencies
-    log_info "Installing Node.js dependencies..."
-    npm install --production --silent
+    log_info "Installing Node.js dependencies (this may take a few minutes)..."
+    log_verbose "Running: npm install --production"
+    
+    # Set npm to use less memory on constrained systems
+    export NODE_OPTIONS="--max-old-space-size=512"
+    
+    if [ "$VERBOSE_MODE" = true ]; then
+        npm install --production --loglevel info
+    else
+        # Show a spinner/progress indicator
+        npm install --production 2>&1 | while IFS= read -r line; do
+            printf "\r[INFO] npm: %s" "$(echo "$line" | tail -c 60)"
+        done
+        echo ""
+    fi
+    
+    NPM_EXIT=${PIPESTATUS[0]:-$?}
+    if [ $NPM_EXIT -ne 0 ]; then
+        log_error "npm install failed with exit code $NPM_EXIT"
+        log_info "Try running manually: cd $INSTALL_DIR && npm install --production"
+        if [ "$VERBOSE_MODE" != true ]; then
+            log_info "Run installer with --verbose for detailed output"
+        fi
+        exit 1
+    fi
     
     # Set ownership
     chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
