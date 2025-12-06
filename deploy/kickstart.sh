@@ -437,25 +437,33 @@ install_application() {
     # Set npm to use less memory on constrained systems
     export NODE_OPTIONS="--max-old-space-size=512"
     
+    # Use a temp file to capture output and reliably check exit code
+    NPM_LOG="/tmp/corebit-npm-install.log"
+    
     if [ "$VERBOSE_MODE" = true ]; then
-        npm install --production --loglevel info
+        npm install --production --loglevel info 2>&1 | tee "$NPM_LOG"
+        NPM_EXIT=${PIPESTATUS[0]}
     else
-        # Show a spinner/progress indicator
-        npm install --production 2>&1 | while IFS= read -r line; do
-            printf "\r[INFO] npm: %s" "$(echo "$line" | tail -c 60)"
-        done
-        echo ""
+        # Run npm and capture output
+        if npm install --production > "$NPM_LOG" 2>&1; then
+            NPM_EXIT=0
+        else
+            NPM_EXIT=$?
+        fi
     fi
     
-    NPM_EXIT=${PIPESTATUS[0]:-$?}
     if [ $NPM_EXIT -ne 0 ]; then
         log_error "npm install failed with exit code $NPM_EXIT"
+        log_error "Last 20 lines of npm output:"
+        tail -20 "$NPM_LOG" 2>/dev/null || true
+        echo ""
+        log_info "Full log at: $NPM_LOG"
         log_info "Try running manually: cd $INSTALL_DIR && npm install --production"
-        if [ "$VERBOSE_MODE" != true ]; then
-            log_info "Run installer with --verbose for detailed output"
-        fi
         exit 1
     fi
+    
+    rm -f "$NPM_LOG"
+    log_success "Node.js dependencies installed"
     
     # Set ownership
     chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
