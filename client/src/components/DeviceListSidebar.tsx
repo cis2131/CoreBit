@@ -86,11 +86,6 @@ export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragS
         </Button>
       </div>
 
-      {!isCollapsed && (
-        <div className="px-4 py-2 border-b border-border">
-          <h2 className="text-sm font-semibold text-foreground">On Duty</h2>
-        </div>
-      )}
       <OnDutyPanel isCollapsed={isCollapsed} />
 
       {!isCollapsed && (

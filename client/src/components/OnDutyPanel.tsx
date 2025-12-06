@@ -2,7 +2,8 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Users, BellOff, X, AlertCircle } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Users, BellOff, X, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { format } from 'date-fns';
 import { useAuth } from '@/hooks/useAuth';
@@ -146,6 +147,7 @@ interface OnDutyPanelProps {
 export function OnDutyPanel({ isCollapsed = false }: OnDutyPanelProps) {
   const { user } = useAuth();
   const canMute = user?.role === 'admin' || user?.role === 'superuser';
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const { data: onDutyData } = useQuery<OnDutyResponse>({
     queryKey: ['/api/duty-on-call'],
@@ -186,63 +188,78 @@ export function OnDutyPanel({ isCollapsed = false }: OnDutyPanelProps) {
     );
   }
 
+  const userCount = onDutyData.users.length;
+  const shiftLabel = onDutyData.shift === 'day' ? 'Day' : 'Night';
+
   return (
-    <div className="px-3 py-2 border-b border-border space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Users className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs font-medium">
-            On Duty ({onDutyData.shift === 'day' ? 'Day' : 'Night'})
-          </span>
-        </div>
-        {canMute && (
-          <MuteButton targetName="All" isGlobal />
-        )}
-      </div>
-
-      {globalMute && (
-        <div className="bg-muted/50 rounded-md p-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">All alarms muted</span>
+    <div className="px-3 py-2 border-b border-border">
+      <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+        <div className="flex items-center justify-between">
+          <CollapsibleTrigger asChild>
+            <button className="flex items-center gap-2 hover:bg-muted/50 rounded px-1 py-0.5 -ml-1 transition-colors">
+              {isExpanded ? (
+                <ChevronDown className="h-3 w-3 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3 w-3 text-muted-foreground" />
+              )}
+              <Users className="h-4 w-4 text-muted-foreground" />
+              <span className="text-xs">
+                {userCount} on {shiftLabel} shift
+              </span>
+              {globalMute && (
+                <BellOff className="h-3 w-3 text-orange-500" />
+              )}
+            </button>
+          </CollapsibleTrigger>
+          {canMute && !globalMute && (
+            <MuteButton targetName="All" isGlobal />
+          )}
+          {globalMute && canMute && (
             <MuteIndicator mute={globalMute} canUnmute={canMute} />
-          </div>
+          )}
         </div>
-      )}
 
-      {onDutyData.users.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No operators on duty</p>
-      ) : (
-        <div className="space-y-1">
-          {onDutyData.users.map((u) => {
-            const userMute = getUserMute(u.id);
-            return (
-              <div 
-                key={u.id} 
-                className="flex items-center justify-between py-1 px-2 rounded-sm bg-muted/30"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="h-2 w-2 rounded-full bg-green-500 flex-shrink-0" />
-                  <span className="text-xs truncate">
-                    {u.displayName || u.username}
-                  </span>
+        <CollapsibleContent className="mt-2 space-y-1">
+          {globalMute && (
+            <div className="bg-orange-500/10 rounded-md p-2 mb-2">
+              <span className="text-xs text-orange-500">All alarms muted</span>
+            </div>
+          )}
+
+          {userCount === 0 ? (
+            <p className="text-xs text-muted-foreground pl-5">No operators on duty</p>
+          ) : (
+            onDutyData.users.map((u) => {
+              const userMute = getUserMute(u.id);
+              return (
+                <div 
+                  key={u.id} 
+                  className="flex items-center justify-between py-1 px-2 rounded-sm bg-muted/30"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="h-2 w-2 rounded-full bg-green-500 flex-shrink-0" />
+                    <span className="text-xs truncate">
+                      {u.displayName || u.username}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {userMute ? (
+                      <MuteIndicator mute={userMute} canUnmute={canMute} />
+                    ) : (
+                      canMute && (
+                        <MuteButton 
+                          targetUserId={u.id} 
+                          targetName={u.displayName || u.username} 
+                        />
+                      )
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-1">
-                  {userMute ? (
-                    <MuteIndicator mute={userMute} canUnmute={canMute} />
-                  ) : (
-                    canMute && (
-                      <MuteButton 
-                        targetUserId={u.id} 
-                        targetName={u.displayName || u.username} 
-                      />
-                    )
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })
+          )}
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }
