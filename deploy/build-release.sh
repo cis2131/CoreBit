@@ -95,14 +95,18 @@ cat > "$RELEASE_DIR/package.json" <<EOF
     "connect-pg-simple": "^10.0.0",
     "dotenv": "^16.4.0",
     "drizzle-orm": "^0.36.0",
+    "drizzle-zod": "^0.7.0",
     "express": "^4.21.0",
     "express-session": "^1.18.0",
+    "memorystore": "^1.6.7",
     "net-snmp": "^3.12.0",
     "node-routeros": "^1.6.0",
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
     "pg": "^8.13.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "^3.24.0",
+    "zod-validation-error": "^3.4.0"
   },
   "devDependencies": {
     "drizzle-kit": "^0.28.0"
