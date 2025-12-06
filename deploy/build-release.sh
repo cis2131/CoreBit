@@ -57,9 +57,8 @@ mkdir -p "$RELEASE_DIR"
 cp -r dist/public "$RELEASE_DIR/"
 cp dist/index.js "$RELEASE_DIR/"
 
-# Copy essential files
-cp package.json "$RELEASE_DIR/"
-cp package-lock.json "$RELEASE_DIR/" 2>/dev/null || true
+# Copy essential files (NOT package-lock.json - we generate a new one for the trimmed package.json)
+# The root package-lock.json has dev dependencies that don't match our trimmed package.json
 
 # Copy deployment files
 cp -r deploy "$RELEASE_DIR/"
