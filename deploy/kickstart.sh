@@ -136,8 +136,42 @@ install_dependencies() {
     
     case $OS in
         ubuntu|debian)
-            apt-get update -qq
-            apt-get install -y -qq curl wget unzip postgresql postgresql-contrib nodejs npm
+            log_info "Updating package lists..."
+            apt-get update
+            
+            # Fix any broken packages first
+            log_info "Checking for broken packages..."
+            apt-get -f install -y 2>/dev/null || true
+            
+            # Install packages one by one for better error handling
+            log_info "Installing: curl wget unzip..."
+            apt-get install -y curl wget unzip || {
+                log_error "Failed to install basic utilities. Try: sudo apt-get -f install"
+                exit 1
+            }
+            
+            log_info "Installing: postgresql postgresql-contrib..."
+            apt-get install -y postgresql postgresql-contrib || {
+                log_error "Failed to install PostgreSQL."
+                log_info "Try running: sudo apt-get update && sudo apt-get -f install"
+                log_info "Then retry the installation."
+                exit 1
+            }
+            
+            # Check if nodejs is already installed with sufficient version
+            if command -v node &> /dev/null; then
+                NODE_VER=$(node -v 2>/dev/null | cut -d'v' -f2 | cut -d'.' -f1)
+                if [ "$NODE_VER" -ge 18 ] 2>/dev/null; then
+                    log_info "Node.js $NODE_VER already installed, skipping..."
+                else
+                    log_info "Node.js version too old, will install Node.js 20..."
+                    install_nodejs
+                fi
+            else
+                log_info "Installing Node.js..."
+                # Try distro package first, fall back to nodesource if version is old
+                apt-get install -y nodejs npm 2>/dev/null || install_nodejs
+            fi
             ;;
         centos|rhel|fedora|rocky|almalinux)
             if command -v dnf &> /dev/null; then
