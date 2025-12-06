@@ -21,6 +21,7 @@ set -e
 #   --db-name NAME    Database name (default: corebit)
 #   --db-user USER    Database user (default: corebit)
 #   --port PORT       Application port (default: 3000)
+#   --verbose         Show detailed output for debugging
 #===============================================================================
 
 # Colors for output
@@ -45,6 +46,7 @@ DOWNLOAD_URL="${DOWNLOAD_URL:-https://your-server.com/corebit/releases/latest.zi
 UPDATE_MODE=false
 UNINSTALL_MODE=false
 SKIP_DB=false
+VERBOSE_MODE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -84,6 +86,10 @@ while [[ $# -gt 0 ]]; do
             DOWNLOAD_URL="$2"
             shift 2
             ;;
+        --verbose|-v)
+            VERBOSE_MODE=true
+            shift
+            ;;
         *)
             echo -e "${RED}Unknown option: $1${NC}"
             exit 1
@@ -106,6 +112,21 @@ log_warning() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+log_verbose() {
+    if [ "$VERBOSE_MODE" = true ]; then
+        echo -e "${YELLOW}[VERBOSE]${NC} $1"
+    fi
+}
+
+# Run command with optional verbose output
+run_cmd() {
+    if [ "$VERBOSE_MODE" = true ]; then
+        "$@"
+    else
+        "$@" >/dev/null 2>&1
+    fi
 }
 
 check_root() {
@@ -134,29 +155,63 @@ detect_os() {
 install_dependencies() {
     log_info "Installing system dependencies..."
     
+    # Set apt verbosity based on verbose mode
+    if [ "$VERBOSE_MODE" = true ]; then
+        APT_OPTS="-y"
+    else
+        APT_OPTS="-y -qq"
+    fi
+    
     case $OS in
         ubuntu|debian)
             log_info "Updating package lists..."
-            apt-get update
+            if [ "$VERBOSE_MODE" = true ]; then
+                apt-get update
+            else
+                apt-get update -qq
+            fi
+            
+            # Check for broken packages
+            log_info "Checking for broken packages..."
+            log_verbose "Running: dpkg --audit"
+            if [ "$VERBOSE_MODE" = true ]; then
+                dpkg --audit || true
+                echo ""
+                log_verbose "Running: apt-get check"
+                apt-get check || true
+                echo ""
+            fi
             
             # Fix any broken packages first
-            log_info "Checking for broken packages..."
-            apt-get -f install -y 2>/dev/null || true
+            log_verbose "Running: apt-get -f install -y"
+            if [ "$VERBOSE_MODE" = true ]; then
+                apt-get -f install -y || true
+            else
+                apt-get -f install -y 2>/dev/null || true
+            fi
             
             # Install packages one by one for better error handling
             log_info "Installing: curl wget unzip..."
-            apt-get install -y curl wget unzip || {
-                log_error "Failed to install basic utilities. Try: sudo apt-get -f install"
+            log_verbose "Running: apt-get install $APT_OPTS curl wget unzip"
+            if ! apt-get install $APT_OPTS curl wget unzip; then
+                log_error "Failed to install basic utilities."
+                log_info "Try running manually: sudo apt-get -f install"
+                if [ "$VERBOSE_MODE" != true ]; then
+                    log_info "Run with --verbose to see detailed errors"
+                fi
                 exit 1
-            }
+            fi
             
             log_info "Installing: postgresql postgresql-contrib..."
-            apt-get install -y postgresql postgresql-contrib || {
+            log_verbose "Running: apt-get install $APT_OPTS postgresql postgresql-contrib"
+            if ! apt-get install $APT_OPTS postgresql postgresql-contrib; then
                 log_error "Failed to install PostgreSQL."
                 log_info "Try running: sudo apt-get update && sudo apt-get -f install"
-                log_info "Then retry the installation."
+                if [ "$VERBOSE_MODE" != true ]; then
+                    log_info "Run with --verbose to see detailed errors"
+                fi
                 exit 1
-            }
+            fi
             
             # Check if nodejs is already installed with sufficient version
             if command -v node &> /dev/null; then
@@ -169,8 +224,12 @@ install_dependencies() {
                 fi
             else
                 log_info "Installing Node.js..."
+                log_verbose "Running: apt-get install $APT_OPTS nodejs npm"
                 # Try distro package first, fall back to nodesource if version is old
-                apt-get install -y nodejs npm 2>/dev/null || install_nodejs
+                if ! apt-get install $APT_OPTS nodejs npm 2>/dev/null; then
+                    log_verbose "Distro nodejs failed or too old, trying nodesource..."
+                    install_nodejs
+                fi
             fi
             ;;
         centos|rhel|fedora|rocky|almalinux)
@@ -198,15 +257,32 @@ install_dependencies() {
 }
 
 install_nodejs() {
-    log_info "Installing Node.js 20 LTS..."
+    log_info "Installing Node.js 20 LTS from NodeSource..."
     
     case $OS in
         ubuntu|debian)
-            curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-            apt-get install -y nodejs
+            log_verbose "Running: curl -fsSL https://deb.nodesource.com/setup_20.x | bash -"
+            if [ "$VERBOSE_MODE" = true ]; then
+                curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+            else
+                curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
+            fi
+            
+            log_verbose "Running: apt-get install -y nodejs"
+            if [ "$VERBOSE_MODE" = true ]; then
+                apt-get install -y nodejs
+            else
+                apt-get install -y -qq nodejs
+            fi
             ;;
         centos|rhel|fedora|rocky|almalinux)
-            curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
+            log_verbose "Running: curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -"
+            if [ "$VERBOSE_MODE" = true ]; then
+                curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
+            else
+                curl -fsSL https://rpm.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
+            fi
+            
             if command -v dnf &> /dev/null; then
                 dnf install -y nodejs
             else
