@@ -441,11 +441,11 @@ install_application() {
     NPM_LOG="/tmp/corebit-npm-install.log"
     
     if [ "$VERBOSE_MODE" = true ]; then
-        npm install --production --legacy-peer-deps --loglevel info 2>&1 | tee "$NPM_LOG"
+        npm install --legacy-peer-deps --loglevel info 2>&1 | tee "$NPM_LOG"
         NPM_EXIT=${PIPESTATUS[0]}
     else
         # Run npm and capture output (--legacy-peer-deps avoids peer dependency conflicts)
-        if npm install --production --legacy-peer-deps > "$NPM_LOG" 2>&1; then
+        if npm install --legacy-peer-deps > "$NPM_LOG" 2>&1; then
             NPM_EXIT=0
         else
             NPM_EXIT=$?
