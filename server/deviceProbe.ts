@@ -1226,6 +1226,407 @@ function parseCounter(value: any): number | null {
   return isNaN(num) ? null : num;
 }
 
+// ============================================================================
+// Device Fingerprinting Functions for "Find All" Discovery
+// ============================================================================
+
+export interface DeviceFingerprint {
+  deviceType: string;
+  confidence: 'high' | 'medium' | 'low';
+  detectedName?: string;
+  detectedModel?: string;
+  detectedVia: string;
+  sysDescr?: string;
+  additionalInfo?: Record<string, any>;
+}
+
+// Fingerprint patterns for SNMP sysDescr analysis
+const SYSDESCR_PATTERNS: Array<{
+  pattern: RegExp;
+  deviceType: string;
+  confidence: 'high' | 'medium' | 'low';
+  extractModel?: (match: RegExpMatchArray, full: string) => string | undefined;
+}> = [
+  // MikroTik - very distinctive
+  { pattern: /RouterOS|MikroTik/i, deviceType: 'mikrotik_router', confidence: 'high',
+    extractModel: (_, full) => {
+      const boardMatch = full.match(/board\s+([^\s,]+)/i);
+      return boardMatch ? boardMatch[1] : undefined;
+    }
+  },
+  // Ubiquiti
+  { pattern: /Ubiquiti|EdgeOS|UniFi|EdgeSwitch|AirOS/i, deviceType: 'ubiquiti', confidence: 'high',
+    extractModel: (_, full) => {
+      const modelMatch = full.match(/(EdgeRouter|EdgeSwitch|UniFi|UAP|USW)[^\s,]*/i);
+      return modelMatch ? modelMatch[0] : undefined;
+    }
+  },
+  // Cisco
+  { pattern: /Cisco|IOS|NX-OS|Catalyst/i, deviceType: 'cisco', confidence: 'high',
+    extractModel: (_, full) => {
+      const modelMatch = full.match(/(Catalyst|ASR|ISR|Nexus|C\d{4})[^\s,]*/i);
+      return modelMatch ? modelMatch[0] : undefined;
+    }
+  },
+  // Juniper
+  { pattern: /Juniper|JUNOS|SRX|EX\d+/i, deviceType: 'juniper', confidence: 'high' },
+  // Fortinet
+  { pattern: /FortiGate|FortiOS|Fortinet/i, deviceType: 'fortinet', confidence: 'high' },
+  // VMware ESXi
+  { pattern: /VMware ESXi|ESX Server/i, deviceType: 'vmware_esxi', confidence: 'high',
+    extractModel: (_, full) => {
+      const verMatch = full.match(/ESXi?\s*(\d+\.\d+)/i);
+      return verMatch ? `ESXi ${verMatch[1]}` : 'VMware ESXi';
+    }
+  },
+  // Proxmox VE
+  { pattern: /Proxmox|pve-manager/i, deviceType: 'proxmox_ve', confidence: 'high' },
+  // Windows
+  { pattern: /Windows|Microsoft/i, deviceType: 'windows_server', confidence: 'high',
+    extractModel: (_, full) => {
+      const verMatch = full.match(/Windows\s+(Server\s+\d+|10|11|NT)/i);
+      return verMatch ? `Windows ${verMatch[1]}` : 'Windows';
+    }
+  },
+  // Linux distributions
+  { pattern: /Linux|Ubuntu|Debian|CentOS|Red Hat|RHEL|Fedora|SUSE|Alma|Rocky/i, deviceType: 'linux_server', confidence: 'high',
+    extractModel: (_, full) => {
+      const distroMatch = full.match(/(Ubuntu|Debian|CentOS|Red Hat|RHEL|Fedora|SUSE|AlmaLinux|Rocky)/i);
+      return distroMatch ? distroMatch[1] : 'Linux';
+    }
+  },
+  // FreeBSD/Unix
+  { pattern: /FreeBSD|OpenBSD|NetBSD|pfSense|OPNsense/i, deviceType: 'bsd_server', confidence: 'high' },
+  // Synology NAS
+  { pattern: /Synology|DiskStation|RackStation/i, deviceType: 'synology_nas', confidence: 'high' },
+  // QNAP NAS
+  { pattern: /QNAP/i, deviceType: 'qnap_nas', confidence: 'high' },
+  // HP/HPE
+  { pattern: /HP|Hewlett|ProCurve|Aruba|iLO/i, deviceType: 'hp_device', confidence: 'medium' },
+  // Dell
+  { pattern: /Dell|PowerEdge|iDRAC/i, deviceType: 'dell_device', confidence: 'medium' },
+  // Printer patterns
+  { pattern: /Printer|RICOH|Canon|Xerox|Epson|Brother|Kyocera|HP LaserJet|HP Color/i, deviceType: 'printer', confidence: 'high' },
+  // UPS/APC
+  { pattern: /APC|UPS|Smart-UPS|Symmetra|Eaton/i, deviceType: 'ups', confidence: 'high' },
+  // Generic network device
+  { pattern: /Switch|Router|Gateway|Firewall/i, deviceType: 'network_device', confidence: 'low' },
+];
+
+// Analyze SNMP sysDescr to fingerprint device type
+export function fingerprintFromSysDescr(sysDescr: string): DeviceFingerprint | null {
+  if (!sysDescr || sysDescr === 'Unknown Device') return null;
+  
+  for (const { pattern, deviceType, confidence, extractModel } of SYSDESCR_PATTERNS) {
+    const match = sysDescr.match(pattern);
+    if (match) {
+      return {
+        deviceType,
+        confidence,
+        detectedModel: extractModel ? extractModel(match, sysDescr) : undefined,
+        detectedVia: 'snmp_sysdescr',
+        sysDescr,
+      };
+    }
+  }
+  
+  return null;
+}
+
+// SSH banner patterns for fingerprinting
+const SSH_BANNER_PATTERNS: Array<{
+  pattern: RegExp;
+  deviceType: string;
+  confidence: 'high' | 'medium' | 'low';
+}> = [
+  { pattern: /MikroTik/i, deviceType: 'mikrotik_router', confidence: 'high' },
+  { pattern: /Cisco/i, deviceType: 'cisco', confidence: 'high' },
+  { pattern: /Ubuntu/i, deviceType: 'linux_server', confidence: 'high' },
+  { pattern: /Debian/i, deviceType: 'linux_server', confidence: 'high' },
+  { pattern: /OpenSSH.*FreeBSD/i, deviceType: 'bsd_server', confidence: 'high' },
+  { pattern: /OpenSSH/i, deviceType: 'linux_server', confidence: 'medium' }, // Could be any Unix-like
+  { pattern: /dropbear/i, deviceType: 'embedded_linux', confidence: 'medium' },
+  { pattern: /Windows/i, deviceType: 'windows_server', confidence: 'high' },
+];
+
+// Probe SSH banner on port 22
+export async function probeSSHBanner(ipAddress: string, timeoutMs: number = 3000): Promise<DeviceFingerprint | null> {
+  return new Promise((resolve) => {
+    const net = require('net');
+    const socket = new net.Socket();
+    let banner = '';
+    let resolved = false;
+    
+    const cleanup = () => {
+      if (!resolved) {
+        resolved = true;
+        socket.destroy();
+      }
+    };
+    
+    socket.setTimeout(timeoutMs);
+    
+    socket.on('connect', () => {
+      // SSH server sends banner on connect
+    });
+    
+    socket.on('data', (data: Buffer) => {
+      banner += data.toString();
+      // SSH banner is typically in first line
+      if (banner.includes('\n') || banner.length > 200) {
+        cleanup();
+        
+        for (const { pattern, deviceType, confidence } of SSH_BANNER_PATTERNS) {
+          if (pattern.test(banner)) {
+            resolve({
+              deviceType,
+              confidence,
+              detectedVia: 'ssh_banner',
+              additionalInfo: { sshBanner: banner.trim().split('\n')[0] },
+            });
+            return;
+          }
+        }
+        
+        // SSH responded but no specific match
+        resolve({
+          deviceType: 'generic_ssh',
+          confidence: 'low',
+          detectedVia: 'ssh_banner',
+          additionalInfo: { sshBanner: banner.trim().split('\n')[0] },
+        });
+      }
+    });
+    
+    socket.on('timeout', () => {
+      cleanup();
+      resolve(null);
+    });
+    
+    socket.on('error', () => {
+      cleanup();
+      resolve(null);
+    });
+    
+    socket.on('close', () => {
+      if (!resolved) {
+        resolved = true;
+        resolve(null);
+      }
+    });
+    
+    socket.connect(22, ipAddress);
+    
+    // Hard timeout
+    setTimeout(() => {
+      cleanup();
+      resolve(null);
+    }, timeoutMs + 500);
+  });
+}
+
+// HTTP fingerprint patterns
+const HTTP_FINGERPRINT_PATTERNS: Array<{
+  pattern: RegExp;
+  headerPattern?: RegExp;
+  deviceType: string;
+  confidence: 'high' | 'medium' | 'low';
+}> = [
+  // VMware ESXi - check body or headers
+  { pattern: /VMware ESXi|vSphere|hostd/i, deviceType: 'vmware_esxi', confidence: 'high' },
+  // Proxmox VE - runs on port 8006
+  { pattern: /Proxmox|pve-manager|PVE/i, deviceType: 'proxmox_ve', confidence: 'high' },
+  // MikroTik webfig
+  { pattern: /webfig|RouterOS|mikrotik/i, deviceType: 'mikrotik_router', confidence: 'high' },
+  // Synology DSM
+  { pattern: /Synology|DiskStation|DSM/i, deviceType: 'synology_nas', confidence: 'high' },
+  // QNAP
+  { pattern: /QNAP|QTS/i, deviceType: 'qnap_nas', confidence: 'high' },
+  // UniFi Controller
+  { pattern: /UniFi|ubnt/i, deviceType: 'ubiquiti', confidence: 'high' },
+  // iLO/iDRAC
+  { pattern: /iLO|Integrated Lights-Out/i, deviceType: 'hp_device', confidence: 'high' },
+  { pattern: /iDRAC|Dell Remote Access/i, deviceType: 'dell_device', confidence: 'high' },
+  // Fortinet
+  { pattern: /FortiGate|Fortinet/i, deviceType: 'fortinet', confidence: 'high' },
+  // pfSense/OPNsense
+  { pattern: /pfSense|OPNsense/i, deviceType: 'bsd_server', confidence: 'high' },
+  // Windows IIS
+  { pattern: /IIS|Microsoft-IIS/i, headerPattern: /Server:\s*Microsoft-IIS/i, deviceType: 'windows_server', confidence: 'medium' },
+  // Apache on Linux
+  { pattern: /Apache/i, headerPattern: /Server:\s*Apache/i, deviceType: 'linux_server', confidence: 'low' },
+  // nginx
+  { pattern: /nginx/i, headerPattern: /Server:\s*nginx/i, deviceType: 'linux_server', confidence: 'low' },
+];
+
+// Probe HTTP/HTTPS to fingerprint device
+export async function probeHTTPFingerprint(
+  ipAddress: string, 
+  port: number = 443,
+  timeoutMs: number = 3000
+): Promise<DeviceFingerprint | null> {
+  const https = require('https');
+  const http = require('http');
+  
+  const protocol = port === 443 || port === 8006 ? https : http;
+  const scheme = port === 443 || port === 8006 ? 'https' : 'http';
+  
+  return new Promise((resolve) => {
+    const req = protocol.get({
+      hostname: ipAddress,
+      port,
+      path: '/',
+      timeout: timeoutMs,
+      rejectUnauthorized: false, // Accept self-signed certs
+      headers: {
+        'User-Agent': 'CoreBit-NetworkScanner/1.0',
+      },
+    }, (res: any) => {
+      let body = '';
+      
+      res.on('data', (chunk: Buffer) => {
+        body += chunk.toString();
+        // Only read first 4KB
+        if (body.length > 4096) {
+          req.destroy();
+        }
+      });
+      
+      res.on('end', () => {
+        const headers = JSON.stringify(res.headers);
+        const combined = body + headers;
+        
+        for (const { pattern, headerPattern, deviceType, confidence } of HTTP_FINGERPRINT_PATTERNS) {
+          if (pattern.test(body) || pattern.test(combined)) {
+            resolve({
+              deviceType,
+              confidence,
+              detectedVia: `http_${port}`,
+              additionalInfo: { httpServer: res.headers['server'] },
+            });
+            return;
+          }
+          if (headerPattern && headerPattern.test(headers)) {
+            resolve({
+              deviceType,
+              confidence,
+              detectedVia: `http_${port}`,
+              additionalInfo: { httpServer: res.headers['server'] },
+            });
+            return;
+          }
+        }
+        
+        // HTTP responded but no specific match
+        if (res.headers['server']) {
+          resolve({
+            deviceType: 'generic_http',
+            confidence: 'low',
+            detectedVia: `http_${port}`,
+            additionalInfo: { httpServer: res.headers['server'] },
+          });
+        } else {
+          resolve(null);
+        }
+      });
+    });
+    
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(null);
+    });
+    
+    req.on('error', () => {
+      resolve(null);
+    });
+    
+    // Hard timeout
+    setTimeout(() => {
+      req.destroy();
+      resolve(null);
+    }, timeoutMs + 500);
+  });
+}
+
+// Main discovery function - pings first, then fingerprints
+export async function discoverDevice(
+  ipAddress: string,
+  credentials?: any,
+  timeoutMs: number = 5000
+): Promise<{
+  reachable: boolean;
+  fingerprint: DeviceFingerprint | null;
+  pingRtt?: number;
+  sysName?: string;
+}> {
+  // Step 1: Ping check
+  const pingResult = await pingDevice(ipAddress, Math.ceil(timeoutMs / 1000));
+  if (!pingResult.success) {
+    return { reachable: false, fingerprint: null };
+  }
+  
+  // Step 2: Try SNMP first (most reliable for device identification)
+  const community = credentials?.snmpCommunity || 'public';
+  const snmpResult = await testSnmpConnectivity(ipAddress, community);
+  
+  if (snmpResult.success && snmpResult.sysDescr) {
+    const fingerprint = fingerprintFromSysDescr(snmpResult.sysDescr);
+    if (fingerprint) {
+      return { 
+        reachable: true, 
+        fingerprint, 
+        pingRtt: pingResult.rtt,
+      };
+    }
+    // SNMP works but couldn't identify - return as generic SNMP
+    return {
+      reachable: true,
+      fingerprint: {
+        deviceType: 'generic_snmp',
+        confidence: 'low',
+        detectedVia: 'snmp_sysdescr',
+        sysDescr: snmpResult.sysDescr,
+      },
+      pingRtt: pingResult.rtt,
+    };
+  }
+  
+  // Step 3: Try SSH banner grab
+  const sshFingerprint = await probeSSHBanner(ipAddress, 2000);
+  if (sshFingerprint) {
+    return { 
+      reachable: true, 
+      fingerprint: sshFingerprint, 
+      pingRtt: pingResult.rtt 
+    };
+  }
+  
+  // Step 4: Try HTTP/HTTPS fingerprinting
+  // Try common management ports
+  const httpPorts = [443, 80, 8006, 8443];
+  for (const port of httpPorts) {
+    const httpFingerprint = await probeHTTPFingerprint(ipAddress, port, 2000);
+    if (httpFingerprint && httpFingerprint.confidence !== 'low') {
+      return { 
+        reachable: true, 
+        fingerprint: httpFingerprint, 
+        pingRtt: pingResult.rtt 
+      };
+    }
+  }
+  
+  // Step 5: Device responds to ping but couldn't identify
+  return {
+    reachable: true,
+    fingerprint: {
+      deviceType: 'generic_ping',
+      confidence: 'low',
+      detectedVia: 'ping_only',
+    },
+    pingRtt: pingResult.rtt,
+  };
+}
+
 export async function pingDevice(ipAddress: string, timeoutSeconds: number = 3): Promise<{ success: boolean; rtt?: number }> {
   return new Promise((resolve) => {
     // Validate IP address to prevent command injection

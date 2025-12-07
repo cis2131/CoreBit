@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probeMikrotikWithPool, pingDevice } from "./deviceProbe";
+import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probeMikrotikWithPool, pingDevice, discoverDevice, type DeviceFingerprint } from "./deviceProbe";
 import { mikrotikPool } from "./mikrotikConnectionPool";
 import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, insertUserNotificationChannelSchema, insertDutyUserScheduleSchema, insertDutyShiftConfigSchema, type Device, type Connection, type UserNotificationChannel } from "@shared/schema";
 import { z } from "zod";
@@ -1604,7 +1604,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const scanRequestSchema = z.object({
     ipRange: z.string(),
     credentialProfileIds: z.array(z.string()),
-    probeTypes: z.array(z.enum(['mikrotik', 'snmp', 'server'])),
+    probeTypes: z.array(z.enum(['mikrotik', 'snmp', 'server', 'find_all'])),
   });
 
   interface ScanResult {
@@ -1614,6 +1614,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     deviceData?: any;
     credentialProfileId?: string;
     error?: string;
+    fingerprint?: DeviceFingerprint;
   }
 
   app.post("/api/network-scan", canModify as any, async (req, res) => {
@@ -1626,13 +1627,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Invalid IP range' });
       }
       
-      // Fetch credential profiles
+      // Fetch credential profiles (optional for find_all mode)
       const credProfiles = await Promise.all(
         credentialProfileIds.map(id => storage.getCredentialProfile(id))
       );
       const validCredProfiles = credProfiles.filter(p => p !== undefined);
       
-      if (validCredProfiles.length === 0) {
+      // Check if we're in "find_all" mode
+      const isFindAllMode = probeTypes.includes('find_all');
+      
+      // For traditional probes, require credentials
+      if (!isFindAllMode && validCredProfiles.length === 0) {
         return res.status(400).json({ error: 'No valid credential profiles provided' });
       }
       
@@ -1641,17 +1646,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const existingIPs = new Set(existingDevices.map(d => d.ipAddress).filter(Boolean));
       
       const results: ScanResult[] = [];
-      const SCAN_CONCURRENCY = 40; // Concurrent probes for scanning
-      const SCAN_TIMEOUT = 3000; // 3 second timeout per probe
+      const SCAN_CONCURRENCY = isFindAllMode ? 30 : 40; // Slightly lower for find_all since it does more probes
+      const SCAN_TIMEOUT = isFindAllMode ? 8000 : 3000; // Longer timeout for find_all (multiple probes)
       
-      // Probe function with timeout
-      const scanIP = async (ip: string): Promise<ScanResult> => {
+      // Find All discovery function - pings then fingerprints
+      const findAllScan = async (ip: string): Promise<ScanResult> => {
+        try {
+          // Get first credential profile for SNMP community string (or use default)
+          const credentials = validCredProfiles[0]?.credentials || { snmpCommunity: 'public' };
+          
+          const discovery = await discoverDevice(ip, credentials, SCAN_TIMEOUT);
+          
+          if (!discovery.reachable) {
+            return { ip, status: 'failed' };
+          }
+          
+          const fingerprint = discovery.fingerprint;
+          const deviceType = fingerprint?.deviceType || 'generic_ping';
+          
+          return {
+            ip,
+            status: 'success',
+            deviceType,
+            deviceData: {
+              model: fingerprint?.detectedModel || fingerprint?.deviceType || 'Unknown',
+              version: fingerprint?.detectedVia || 'Discovered',
+              uptime: undefined,
+              ...(fingerprint?.additionalInfo || {}),
+            },
+            credentialProfileId: validCredProfiles[0]?.id,
+            fingerprint: fingerprint || undefined,
+          };
+        } catch (error: any) {
+          return { ip, status: 'failed', error: error.message };
+        }
+      };
+      
+      // Traditional probe function with timeout
+      const traditionalScan = async (ip: string): Promise<ScanResult> => {
         // Try each credential profile in order
         for (const profile of validCredProfiles) {
           const credentials = profile.credentials;
           
           // Map probe types to device types and try in order
           for (const probeType of probeTypes) {
+            if (probeType === 'find_all') continue; // Skip find_all in traditional scan
+            
             let deviceType: string;
             switch (probeType) {
               case 'mikrotik':
@@ -1664,7 +1704,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 deviceType = 'server';
                 break;
               default:
-                continue; // Skip unknown probe types (validated by zod, so shouldn't happen)
+                continue;
             }
             
             try {
@@ -1686,15 +1726,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             } catch (error: any) {
               if (error.message === 'Timeout') {
-                continue; // Try next probe type
+                continue;
               }
-              // Continue to next probe type on error
             }
           }
         }
         
         return { ip, status: 'failed' };
       };
+      
+      // Choose scan function based on mode
+      const scanIP = isFindAllMode ? findAllScan : traditionalScan;
       
       // Process in batches with concurrency control
       const queue = [...ips];

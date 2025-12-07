@@ -173,7 +173,7 @@ export const scanProfiles = pgTable("scan_profiles", {
   name: text("name").notNull(),
   ipRange: text("ip_range").notNull(),
   credentialProfileIds: text("credential_profile_ids").array().notNull(),
-  probeTypes: text("probe_types").array().notNull().$type<Array<'mikrotik' | 'snmp' | 'server'>>(),
+  probeTypes: text("probe_types").array().notNull().$type<Array<'mikrotik' | 'snmp' | 'server' | 'find_all'>>(),
   isDefault: boolean("is_default").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -367,7 +367,7 @@ export const insertScanProfileSchema = createInsertSchema(scanProfiles).omit({
   updatedAt: true,
 }).extend({
   credentialProfileIds: z.array(z.string()),
-  probeTypes: z.array(z.enum(['mikrotik', 'snmp', 'server'])),
+  probeTypes: z.array(z.enum(['mikrotik', 'snmp', 'server', 'find_all'])),
   isDefault: z.boolean().optional(),
 });
 

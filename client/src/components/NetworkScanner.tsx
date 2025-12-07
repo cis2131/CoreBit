@@ -15,6 +15,16 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Search, Router, Server, Wifi, CheckCircle2, XCircle, Loader2, Save, Trash2 } from "lucide-react";
 import type { CredentialProfile, ScanProfile } from "@shared/schema";
 
+interface DeviceFingerprint {
+  deviceType: string;
+  confidence: 'high' | 'medium' | 'low';
+  detectedName?: string;
+  detectedModel?: string;
+  detectedVia: string;
+  sysDescr?: string;
+  additionalInfo?: Record<string, any>;
+}
+
 interface ScanResult {
   ip: string;
   status: 'success' | 'failed' | 'timeout';
@@ -22,6 +32,7 @@ interface ScanResult {
   deviceData?: any;
   credentialProfileId?: string;
   alreadyExists?: boolean;
+  fingerprint?: DeviceFingerprint;
 }
 
 interface ScanResponse {
@@ -35,7 +46,7 @@ interface NetworkScannerProps {
   onClose: () => void;
 }
 
-type ProbeType = 'mikrotik' | 'snmp' | 'server';
+type ProbeType = 'mikrotik' | 'snmp' | 'server' | 'find_all';
 
 export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
   const { toast } = useToast();
@@ -155,8 +166,11 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
     },
   });
 
+  const isFindAllMode = probeTypes.includes('find_all');
+
   const handleStartScan = () => {
-    if (selectedCredProfiles.length === 0) {
+    // Find All mode doesn't require credentials (uses default SNMP community)
+    if (!isFindAllMode && selectedCredProfiles.length === 0) {
       toast({
         title: "No Credentials Selected",
         description: "Please select at least one credential profile",
@@ -249,6 +263,17 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
       case 'mikrotik_switch': return 'Mikrotik Switch';
       case 'generic_snmp': return 'SNMP Device';
       case 'server': return 'Server';
+      case 'generic_ping': return 'Ping Only';
+      case 'linux_server': return 'Linux Server';
+      case 'windows_server': return 'Windows Server';
+      case 'vmware_esxi': return 'VMware ESXi';
+      case 'proxmox': return 'Proxmox';
+      case 'synology': return 'Synology NAS';
+      case 'qnap': return 'QNAP NAS';
+      case 'ubiquiti': return 'Ubiquiti Device';
+      case 'cisco': return 'Cisco Device';
+      case 'hp_switch': return 'HP Switch';
+      case 'printer': return 'Printer';
       default: return type || 'Unknown';
     }
   };
@@ -257,8 +282,15 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
     switch (type) {
       case 'mikrotik_router':
       case 'mikrotik_switch':
+      case 'cisco':
+      case 'ubiquiti':
+      case 'hp_switch':
         return <Router className="h-4 w-4" />;
       case 'server':
+      case 'linux_server':
+      case 'windows_server':
+      case 'vmware_esxi':
+      case 'proxmox':
         return <Server className="h-4 w-4" />;
       default:
         return <Wifi className="h-4 w-4" />;
@@ -339,51 +371,82 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
                 </div>
 
                 <div>
-                  <Label className="text-xs">Device Types to Scan</Label>
-                  <div className="flex gap-4 mt-2">
-                    <div className="flex items-center gap-2">
+                  <Label className="text-xs">Scan Mode</Label>
+                  <div className="space-y-2 mt-2">
+                    <div className="flex items-center gap-2 p-2 rounded-md border border-primary/30 bg-primary/5">
                       <Checkbox
-                        id="probe-mikrotik"
-                        checked={probeTypes.includes('mikrotik')}
-                        onCheckedChange={() => toggleProbeType('mikrotik')}
-                        data-testid="checkbox-probe-mikrotik"
+                        id="probe-find-all"
+                        checked={probeTypes.includes('find_all')}
+                        onCheckedChange={() => {
+                          if (probeTypes.includes('find_all')) {
+                            setProbeTypes(probeTypes.filter(t => t !== 'find_all'));
+                          } else {
+                            setProbeTypes(['find_all']);
+                          }
+                        }}
+                        data-testid="checkbox-probe-find-all"
                       />
-                      <Label htmlFor="probe-mikrotik" className="text-sm cursor-pointer">
-                        Mikrotik
+                      <Label htmlFor="probe-find-all" className="text-sm cursor-pointer font-medium">
+                        Find All Devices
+                        <span className="text-xs text-muted-foreground block">
+                          Auto-detect Linux, Windows, VMware, Proxmox, NAS, and more
+                        </span>
                       </Label>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="probe-snmp"
-                        checked={probeTypes.includes('snmp')}
-                        onCheckedChange={() => toggleProbeType('snmp')}
-                        data-testid="checkbox-probe-snmp"
-                      />
-                      <Label htmlFor="probe-snmp" className="text-sm cursor-pointer">
-                        SNMP
-                      </Label>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="probe-server"
-                        checked={probeTypes.includes('server')}
-                        onCheckedChange={() => toggleProbeType('server')}
-                        data-testid="checkbox-probe-server"
-                      />
-                      <Label htmlFor="probe-server" className="text-sm cursor-pointer">
-                        Servers
-                      </Label>
-                    </div>
+                    {!isFindAllMode && (
+                      <div className="flex gap-4">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="probe-mikrotik"
+                            checked={probeTypes.includes('mikrotik')}
+                            onCheckedChange={() => toggleProbeType('mikrotik')}
+                            data-testid="checkbox-probe-mikrotik"
+                          />
+                          <Label htmlFor="probe-mikrotik" className="text-sm cursor-pointer">
+                            Mikrotik
+                          </Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="probe-snmp"
+                            checked={probeTypes.includes('snmp')}
+                            onCheckedChange={() => toggleProbeType('snmp')}
+                            data-testid="checkbox-probe-snmp"
+                          />
+                          <Label htmlFor="probe-snmp" className="text-sm cursor-pointer">
+                            SNMP
+                          </Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="probe-server"
+                            checked={probeTypes.includes('server')}
+                            onCheckedChange={() => toggleProbeType('server')}
+                            data-testid="checkbox-probe-server"
+                          />
+                          <Label htmlFor="probe-server" className="text-sm cursor-pointer">
+                            Servers
+                          </Label>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
 
               <div>
-                <Label className="text-xs">Credential Profiles</Label>
+                <Label className="text-xs">
+                  Credential Profiles
+                  {isFindAllMode && (
+                    <span className="text-muted-foreground ml-1">(optional - uses default SNMP community)</span>
+                  )}
+                </Label>
                 <div className="flex flex-wrap gap-2 mt-2">
                   {credentialProfiles.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      No credential profiles found. Create one in Settings first.
+                      {isFindAllMode 
+                        ? "No credential profiles found. Find All will use default 'public' SNMP community."
+                        : "No credential profiles found. Create one in Settings first."}
                     </p>
                   ) : (
                     credentialProfiles.map(profile => (
@@ -494,7 +557,15 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
-                          {result.deviceData?.version && (
+                          {result.fingerprint && (
+                            <Badge 
+                              variant={result.fingerprint.confidence === 'high' ? 'default' : 'secondary'} 
+                              className="text-xs"
+                            >
+                              {result.fingerprint.detectedVia}
+                            </Badge>
+                          )}
+                          {result.deviceData?.version && !result.fingerprint && (
                             <Badge variant="secondary" className="text-xs">
                               {result.deviceData.version}
                             </Badge>
@@ -540,7 +611,7 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
           ) : (
             <Button
               onClick={handleStartScan}
-              disabled={isScanning || selectedCredProfiles.length === 0 || probeTypes.length === 0}
+              disabled={isScanning || (!isFindAllMode && selectedCredProfiles.length === 0) || probeTypes.length === 0}
               data-testid="button-start-scan"
             >
               {isScanning ? (
