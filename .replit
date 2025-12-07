@@ -4,7 +4,7 @@ hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["net-snmp", "zip", "unixtools.ping"]
+packages = ["net-snmp", "zip", "unixtools.ping", "iproute2"]
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -22,10 +22,6 @@ externalPort = 3001
 [[ports]]
 localPort = 33617
 externalPort = 3003
-
-[[ports]]
-localPort = 33661
-externalPort = 5000
 
 [[ports]]
 localPort = 36553

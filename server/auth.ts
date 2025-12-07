@@ -137,6 +137,10 @@ export async function seedDefaultAdmin(): Promise<void> {
       displayName: 'Administrator',
     });
     console.log('[Auth] Created default admin user (admin/admin)');
+  } else if (!existingAdmin.role || existingAdmin.role !== 'admin') {
+    // Fix admin user role if missing or incorrect
+    await storage.updateUser(existingAdmin.id, { role: 'admin' });
+    console.log('[Auth] Fixed admin user role');
   }
 }
 
