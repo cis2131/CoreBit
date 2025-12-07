@@ -762,7 +762,12 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
                               Ping OK
                             </Badge>
                           )}
-                          {result.fingerprint && (
+                          {result.fingerprint?.additionalInfo?.needsCredentials && (
+                            <Badge variant="destructive" className="text-xs">
+                              No Credentials
+                            </Badge>
+                          )}
+                          {result.fingerprint && !result.fingerprint?.additionalInfo?.needsCredentials && (
                             <Badge 
                               variant={result.fingerprint.confidence === 'high' ? 'default' : 'secondary'} 
                               className="text-xs"
