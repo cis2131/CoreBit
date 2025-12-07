@@ -27,18 +27,27 @@ interface DeviceFingerprint {
 
 interface ScanResult {
   ip: string;
-  status: 'success' | 'failed' | 'timeout';
+  status: 'success' | 'failed' | 'timeout' | 'pending';
   deviceType?: string;
   deviceData?: any;
   credentialProfileId?: string;
   alreadyExists?: boolean;
   fingerprint?: DeviceFingerprint;
+  rtt?: number;
 }
 
 interface ScanResponse {
   totalScanned: number;
   discovered: number;
   results: ScanResult[];
+}
+
+interface ScanProgress {
+  phase: 'ping_sweep' | 'fingerprint';
+  completed: number;
+  total: number;
+  found?: number;
+  message?: string;
 }
 
 interface NetworkScannerProps {
@@ -59,6 +68,8 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
   const [selectedScanProfile, setSelectedScanProfile] = useState<string>("");
   const [saveProfileName, setSaveProfileName] = useState("");
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const [scanPhase, setScanPhase] = useState<'idle' | 'ping_sweep' | 'fingerprint'>('idle');
 
   const { data: credentialProfiles = [] } = useQuery<CredentialProfile[]>({
     queryKey: ['/api/credential-profiles'],
@@ -186,13 +197,138 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
       });
       return;
     }
+    
     setIsScanning(true);
     setScanResults([]);
     setSelectedResults(new Set());
-    scanMutation.mutate({
+    setScanProgress(null);
+    setScanPhase('idle');
+    
+    // Use streaming for Find All mode
+    if (isFindAllMode) {
+      handleStreamingScan();
+    } else {
+      scanMutation.mutate({
+        ipRange,
+        credentialProfileIds: selectedCredProfiles,
+        probeTypes,
+      });
+    }
+  };
+  
+  const handleStreamingScan = () => {
+    const params = new URLSearchParams({
       ipRange,
-      credentialProfileIds: selectedCredProfiles,
-      probeTypes,
+      credentialProfileIds: selectedCredProfiles.join(','),
+    });
+    
+    const eventSource = new EventSource(`/api/network-scan-stream?${params}`);
+    
+    eventSource.addEventListener('start', (event) => {
+      const data = JSON.parse(event.data);
+      setScanPhase(data.phase);
+      setScanProgress({
+        phase: data.phase,
+        completed: 0,
+        total: data.totalIPs,
+        message: data.message,
+      });
+    });
+    
+    eventSource.addEventListener('ping_found', (event) => {
+      const data = JSON.parse(event.data);
+      // Add device with pending status (awaiting fingerprint)
+      setScanResults(prev => [...prev, {
+        ip: data.ip,
+        status: 'pending',
+        rtt: data.rtt,
+        alreadyExists: data.alreadyExists,
+      }]);
+    });
+    
+    eventSource.addEventListener('progress', (event) => {
+      const data = JSON.parse(event.data);
+      setScanProgress({
+        phase: data.phase,
+        completed: data.completed,
+        total: data.total,
+        found: data.found,
+      });
+    });
+    
+    eventSource.addEventListener('phase_complete', (event) => {
+      const data = JSON.parse(event.data);
+      if (data.phase === 'ping_sweep') {
+        setScanPhase('fingerprint');
+        setScanProgress({
+          phase: 'fingerprint',
+          completed: 0,
+          total: data.found,
+          message: data.message,
+        });
+      }
+    });
+    
+    eventSource.addEventListener('fingerprint_result', (event) => {
+      const data = JSON.parse(event.data);
+      // Update device with fingerprint result
+      setScanResults(prev => prev.map(r => 
+        r.ip === data.ip 
+          ? {
+              ...r,
+              status: 'success' as const,
+              deviceType: data.deviceType,
+              deviceData: data.deviceData,
+              fingerprint: data.fingerprint,
+              credentialProfileId: data.credentialProfileId,
+            }
+          : r
+      ));
+      setScanProgress({
+        phase: 'fingerprint',
+        completed: data.completed,
+        total: data.total,
+      });
+    });
+    
+    eventSource.addEventListener('complete', (event) => {
+      const data = JSON.parse(event.data);
+      eventSource.close();
+      setIsScanning(false);
+      setScanPhase('idle');
+      
+      // Auto-select new devices
+      setScanResults(prev => {
+        const newDevices = prev.filter(r => !r.alreadyExists);
+        setSelectedResults(new Set(newDevices.map(r => r.ip)));
+        return prev;
+      });
+      
+      toast({
+        title: "Scan Complete",
+        description: `Found ${data.discovered} devices`,
+      });
+    });
+    
+    eventSource.addEventListener('error', (event: Event) => {
+      const messageEvent = event as MessageEvent;
+      let errorMessage = 'Scan failed';
+      try {
+        if (messageEvent.data) {
+          const data = JSON.parse(messageEvent.data);
+          errorMessage = data.message || errorMessage;
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+      eventSource.close();
+      setIsScanning(false);
+      setScanPhase('idle');
+      toast({
+        title: "Scan Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
     });
   };
 
@@ -480,11 +616,29 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
                 <div className="flex items-center gap-3">
                   <Loader2 className="h-5 w-5 animate-spin text-primary" />
                   <div className="flex-1">
-                    <p className="text-sm font-medium">Scanning network...</p>
-                    <p className="text-xs text-muted-foreground">This may take a few minutes</p>
+                    <p className="text-sm font-medium">
+                      {scanPhase === 'ping_sweep' && 'Phase 1: Ping Sweep'}
+                      {scanPhase === 'fingerprint' && 'Phase 2: Fingerprinting'}
+                      {scanPhase === 'idle' && 'Scanning network...'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {scanProgress?.message || (
+                        scanProgress 
+                          ? `${scanProgress.completed}/${scanProgress.total} ${scanProgress.phase === 'ping_sweep' ? 'IPs checked' : 'devices identified'}${scanProgress.found !== undefined ? ` (${scanProgress.found} found)` : ''}`
+                          : 'This may take a few minutes'
+                      )}
+                    </p>
                   </div>
+                  {scanResults.length > 0 && (
+                    <Badge variant="secondary" className="text-xs">
+                      {scanResults.length} found
+                    </Badge>
+                  )}
                 </div>
-                <Progress className="mt-2" value={undefined} />
+                <Progress 
+                  className="mt-2" 
+                  value={scanProgress ? (scanProgress.completed / scanProgress.total) * 100 : undefined} 
+                />
               </CardContent>
             </Card>
           )}
@@ -521,13 +675,17 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
                         className={`flex items-center gap-3 p-2 rounded-md ${
                           result.alreadyExists 
                             ? 'bg-muted/50 opacity-60' 
-                            : selectedResults.has(result.ip) 
-                              ? 'bg-primary/10 border border-primary/20' 
-                              : 'hover-elevate'
+                            : result.status === 'pending'
+                              ? 'bg-muted/30 border border-muted'
+                              : selectedResults.has(result.ip) 
+                                ? 'bg-primary/10 border border-primary/20' 
+                                : 'hover-elevate'
                         }`}
                         data-testid={`scan-result-${result.ip}`}
                       >
-                        {!result.alreadyExists && (
+                        {result.status === 'pending' ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        ) : !result.alreadyExists ? (
                           <Checkbox
                             checked={selectedResults.has(result.ip)}
                             onCheckedChange={() => {
@@ -541,22 +699,36 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
                             }}
                             data-testid={`checkbox-result-${result.ip}`}
                           />
-                        )}
-                        {result.alreadyExists && (
+                        ) : (
                           <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
                         )}
                         <div className="flex items-center gap-2 text-muted-foreground">
-                          {getDeviceIcon(result.deviceType)}
+                          {result.status === 'pending' ? (
+                            <Wifi className="h-4 w-4" />
+                          ) : (
+                            getDeviceIcon(result.deviceType)
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">
-                            {result.deviceData?.systemIdentity || result.deviceData?.model || result.ip}
+                            {result.status === 'pending' 
+                              ? result.ip 
+                              : (result.deviceData?.systemIdentity || result.deviceData?.model || result.ip)
+                            }
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {result.ip} • {getDeviceTypeLabel(result.deviceType)}
+                            {result.status === 'pending' 
+                              ? `${result.ip} • Identifying...${result.rtt ? ` (${result.rtt.toFixed(1)}ms)` : ''}`
+                              : `${result.ip} • ${getDeviceTypeLabel(result.deviceType)}`
+                            }
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
+                          {result.status === 'pending' && (
+                            <Badge variant="outline" className="text-xs">
+                              Ping OK
+                            </Badge>
+                          )}
                           {result.fingerprint && (
                             <Badge 
                               variant={result.fingerprint.confidence === 'high' ? 'default' : 'secondary'} 
@@ -565,7 +737,7 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
                               {result.fingerprint.detectedVia}
                             </Badge>
                           )}
-                          {result.deviceData?.version && !result.fingerprint && (
+                          {result.deviceData?.version && !result.fingerprint && result.status !== 'pending' && (
                             <Badge variant="secondary" className="text-xs">
                               {result.deviceData.version}
                             </Badge>
