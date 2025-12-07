@@ -2,6 +2,8 @@ import { RouterOSAPI } from 'node-routeros';
 import * as snmp from 'net-snmp';
 import { execFile } from 'child_process';
 import { isIP, Socket } from 'net';
+import * as https from 'https';
+import * as http from 'http';
 
 // Helper function to walk an SNMP table and return OID → value mapping
 // Uses subtree() with maxRepetitions=1 for compatibility with various devices
@@ -1501,11 +1503,8 @@ export async function probeHTTPFingerprint(
   port: number = 443,
   timeoutMs: number = 3000
 ): Promise<DeviceFingerprint | null> {
-  const https = require('https');
-  const http = require('http');
-  
-  const protocol = port === 443 || port === 8006 ? https : http;
-  const scheme = port === 443 || port === 8006 ? 'https' : 'http';
+  const useHttps = port === 443 || port === 8006 || port === 8443;
+  const protocol = useHttps ? https : http;
   
   return new Promise((resolve) => {
     const req = protocol.get({
