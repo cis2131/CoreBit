@@ -1922,6 +1922,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[Scan] Credential profiles available: ${validCredProfiles.length}`);
       for (const p of validCredProfiles) {
         console.log(`[Scan] Profile: ${p.id} (${p.name}) type=${p.type}`);
+        console.log(`[Scan] Profile ${p.id} credentials: ${JSON.stringify(p.credentials)}`);
       }
       
       for (const { ip, rtt } of reachableIPs) {
