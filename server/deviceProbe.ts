@@ -1,7 +1,7 @@
 import { RouterOSAPI } from 'node-routeros';
 import * as snmp from 'net-snmp';
 import { execFile } from 'child_process';
-import { isIP } from 'net';
+import { isIP, Socket } from 'net';
 
 // Helper function to walk an SNMP table and return OID → value mapping
 // Uses subtree() with maxRepetitions=1 for compatibility with various devices
@@ -1353,8 +1353,7 @@ const SSH_BANNER_PATTERNS: Array<{
 // Mikrotik API responds immediately on connection, so a simple TCP connect is enough
 export async function probeMikrotikApiPort(ipAddress: string, port: number = 8728, timeoutMs: number = 2000): Promise<DeviceFingerprint | null> {
   return new Promise((resolve) => {
-    const net = require('net');
-    const socket = new net.Socket();
+    const socket = new Socket();
     let resolved = false;
     
     const cleanup = (result: DeviceFingerprint | null) => {
@@ -1390,8 +1389,7 @@ export async function probeMikrotikApiPort(ipAddress: string, port: number = 872
 // Probe SSH banner on port 22
 export async function probeSSHBanner(ipAddress: string, timeoutMs: number = 3000): Promise<DeviceFingerprint | null> {
   return new Promise((resolve) => {
-    const net = require('net');
-    const socket = new net.Socket();
+    const socket = new Socket();
     let banner = '';
     let resolved = false;
     
