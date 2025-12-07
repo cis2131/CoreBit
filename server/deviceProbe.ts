@@ -1665,6 +1665,7 @@ interface CredentialProfile {
     password?: string;
     snmpCommunity?: string;
     snmpVersion?: string;
+    apiPort?: number;
   };
 }
 
@@ -1714,19 +1715,25 @@ export async function discoverDevice(
     log(`Found ${mikrotikProfiles.length} Mikrotik credential profiles to try`);
     
     for (const profile of mikrotikProfiles) {
-      const { username, password } = profile.credentials || {};
-      log(`Profile ${profile.id} has credentials: username=${username ? 'SET' : 'MISSING'}, password=${password ? 'SET' : 'MISSING'}`);
-      if (!username || !password) {
-        log(`Skipping profile ${profile.id} - missing credentials`);
+      const creds = profile.credentials || {};
+      // Default to 'admin' username if not specified (matches probeMikrotikDevice behavior)
+      const username = creds.username || 'admin';
+      const password = creds.password || '';
+      const apiPort = creds.apiPort || 8728;
+      
+      log(`Profile ${profile.id} credentials: username=${username}, password=${password ? 'SET' : 'EMPTY'}, port=${apiPort}`);
+      
+      if (!password) {
+        log(`Skipping profile ${profile.id} - no password`);
         continue;
       }
       
-      log(`Trying Mikrotik login with profile: ${profile.id} user=${username}`);
+      log(`Trying Mikrotik login with profile: ${profile.id} user=${username} port=${apiPort}`);
       
       try {
         const api = new RouterOSAPI({
           host: ipAddress,
-          port: 8728,
+          port: apiPort,
           user: username,
           password: password,
           timeout: 3000,
