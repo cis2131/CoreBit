@@ -1349,6 +1349,44 @@ const SSH_BANNER_PATTERNS: Array<{
   { pattern: /Windows/i, deviceType: 'windows_server', confidence: 'high' },
 ];
 
+// Probe Mikrotik API port (8728) - most reliable way to detect Mikrotik devices
+// Mikrotik API responds immediately on connection, so a simple TCP connect is enough
+export async function probeMikrotikApiPort(ipAddress: string, port: number = 8728, timeoutMs: number = 2000): Promise<DeviceFingerprint | null> {
+  return new Promise((resolve) => {
+    const net = require('net');
+    const socket = new net.Socket();
+    let resolved = false;
+    
+    const cleanup = (result: DeviceFingerprint | null) => {
+      if (!resolved) {
+        resolved = true;
+        socket.destroy();
+        resolve(result);
+      }
+    };
+    
+    socket.setTimeout(timeoutMs);
+    
+    socket.on('connect', () => {
+      // Mikrotik API port is open - this is very likely a Mikrotik device
+      cleanup({
+        deviceType: 'mikrotik_router',
+        confidence: 'high',
+        detectedVia: 'mikrotik_api',
+        additionalInfo: { apiPort: port },
+      });
+    });
+    
+    socket.on('timeout', () => cleanup(null));
+    socket.on('error', () => cleanup(null));
+    
+    // Hard timeout
+    setTimeout(() => cleanup(null), timeoutMs + 200);
+    
+    socket.connect(port, ipAddress);
+  });
+}
+
 // Probe SSH banner on port 22
 export async function probeSSHBanner(ipAddress: string, timeoutMs: number = 3000): Promise<DeviceFingerprint | null> {
   return new Promise((resolve) => {
@@ -1565,7 +1603,18 @@ export async function discoverDevice(
     return { reachable: false, fingerprint: null };
   }
   
-  // Step 2: Try SNMP first (most reliable for device identification)
+  // Step 2: Try Mikrotik API port first (8728) - most reliable for Mikrotik detection
+  // Many Mikrotik devices don't have SNMP enabled but always have API
+  const mikrotikFingerprint = await probeMikrotikApiPort(ipAddress, 8728, 2000);
+  if (mikrotikFingerprint) {
+    return { 
+      reachable: true, 
+      fingerprint: mikrotikFingerprint, 
+      pingRtt: pingResult.rtt 
+    };
+  }
+  
+  // Step 3: Try SNMP (reliable for device identification)
   const community = credentials?.snmpCommunity || 'public';
   const snmpResult = await testSnmpConnectivity(ipAddress, community);
   
@@ -1591,7 +1640,7 @@ export async function discoverDevice(
     };
   }
   
-  // Step 3: Try SSH banner grab
+  // Step 4: Try SSH banner grab
   const sshFingerprint = await probeSSHBanner(ipAddress, 2000);
   if (sshFingerprint) {
     return { 
@@ -1601,7 +1650,7 @@ export async function discoverDevice(
     };
   }
   
-  // Step 4: Try HTTP/HTTPS fingerprinting
+  // Step 5: Try HTTP/HTTPS fingerprinting
   // Try common management ports
   const httpPorts = [443, 80, 8006, 8443];
   for (const port of httpPorts) {
@@ -1615,7 +1664,7 @@ export async function discoverDevice(
     }
   }
   
-  // Step 5: Device responds to ping but couldn't identify
+  // Step 6: Device responds to ping but couldn't identify
   return {
     reachable: true,
     fingerprint: {
