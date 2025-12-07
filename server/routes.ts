@@ -1916,58 +1916,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const results: ScanResult[] = [];
       let fingerprintCompleted = 0;
       
-      const fingerprintQueue = [...reachableIPs];
-      const activeFingerprints: Promise<void>[] = [];
-      
-      while (fingerprintQueue.length > 0 || activeFingerprints.length > 0) {
-        while (activeFingerprints.length < FINGERPRINT_CONCURRENCY && fingerprintQueue.length > 0) {
-          const { ip, rtt } = fingerprintQueue.shift()!;
-          
-          const promise = (async () => {
-            console.log(`[Scan] Fingerprinting ${ip}...`);
-            
-            const discovery = await discoverDevice(ip, credentials, 8000, true);
-            fingerprintCompleted++;
-            
-            const fingerprint = discovery.fingerprint;
-            const deviceType = fingerprint?.deviceType || 'generic_ping';
-            
-            console.log(`[Scan] ${ip}: Identified as ${deviceType} via ${fingerprint?.detectedVia || 'unknown'}`);
-            
-            const result: ScanResult = {
-              ip,
-              status: 'success',
-              deviceType,
-              deviceData: {
-                model: fingerprint?.detectedModel || fingerprint?.deviceType || 'Unknown',
-                version: fingerprint?.detectedVia || 'Discovered',
-                ...(fingerprint?.additionalInfo || {}),
-              },
-              credentialProfileId: validCredProfiles[0]?.id,
-              fingerprint: fingerprint || undefined,
-            };
-            
-            results.push(result);
-            
-            // Send fingerprint result
-            sendEvent('fingerprint_result', {
-              ...result,
-              alreadyExists: existingIPs.has(ip),
-              phase: 'fingerprint',
-              completed: fingerprintCompleted,
-              total: reachableIPs.length,
-            });
-          })();
-          
-          activeFingerprints.push(promise);
-          promise.finally(() => {
-            const index = activeFingerprints.indexOf(promise);
-            if (index > -1) activeFingerprints.splice(index, 1);
-          });
-        }
+      // Process fingerprints sequentially for better debugging
+      for (const { ip, rtt } of reachableIPs) {
+        console.log(`[Scan] Starting fingerprint for ${ip}...`);
         
-        if (activeFingerprints.length > 0) {
-          await Promise.race(activeFingerprints);
+        try {
+          const discovery = await discoverDevice(ip, credentials, 8000, true);
+          fingerprintCompleted++;
+          
+          const fingerprint = discovery.fingerprint;
+          const deviceType = fingerprint?.deviceType || 'generic_ping';
+          
+          console.log(`[Scan] ${ip}: Identified as ${deviceType} via ${fingerprint?.detectedVia || 'unknown'}`);
+          
+          const result: ScanResult = {
+            ip,
+            status: 'success',
+            deviceType,
+            deviceData: {
+              model: fingerprint?.detectedModel || fingerprint?.deviceType || 'Unknown',
+              version: fingerprint?.detectedVia || 'Discovered',
+              ...(fingerprint?.additionalInfo || {}),
+            },
+            credentialProfileId: validCredProfiles[0]?.id,
+            fingerprint: fingerprint || undefined,
+          };
+          
+          results.push(result);
+          
+          // Send fingerprint result
+          console.log(`[Scan] Sending fingerprint_result event for ${ip}`);
+          sendEvent('fingerprint_result', {
+            ...result,
+            alreadyExists: existingIPs.has(ip),
+            phase: 'fingerprint',
+            completed: fingerprintCompleted,
+            total: reachableIPs.length,
+          });
+        } catch (err: any) {
+          console.error(`[Scan] Error fingerprinting ${ip}:`, err);
+          fingerprintCompleted++;
+          
+          // Still send a result even on error
+          const result: ScanResult = {
+            ip,
+            status: 'success',
+            deviceType: 'generic_ping',
+            deviceData: { model: 'Unknown', version: 'Ping only' },
+          };
+          results.push(result);
+          sendEvent('fingerprint_result', {
+            ...result,
+            alreadyExists: existingIPs.has(ip),
+            phase: 'fingerprint',
+            completed: fingerprintCompleted,
+            total: reachableIPs.length,
+          });
         }
       }
       
