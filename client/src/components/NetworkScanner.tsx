@@ -70,6 +70,26 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [scanPhase, setScanPhase] = useState<'idle' | 'ping_sweep' | 'fingerprint'>('idle');
+  const [eventSourceRef, setEventSourceRef] = useState<EventSource | null>(null);
+  
+  // Cleanup EventSource on unmount or dialog close
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef) {
+        eventSourceRef.close();
+      }
+    };
+  }, [eventSourceRef]);
+  
+  // Close EventSource when dialog closes
+  useEffect(() => {
+    if (!open && eventSourceRef) {
+      eventSourceRef.close();
+      setEventSourceRef(null);
+      setIsScanning(false);
+      setScanPhase('idle');
+    }
+  }, [open, eventSourceRef]);
 
   const { data: credentialProfiles = [] } = useQuery<CredentialProfile[]>({
     queryKey: ['/api/credential-profiles'],
@@ -217,12 +237,25 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
   };
   
   const handleStreamingScan = () => {
+    // Close any existing connection
+    if (eventSourceRef) {
+      eventSourceRef.close();
+    }
+    
     const params = new URLSearchParams({
       ipRange,
       credentialProfileIds: selectedCredProfiles.join(','),
     });
     
     const eventSource = new EventSource(`/api/network-scan-stream?${params}`);
+    setEventSourceRef(eventSource);
+    
+    const cleanup = () => {
+      eventSource.close();
+      setEventSourceRef(null);
+      setIsScanning(false);
+      setScanPhase('idle');
+    };
     
     eventSource.addEventListener('start', (event) => {
       const data = JSON.parse(event.data);
@@ -293,9 +326,7 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
     
     eventSource.addEventListener('complete', (event) => {
       const data = JSON.parse(event.data);
-      eventSource.close();
-      setIsScanning(false);
-      setScanPhase('idle');
+      cleanup();
       
       // Auto-select new devices
       setScanResults(prev => {
@@ -312,24 +343,34 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
     
     eventSource.addEventListener('error', (event: Event) => {
       const messageEvent = event as MessageEvent;
-      let errorMessage = 'Scan failed';
+      let errorMessage = 'Scan failed or connection lost';
       try {
         if (messageEvent.data) {
           const data = JSON.parse(messageEvent.data);
           errorMessage = data.message || errorMessage;
         }
       } catch (e) {
-        // Ignore parse errors
+        // Ignore parse errors - may be a connection error
       }
-      eventSource.close();
-      setIsScanning(false);
-      setScanPhase('idle');
+      cleanup();
       toast({
         title: "Scan Failed",
         description: errorMessage,
         variant: "destructive",
       });
     });
+    
+    // Also handle the onerror for connection issues
+    eventSource.onerror = () => {
+      if (eventSource.readyState === EventSource.CLOSED) {
+        cleanup();
+        toast({
+          title: "Scan Failed",
+          description: "Connection to server lost",
+          variant: "destructive",
+        });
+      }
+    };
   };
 
   const handleCreateDevices = () => {
@@ -398,6 +439,8 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
       case 'mikrotik_router': return 'Mikrotik Router';
       case 'mikrotik_switch': return 'Mikrotik Switch';
       case 'generic_snmp': return 'SNMP Device';
+      case 'generic_ssh': return 'SSH Device';
+      case 'generic_http': return 'HTTP Device';
       case 'server': return 'Server';
       case 'generic_ping': return 'Ping Only';
       case 'linux_server': return 'Linux Server';
@@ -410,6 +453,13 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
       case 'cisco': return 'Cisco Device';
       case 'hp_switch': return 'HP Switch';
       case 'printer': return 'Printer';
+      case 'freebsd': return 'FreeBSD Server';
+      case 'openbsd': return 'OpenBSD Server';
+      case 'fortigate': return 'Fortinet FortiGate';
+      case 'pfsense': return 'pfSense Firewall';
+      case 'opnsense': return 'OPNsense Firewall';
+      case 'unraid': return 'Unraid Server';
+      case 'truenas': return 'TrueNAS';
       default: return type || 'Unknown';
     }
   };
@@ -421,12 +471,22 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
       case 'cisco':
       case 'ubiquiti':
       case 'hp_switch':
+      case 'fortigate':
+      case 'pfsense':
+      case 'opnsense':
         return <Router className="h-4 w-4" />;
       case 'server':
       case 'linux_server':
       case 'windows_server':
       case 'vmware_esxi':
       case 'proxmox':
+      case 'freebsd':
+      case 'openbsd':
+      case 'synology':
+      case 'qnap':
+      case 'unraid':
+      case 'truenas':
+      case 'generic_ssh':
         return <Server className="h-4 w-4" />;
       default:
         return <Wifi className="h-4 w-4" />;
