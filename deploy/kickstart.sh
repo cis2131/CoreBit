@@ -20,6 +20,7 @@ set -e
 #   --db-port PORT    PostgreSQL port (default: 5432)
 #   --db-name NAME    Database name (default: corebit)
 #   --db-user USER    Database user (default: corebit)
+#   --db-pass PASS    Database password (will prompt if not provided)
 #   --port PORT       Application port (default: 3000)
 #   --verbose         Show detailed output for debugging
 #===============================================================================
@@ -76,6 +77,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --db-user)
             DB_USER="$2"
+            shift 2
+            ;;
+        --db-pass)
+            DB_PASSWORD="$2"
             shift 2
             ;;
         --port)
@@ -292,6 +297,70 @@ install_nodejs() {
     esac
 }
 
+prompt_for_password() {
+    # Only prompt for password on fresh install (not update mode)
+    if [ "$UPDATE_MODE" = true ]; then
+        return
+    fi
+    
+    # Skip if password was provided via command line
+    if [ -n "$DB_PASSWORD" ]; then
+        log_info "Using database password from command line"
+        return
+    fi
+    
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}  Database Password Setup${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "Please choose a database password for CoreBit."
+    echo "This password is used internally by the application to connect to PostgreSQL."
+    echo ""
+    echo "Options:"
+    echo "  1) Enter your own password"
+    echo "  2) Auto-generate a secure password"
+    echo ""
+    
+    read -p "Your choice [1/2, default: 2]: " PASS_CHOICE
+    
+    case "$PASS_CHOICE" in
+        1)
+            while true; do
+                read -sp "Enter database password (min 8 characters): " USER_PASSWORD
+                echo ""
+                if [ ${#USER_PASSWORD} -lt 8 ]; then
+                    echo -e "${RED}Password must be at least 8 characters. Try again.${NC}"
+                    continue
+                fi
+                read -sp "Confirm password: " USER_PASSWORD_CONFIRM
+                echo ""
+                if [ "$USER_PASSWORD" != "$USER_PASSWORD_CONFIRM" ]; then
+                    echo -e "${RED}Passwords do not match. Try again.${NC}"
+                    continue
+                fi
+                DB_PASSWORD="$USER_PASSWORD"
+                break
+            done
+            log_success "Using your provided password"
+            ;;
+        *)
+            DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
+            log_success "Generated secure password"
+            echo ""
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${YELLOW}  IMPORTANT: Save this password! You will need it for database access.${NC}"
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            echo -e "  Database Password: ${GREEN}${DB_PASSWORD}${NC}"
+            echo ""
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo ""
+            read -p "Press Enter to continue once you have saved this password..."
+            ;;
+    esac
+}
+
 setup_postgresql() {
     if [ "$SKIP_DB" = true ]; then
         log_info "Skipping database setup (--no-db specified)"
@@ -313,20 +382,19 @@ setup_postgresql() {
             ;;
     esac
     
-    # Check if we have existing credentials from backup
+    # Check if we have existing credentials from backup (for update mode)
     if [ -f "/tmp/corebit.env.backup" ]; then
         # Extract existing password from backup
         EXISTING_PW=$(grep "^PGPASSWORD=" /tmp/corebit.env.backup 2>/dev/null | cut -d'=' -f2)
         if [ -n "$EXISTING_PW" ]; then
             DB_PASSWORD="$EXISTING_PW"
-            log_info "Using existing database password from backup"
+            log_info "Using existing database password from current installation"
         fi
     fi
     
-    # Generate new password only if we don't have one
+    # If still no password (fresh install), prompt user or generate
     if [ -z "$DB_PASSWORD" ]; then
-        DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
-        log_info "Generated new database password"
+        prompt_for_password
     fi
     
     # Create database and user
@@ -627,11 +695,17 @@ show_completion() {
     
     echo ""
     echo -e "${GREEN}======================================================${NC}"
-    echo -e "${GREEN}  CoreBit Network Manager - Installation Complete!${NC}"
+    if [ "$UPDATE_MODE" = true ]; then
+        echo -e "${GREEN}  CoreBit Network Manager - Update Complete!${NC}"
+    else
+        echo -e "${GREEN}  CoreBit Network Manager - Installation Complete!${NC}"
+    fi
     echo -e "${GREEN}======================================================${NC}"
     echo ""
     echo -e "  ${BLUE}Access URL:${NC}      http://${LOCAL_IP}:${APP_PORT}"
-    echo -e "  ${BLUE}Default Login:${NC}   admin / admin"
+    if [ "$UPDATE_MODE" = false ]; then
+        echo -e "  ${BLUE}Default Login:${NC}   admin / admin"
+    fi
     echo ""
     echo -e "  ${BLUE}Service Commands:${NC}"
     echo "    Start:    sudo systemctl start $SERVICE_NAME"
@@ -643,7 +717,11 @@ show_completion() {
     echo -e "  ${BLUE}Configuration:${NC}   $INSTALL_DIR/.env"
     echo -e "  ${BLUE}Installation:${NC}    $INSTALL_DIR"
     echo ""
-    echo -e "  ${YELLOW}Important:${NC} Change the default admin password after first login!"
+    if [ "$UPDATE_MODE" = false ]; then
+        echo -e "  ${YELLOW}Important:${NC} Change the default admin password after first login!"
+    else
+        echo -e "  ${GREEN}Your existing data and configuration have been preserved.${NC}"
+    fi
     echo ""
     echo -e "${GREEN}======================================================${NC}"
 }
@@ -666,12 +744,18 @@ main() {
     
     if [ "$UPDATE_MODE" = true ]; then
         log_info "Running in update mode..."
+        # Backup existing installation FIRST to preserve credentials
+        backup_existing
     fi
     
     install_dependencies
     setup_postgresql
     create_user
-    backup_existing
+    
+    # Only backup on fresh install (update already backed up above)
+    if [ "$UPDATE_MODE" = false ]; then
+        backup_existing
+    fi
     download_application
     install_application
     configure_environment
