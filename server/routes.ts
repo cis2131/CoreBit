@@ -1918,6 +1918,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let fingerprintCompleted = 0;
       
       // Process fingerprints sequentially for better debugging
+      // Log credential profiles for debugging
+      console.log(`[Scan] Credential profiles available: ${validCredProfiles.length}`);
+      for (const p of validCredProfiles) {
+        console.log(`[Scan] Profile: ${p.id} (${p.name}) type=${p.type}`);
+      }
+      
       for (const { ip, rtt } of reachableIPs) {
         console.log(`[Scan] Starting fingerprint for ${ip}...`);
         

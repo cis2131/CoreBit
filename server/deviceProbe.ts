@@ -1711,6 +1711,7 @@ export async function discoverDevice(
     
     // Get Mikrotik credentials from profiles
     const mikrotikProfiles = credentialProfiles.filter(p => p.type === 'mikrotik');
+    log(`Found ${mikrotikProfiles.length} Mikrotik credential profiles to try`);
     
     for (const profile of mikrotikProfiles) {
       const { username, password } = profile.credentials;
