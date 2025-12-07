@@ -1785,6 +1785,214 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Streaming two-phase network scan with SSE
+  // Phase 1: Ping sweep - show all responding IPs
+  // Phase 2: Fingerprint each discovered IP progressively
+  app.get("/api/network-scan-stream", canModify as any, async (req, res) => {
+    // Set SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+    
+    const sendEvent = (event: string, data: any) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    
+    try {
+      const ipRange = req.query.ipRange as string;
+      const credentialProfileIds = req.query.credentialProfileIds ? 
+        (req.query.credentialProfileIds as string).split(',') : [];
+      
+      console.log(`[Scan] Starting two-phase streaming scan for ${ipRange}`);
+      
+      // Validate IP range
+      const ips = expandCidr(ipRange);
+      if (ips.length === 0) {
+        sendEvent('error', { message: 'Invalid IP range' });
+        res.end();
+        return;
+      }
+      
+      // Get credentials
+      const credProfiles = await Promise.all(
+        credentialProfileIds.filter(id => id).map(id => storage.getCredentialProfile(id))
+      );
+      const validCredProfiles = credProfiles.filter(p => p !== undefined);
+      const credentials = validCredProfiles[0]?.credentials || { snmpCommunity: 'public' };
+      
+      // Get existing devices
+      const existingDevices = await storage.getAllDevices();
+      const existingIPs = new Set(existingDevices.map(d => d.ipAddress).filter(Boolean));
+      
+      sendEvent('start', { 
+        totalIPs: ips.length, 
+        phase: 'ping_sweep',
+        message: `Starting ping sweep of ${ips.length} IP addresses...`
+      });
+      
+      console.log(`[Scan] Phase 1: Ping sweep of ${ips.length} IPs`);
+      
+      // Phase 1: Ping sweep with high concurrency
+      const PING_CONCURRENCY = 50;
+      const reachableIPs: { ip: string; rtt?: number }[] = [];
+      let pingCompleted = 0;
+      
+      const pingQueue = [...ips];
+      const activePings: Promise<void>[] = [];
+      
+      while (pingQueue.length > 0 || activePings.length > 0) {
+        while (activePings.length < PING_CONCURRENCY && pingQueue.length > 0) {
+          const ip = pingQueue.shift()!;
+          
+          const promise = (async () => {
+            const result = await pingDevice(ip, 2);
+            pingCompleted++;
+            
+            if (result.success) {
+              console.log(`[Scan] Ping: ${ip} - ALIVE (${result.rtt?.toFixed(1) || '?'}ms)`);
+              reachableIPs.push({ ip, rtt: result.rtt });
+              
+              // Send device found event immediately
+              sendEvent('ping_found', {
+                ip,
+                rtt: result.rtt,
+                alreadyExists: existingIPs.has(ip),
+                phase: 'ping_sweep',
+              });
+            }
+            
+            // Send progress update every 10 IPs
+            if (pingCompleted % 10 === 0 || pingCompleted === ips.length) {
+              sendEvent('progress', {
+                phase: 'ping_sweep',
+                completed: pingCompleted,
+                total: ips.length,
+                found: reachableIPs.length,
+              });
+            }
+          })();
+          
+          activePings.push(promise);
+          promise.finally(() => {
+            const index = activePings.indexOf(promise);
+            if (index > -1) activePings.splice(index, 1);
+          });
+        }
+        
+        if (activePings.length > 0) {
+          await Promise.race(activePings);
+        }
+      }
+      
+      console.log(`[Scan] Phase 1 complete: ${reachableIPs.length} reachable hosts found`);
+      
+      sendEvent('phase_complete', {
+        phase: 'ping_sweep',
+        found: reachableIPs.length,
+        message: `Ping sweep complete. Found ${reachableIPs.length} reachable devices. Starting fingerprinting...`
+      });
+      
+      if (reachableIPs.length === 0) {
+        sendEvent('complete', {
+          totalScanned: ips.length,
+          discovered: 0,
+          results: [],
+        });
+        res.end();
+        return;
+      }
+      
+      // Phase 2: Fingerprint each discovered IP
+      console.log(`[Scan] Phase 2: Fingerprinting ${reachableIPs.length} devices`);
+      
+      sendEvent('start', {
+        totalIPs: reachableIPs.length,
+        phase: 'fingerprint',
+        message: `Starting fingerprint identification of ${reachableIPs.length} devices...`
+      });
+      
+      const FINGERPRINT_CONCURRENCY = 10; // Lower concurrency for detailed probes
+      const results: ScanResult[] = [];
+      let fingerprintCompleted = 0;
+      
+      const fingerprintQueue = [...reachableIPs];
+      const activeFingerprints: Promise<void>[] = [];
+      
+      while (fingerprintQueue.length > 0 || activeFingerprints.length > 0) {
+        while (activeFingerprints.length < FINGERPRINT_CONCURRENCY && fingerprintQueue.length > 0) {
+          const { ip, rtt } = fingerprintQueue.shift()!;
+          
+          const promise = (async () => {
+            console.log(`[Scan] Fingerprinting ${ip}...`);
+            
+            const discovery = await discoverDevice(ip, credentials, 8000, true);
+            fingerprintCompleted++;
+            
+            const fingerprint = discovery.fingerprint;
+            const deviceType = fingerprint?.deviceType || 'generic_ping';
+            
+            console.log(`[Scan] ${ip}: Identified as ${deviceType} via ${fingerprint?.detectedVia || 'unknown'}`);
+            
+            const result: ScanResult = {
+              ip,
+              status: 'success',
+              deviceType,
+              deviceData: {
+                model: fingerprint?.detectedModel || fingerprint?.deviceType || 'Unknown',
+                version: fingerprint?.detectedVia || 'Discovered',
+                ...(fingerprint?.additionalInfo || {}),
+              },
+              credentialProfileId: validCredProfiles[0]?.id,
+              fingerprint: fingerprint || undefined,
+            };
+            
+            results.push(result);
+            
+            // Send fingerprint result
+            sendEvent('fingerprint_result', {
+              ...result,
+              alreadyExists: existingIPs.has(ip),
+              phase: 'fingerprint',
+              completed: fingerprintCompleted,
+              total: reachableIPs.length,
+            });
+          })();
+          
+          activeFingerprints.push(promise);
+          promise.finally(() => {
+            const index = activeFingerprints.indexOf(promise);
+            if (index > -1) activeFingerprints.splice(index, 1);
+          });
+        }
+        
+        if (activeFingerprints.length > 0) {
+          await Promise.race(activeFingerprints);
+        }
+      }
+      
+      console.log(`[Scan] Phase 2 complete: ${results.length} devices fingerprinted`);
+      
+      // Send final results
+      const enrichedResults = results.map(r => ({
+        ...r,
+        alreadyExists: existingIPs.has(r.ip),
+      }));
+      
+      sendEvent('complete', {
+        totalScanned: ips.length,
+        discovered: results.length,
+        results: enrichedResults,
+      });
+      
+      res.end();
+    } catch (error: any) {
+      console.error('[Scan] Error during streaming scan:', error);
+      sendEvent('error', { message: error.message || 'Scan failed' });
+      res.end();
+    }
+  });
+
   // Batch device creation from scan results
   const batchDeviceSchema = z.object({
     devices: z.array(z.object({

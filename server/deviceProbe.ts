@@ -1590,23 +1590,34 @@ export async function probeHTTPFingerprint(
 export async function discoverDevice(
   ipAddress: string,
   credentials?: any,
-  timeoutMs: number = 5000
+  timeoutMs: number = 5000,
+  enableLogging: boolean = false
 ): Promise<{
   reachable: boolean;
   fingerprint: DeviceFingerprint | null;
   pingRtt?: number;
   sysName?: string;
 }> {
+  const log = (msg: string) => {
+    if (enableLogging) {
+      console.log(`[Discovery] ${ipAddress}: ${msg}`);
+    }
+  };
+
   // Step 1: Ping check
+  log('Checking reachability...');
   const pingResult = await pingDevice(ipAddress, Math.ceil(timeoutMs / 1000));
   if (!pingResult.success) {
+    log('Not reachable (ping failed)');
     return { reachable: false, fingerprint: null };
   }
+  log(`Reachable (RTT: ${pingResult.rtt?.toFixed(1) || '?'}ms)`);
   
   // Step 2: Try Mikrotik API port first (8728) - most reliable for Mikrotik detection
-  // Many Mikrotik devices don't have SNMP enabled but always have API
+  log('Probing Mikrotik API port 8728...');
   const mikrotikFingerprint = await probeMikrotikApiPort(ipAddress, 8728, 2000);
   if (mikrotikFingerprint) {
+    log('Detected as Mikrotik (API port open)');
     return { 
       reachable: true, 
       fingerprint: mikrotikFingerprint, 
@@ -1616,11 +1627,14 @@ export async function discoverDevice(
   
   // Step 3: Try SNMP (reliable for device identification)
   const community = credentials?.snmpCommunity || 'public';
+  log(`Probing SNMP (community: ${community})...`);
   const snmpResult = await testSnmpConnectivity(ipAddress, community);
   
   if (snmpResult.success && snmpResult.sysDescr) {
+    log(`SNMP responded: ${snmpResult.sysDescr.substring(0, 60)}...`);
     const fingerprint = fingerprintFromSysDescr(snmpResult.sysDescr);
     if (fingerprint) {
+      log(`Identified via SNMP as: ${fingerprint.deviceType}`);
       return { 
         reachable: true, 
         fingerprint, 
@@ -1628,6 +1642,7 @@ export async function discoverDevice(
       };
     }
     // SNMP works but couldn't identify - return as generic SNMP
+    log('SNMP responded but could not identify device type');
     return {
       reachable: true,
       fingerprint: {
@@ -1639,23 +1654,28 @@ export async function discoverDevice(
       pingRtt: pingResult.rtt,
     };
   }
+  log('SNMP not available or timed out');
   
   // Step 4: Try SSH banner grab
+  log('Probing SSH port 22...');
   const sshFingerprint = await probeSSHBanner(ipAddress, 2000);
   if (sshFingerprint) {
+    log(`Identified via SSH as: ${sshFingerprint.deviceType}`);
     return { 
       reachable: true, 
       fingerprint: sshFingerprint, 
       pingRtt: pingResult.rtt 
     };
   }
+  log('SSH not available or timed out');
   
   // Step 5: Try HTTP/HTTPS fingerprinting
-  // Try common management ports
   const httpPorts = [443, 80, 8006, 8443];
   for (const port of httpPorts) {
+    log(`Probing HTTP port ${port}...`);
     const httpFingerprint = await probeHTTPFingerprint(ipAddress, port, 2000);
     if (httpFingerprint && httpFingerprint.confidence !== 'low') {
+      log(`Identified via HTTP as: ${httpFingerprint.deviceType}`);
       return { 
         reachable: true, 
         fingerprint: httpFingerprint, 
@@ -1663,8 +1683,10 @@ export async function discoverDevice(
       };
     }
   }
+  log('HTTP probes did not identify device');
   
   // Step 6: Device responds to ping but couldn't identify
+  log('Classified as generic_ping (no identification possible)');
   return {
     reachable: true,
     fingerprint: {
