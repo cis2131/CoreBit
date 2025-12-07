@@ -197,18 +197,9 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
     },
   });
 
-  const isFindAllMode = probeTypes.includes('find_all');
+  const includesOtherMode = probeTypes.includes('find_all');
 
   const handleStartScan = () => {
-    // Find All mode doesn't require credentials (uses default SNMP community)
-    if (!isFindAllMode && selectedCredProfiles.length === 0) {
-      toast({
-        title: "No Credentials Selected",
-        description: "Please select at least one credential profile",
-        variant: "destructive",
-      });
-      return;
-    }
     if (probeTypes.length === 0) {
       toast({
         title: "No Probe Types Selected",
@@ -224,8 +215,8 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
     setScanProgress(null);
     setScanPhase('idle');
     
-    // Use streaming for Find All mode
-    if (isFindAllMode) {
+    // Use streaming scan when "Other" is selected for advanced fingerprinting
+    if (includesOtherMode) {
       handleStreamingScan();
     } else {
       scanMutation.mutate({
@@ -568,64 +559,51 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
 
                 <div>
                   <Label className="text-xs">Scan Mode</Label>
-                  <div className="space-y-2 mt-2">
-                    <div className="flex items-center gap-2 p-2 rounded-md border border-primary/30 bg-primary/5">
+                  <div className="flex flex-wrap gap-4 mt-2">
+                    <div className="flex items-center gap-2">
                       <Checkbox
-                        id="probe-find-all"
-                        checked={probeTypes.includes('find_all')}
-                        onCheckedChange={() => {
-                          if (probeTypes.includes('find_all')) {
-                            setProbeTypes(probeTypes.filter(t => t !== 'find_all'));
-                          } else {
-                            setProbeTypes(['find_all']);
-                          }
-                        }}
-                        data-testid="checkbox-probe-find-all"
+                        id="probe-mikrotik"
+                        checked={probeTypes.includes('mikrotik')}
+                        onCheckedChange={() => toggleProbeType('mikrotik')}
+                        data-testid="checkbox-probe-mikrotik"
                       />
-                      <Label htmlFor="probe-find-all" className="text-sm cursor-pointer font-medium">
-                        Find All Devices
-                        <span className="text-xs text-muted-foreground block">
-                          Auto-detect Linux, Windows, VMware, Proxmox, NAS, and more
-                        </span>
+                      <Label htmlFor="probe-mikrotik" className="text-sm cursor-pointer">
+                        Mikrotik
                       </Label>
                     </div>
-                    {!isFindAllMode && (
-                      <div className="flex gap-4">
-                        <div className="flex items-center gap-2">
-                          <Checkbox
-                            id="probe-mikrotik"
-                            checked={probeTypes.includes('mikrotik')}
-                            onCheckedChange={() => toggleProbeType('mikrotik')}
-                            data-testid="checkbox-probe-mikrotik"
-                          />
-                          <Label htmlFor="probe-mikrotik" className="text-sm cursor-pointer">
-                            Mikrotik
-                          </Label>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Checkbox
-                            id="probe-snmp"
-                            checked={probeTypes.includes('snmp')}
-                            onCheckedChange={() => toggleProbeType('snmp')}
-                            data-testid="checkbox-probe-snmp"
-                          />
-                          <Label htmlFor="probe-snmp" className="text-sm cursor-pointer">
-                            SNMP
-                          </Label>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Checkbox
-                            id="probe-server"
-                            checked={probeTypes.includes('server')}
-                            onCheckedChange={() => toggleProbeType('server')}
-                            data-testid="checkbox-probe-server"
-                          />
-                          <Label htmlFor="probe-server" className="text-sm cursor-pointer">
-                            Servers
-                          </Label>
-                        </div>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="probe-snmp"
+                        checked={probeTypes.includes('snmp')}
+                        onCheckedChange={() => toggleProbeType('snmp')}
+                        data-testid="checkbox-probe-snmp"
+                      />
+                      <Label htmlFor="probe-snmp" className="text-sm cursor-pointer">
+                        SNMP
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="probe-server"
+                        checked={probeTypes.includes('server')}
+                        onCheckedChange={() => toggleProbeType('server')}
+                        data-testid="checkbox-probe-server"
+                      />
+                      <Label htmlFor="probe-server" className="text-sm cursor-pointer">
+                        Servers
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="probe-other"
+                        checked={probeTypes.includes('find_all')}
+                        onCheckedChange={() => toggleProbeType('find_all')}
+                        data-testid="checkbox-probe-other"
+                      />
+                      <Label htmlFor="probe-other" className="text-sm cursor-pointer">
+                        Other
+                      </Label>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -633,16 +611,11 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
               <div>
                 <Label className="text-xs">
                   Credential Profiles
-                  {isFindAllMode && (
-                    <span className="text-muted-foreground ml-1">(optional - uses default SNMP community)</span>
-                  )}
                 </Label>
                 <div className="flex flex-wrap gap-2 mt-2">
                   {credentialProfiles.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      {isFindAllMode 
-                        ? "No credential profiles found. Find All will use default 'public' SNMP community."
-                        : "No credential profiles found. Create one in Settings first."}
+                      No credential profiles found. Create one in Settings first.
                     </p>
                   ) : (
                     credentialProfiles.map(profile => (
@@ -843,7 +816,7 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
           ) : (
             <Button
               onClick={handleStartScan}
-              disabled={isScanning || (!isFindAllMode && selectedCredProfiles.length === 0) || probeTypes.length === 0}
+              disabled={isScanning || probeTypes.length === 0}
               data-testid="button-start-scan"
             >
               {isScanning ? (
