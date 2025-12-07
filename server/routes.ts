@@ -1652,10 +1652,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Find All discovery function - pings then fingerprints
       const findAllScan = async (ip: string): Promise<ScanResult> => {
         try {
-          // Get first credential profile for SNMP community string (or use default)
-          const credentials = validCredProfiles[0]?.credentials || { snmpCommunity: 'public' };
-          
-          const discovery = await discoverDevice(ip, credentials, SCAN_TIMEOUT);
+          const discovery = await discoverDevice(ip, validCredProfiles, SCAN_TIMEOUT);
           
           if (!discovery.reachable) {
             return { ip, status: 'failed' };
@@ -1663,6 +1660,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           const fingerprint = discovery.fingerprint;
           const deviceType = fingerprint?.deviceType || 'generic_ping';
+          const deviceName = discovery.identity || discovery.sysName || `Device-${ip}`;
           
           return {
             ip,
@@ -1671,10 +1669,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             deviceData: {
               model: fingerprint?.detectedModel || fingerprint?.deviceType || 'Unknown',
               version: fingerprint?.detectedVia || 'Discovered',
-              uptime: undefined,
+              systemIdentity: deviceName,
+              sysName: discovery.sysName,
+              identity: discovery.identity,
+              sysDescr: fingerprint?.sysDescr,
               ...(fingerprint?.additionalInfo || {}),
             },
-            credentialProfileId: validCredProfiles[0]?.id,
+            credentialProfileId: discovery.workingCredentialProfileId,
             fingerprint: fingerprint || undefined,
           };
         } catch (error: any) {
@@ -1921,13 +1922,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[Scan] Starting fingerprint for ${ip}...`);
         
         try {
-          const discovery = await discoverDevice(ip, credentials, 8000, true);
+          // Pass full credential profiles array for discovery to try
+          const discovery = await discoverDevice(ip, validCredProfiles, 8000, true);
           fingerprintCompleted++;
           
           const fingerprint = discovery.fingerprint;
           const deviceType = fingerprint?.deviceType || 'generic_ping';
           
-          console.log(`[Scan] ${ip}: Identified as ${deviceType} via ${fingerprint?.detectedVia || 'unknown'}`);
+          // Determine device name: Mikrotik identity > SNMP sysName > IP
+          const deviceName = discovery.identity || discovery.sysName || `Device-${ip}`;
+          
+          console.log(`[Scan] ${ip}: Identified as ${deviceType} (${deviceName}) via ${fingerprint?.detectedVia || 'unknown'}`);
           
           const result: ScanResult = {
             ip,
@@ -1936,9 +1941,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             deviceData: {
               model: fingerprint?.detectedModel || fingerprint?.deviceType || 'Unknown',
               version: fingerprint?.detectedVia || 'Discovered',
+              systemIdentity: deviceName,
+              sysName: discovery.sysName,
+              identity: discovery.identity,
+              sysDescr: fingerprint?.sysDescr,
               ...(fingerprint?.additionalInfo || {}),
             },
-            credentialProfileId: validCredProfiles[0]?.id,
+            credentialProfileId: discovery.workingCredentialProfileId,
             fingerprint: fingerprint || undefined,
           };
           
@@ -1962,7 +1971,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ip,
             status: 'success',
             deviceType: 'generic_ping',
-            deviceData: { model: 'Unknown', version: 'Ping only' },
+            deviceData: { model: 'Unknown', version: 'Ping only', systemIdentity: `Device-${ip}` },
           };
           results.push(result);
           sendEvent('fingerprint_result', {

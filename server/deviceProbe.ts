@@ -78,6 +78,79 @@ async function walkSnmpTable(
   });
 }
 
+// Get SNMP system info (sysDescr and sysName) for better device identification
+async function getSnmpSystemInfo(
+  ipAddress: string,
+  community: string
+): Promise<{ success: boolean; sysDescr?: string; sysName?: string; error?: string }> {
+  return new Promise((resolve) => {
+    let resolved = false;
+    
+    const session = snmp.createSession(ipAddress, community, {
+      version: snmp.Version2c,
+      timeout: 3000,
+      retries: 1,
+      port: 161,
+      transport: 'udp4',
+    });
+    
+    session.on('error', (err: any) => {
+      if (!resolved) {
+        resolved = true;
+        try { session.close(); } catch (e) { /* ignore */ }
+        resolve({ success: false, error: `Session error: ${err.message || err}` });
+      }
+    });
+    
+    // Get sysDescr.0 and sysName.0
+    const oids = ['1.3.6.1.2.1.1.1.0', '1.3.6.1.2.1.1.5.0'];
+    session.get(oids, (error: any, varbinds?: any[]) => {
+      if (resolved) return;
+      resolved = true;
+      
+      try { session.close(); } catch (e) { /* ignore */ }
+      
+      if (error) {
+        resolve({ success: false, error: `GET error: ${error.message || error}` });
+        return;
+      }
+      
+      if (!varbinds || varbinds.length === 0) {
+        resolve({ success: false, error: 'No varbinds returned' });
+        return;
+      }
+      
+      let sysDescr: string | undefined;
+      let sysName: string | undefined;
+      
+      for (const vb of varbinds) {
+        if (!snmp.isVarbindError(vb)) {
+          const oid = vb.oid;
+          const value = vb.value.toString();
+          if (oid === '1.3.6.1.2.1.1.1.0') sysDescr = value;
+          if (oid === '1.3.6.1.2.1.1.5.0') sysName = value;
+        }
+      }
+      
+      if (!sysDescr) {
+        resolve({ success: false, error: 'No sysDescr returned' });
+        return;
+      }
+      
+      resolve({ success: true, sysDescr, sysName });
+    });
+    
+    // Timeout protection
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        try { session.close(); } catch (e) { /* ignore */ }
+        resolve({ success: false, error: 'Timeout after 4s' });
+      }
+    }, 4000);
+  });
+}
+
 // Simple SNMP test function - tries a basic sysDescr GET to verify SNMP connectivity
 async function testSnmpConnectivity(
   ipAddress: string,
@@ -1583,10 +1656,26 @@ export async function probeHTTPFingerprint(
   });
 }
 
-// Main discovery function - pings first, then fingerprints
+// Credential profile interface for discovery
+interface CredentialProfile {
+  id: string;
+  type: string;
+  credentials: {
+    username?: string;
+    password?: string;
+    snmpCommunity?: string;
+    snmpVersion?: string;
+  };
+}
+
+// Main discovery function - pings first, then fingerprints with priority:
+// 1. Mikrotik API with credentials (get identity)
+// 2. SNMP (get sysName for device naming)
+// 3. SSH/HTTP fingerprinting
+// 4. Ping-only fallback
 export async function discoverDevice(
   ipAddress: string,
-  credentials?: any,
+  credentialProfiles: CredentialProfile[] = [],
   timeoutMs: number = 5000,
   enableLogging: boolean = false
 ): Promise<{
@@ -1594,6 +1683,8 @@ export async function discoverDevice(
   fingerprint: DeviceFingerprint | null;
   pingRtt?: number;
   sysName?: string;
+  identity?: string;
+  workingCredentialProfileId?: string;
 }> {
   const log = (msg: string) => {
     if (enableLogging) {
@@ -1610,46 +1701,122 @@ export async function discoverDevice(
   }
   log(`Reachable (RTT: ${pingResult.rtt?.toFixed(1) || '?'}ms)`);
   
-  // Step 2: Try Mikrotik API port first (8728) - most reliable for Mikrotik detection
+  // Step 2: Try Mikrotik API LOGIN with credentials (priority #1)
+  // Check if port 8728 is open first
   log('Probing Mikrotik API port 8728...');
-  const mikrotikFingerprint = await probeMikrotikApiPort(ipAddress, 8728, 2000);
-  if (mikrotikFingerprint) {
-    log('Detected as Mikrotik (API port open)');
-    return { 
-      reachable: true, 
-      fingerprint: mikrotikFingerprint, 
-      pingRtt: pingResult.rtt 
-    };
-  }
+  const mikrotikPortOpen = await probeMikrotikApiPort(ipAddress, 8728, 2000);
   
-  // Step 3: Try SNMP (reliable for device identification)
-  const community = credentials?.snmpCommunity || 'public';
-  log(`Probing SNMP (community: ${community})...`);
-  const snmpResult = await testSnmpConnectivity(ipAddress, community);
-  
-  if (snmpResult.success && snmpResult.sysDescr) {
-    log(`SNMP responded: ${snmpResult.sysDescr.substring(0, 60)}...`);
-    const fingerprint = fingerprintFromSysDescr(snmpResult.sysDescr);
-    if (fingerprint) {
-      log(`Identified via SNMP as: ${fingerprint.deviceType}`);
-      return { 
-        reachable: true, 
-        fingerprint, 
-        pingRtt: pingResult.rtt,
-      };
+  if (mikrotikPortOpen) {
+    log('Mikrotik API port open, trying credentials...');
+    
+    // Get Mikrotik credentials from profiles
+    const mikrotikProfiles = credentialProfiles.filter(p => p.type === 'mikrotik');
+    
+    for (const profile of mikrotikProfiles) {
+      const { username, password } = profile.credentials;
+      if (!username || !password) continue;
+      
+      log(`Trying Mikrotik login with profile: ${profile.id}`);
+      
+      try {
+        const api = new RouterOSAPI({
+          host: ipAddress,
+          port: 8728,
+          user: username,
+          password: password,
+          timeout: 3000,
+        });
+        
+        await api.connect();
+        
+        // Get identity
+        const identityResult = await api.write('/system/identity/print');
+        const identity = identityResult?.[0]?.name || 'Mikrotik';
+        
+        // Get model info
+        const resourceResult = await api.write('/system/resource/print');
+        const model = resourceResult?.[0]?.['board-name'] || 'RouterOS';
+        const version = resourceResult?.[0]?.version || '';
+        
+        await api.close();
+        
+        log(`Mikrotik login SUCCESS with profile ${profile.id}, identity: ${identity}`);
+        
+        return {
+          reachable: true,
+          fingerprint: {
+            deviceType: 'mikrotik_router',
+            confidence: 'high',
+            detectedVia: 'mikrotik_api',
+            detectedModel: model,
+            additionalInfo: { version, identity },
+          },
+          pingRtt: pingResult.rtt,
+          identity,
+          workingCredentialProfileId: profile.id,
+        };
+      } catch (err: any) {
+        log(`Mikrotik login failed with profile ${profile.id}: ${err.message || err}`);
+      }
     }
-    // SNMP works but couldn't identify - return as generic SNMP
-    log('SNMP responded but could not identify device type');
+    
+    // Mikrotik port is open but no credentials worked
+    log('Mikrotik API port open but no working credentials');
     return {
       reachable: true,
       fingerprint: {
-        deviceType: 'generic_snmp',
-        confidence: 'low',
-        detectedVia: 'snmp_sysdescr',
-        sysDescr: snmpResult.sysDescr,
+        deviceType: 'mikrotik_router',
+        confidence: 'high',
+        detectedVia: 'mikrotik_api_port',
+        additionalInfo: { needsCredentials: true },
       },
       pingRtt: pingResult.rtt,
     };
+  }
+  
+  // Step 3: Try SNMP (priority #2 - get sysName for device naming)
+  const snmpProfiles = credentialProfiles.filter(p => p.type === 'snmp');
+  const snmpCommunities = snmpProfiles.length > 0 
+    ? snmpProfiles.map(p => ({ id: p.id, community: p.credentials.snmpCommunity || 'public' }))
+    : [{ id: undefined, community: 'public' }];
+  
+  for (const { id: profileId, community } of snmpCommunities) {
+    log(`Probing SNMP (community: ${community})...`);
+    const snmpResult = await getSnmpSystemInfo(ipAddress, community);
+    
+    if (snmpResult.success && snmpResult.sysDescr) {
+      log(`SNMP responded: ${snmpResult.sysDescr.substring(0, 60)}... sysName: ${snmpResult.sysName || 'N/A'}`);
+      const fingerprint = fingerprintFromSysDescr(snmpResult.sysDescr);
+      
+      if (fingerprint) {
+        log(`Identified via SNMP as: ${fingerprint.deviceType}`);
+        return { 
+          reachable: true, 
+          fingerprint: {
+            ...fingerprint,
+            sysDescr: snmpResult.sysDescr,
+          },
+          pingRtt: pingResult.rtt,
+          sysName: snmpResult.sysName,
+          workingCredentialProfileId: profileId,
+        };
+      }
+      
+      // SNMP works but couldn't identify specific type - return as generic SNMP with sysName
+      log('SNMP responded but could not identify device type');
+      return {
+        reachable: true,
+        fingerprint: {
+          deviceType: 'generic_snmp',
+          confidence: 'low',
+          detectedVia: 'snmp_sysdescr',
+          sysDescr: snmpResult.sysDescr,
+        },
+        pingRtt: pingResult.rtt,
+        sysName: snmpResult.sysName,
+        workingCredentialProfileId: profileId,
+      };
+    }
   }
   log('SNMP not available or timed out');
   
