@@ -1714,10 +1714,14 @@ export async function discoverDevice(
     log(`Found ${mikrotikProfiles.length} Mikrotik credential profiles to try`);
     
     for (const profile of mikrotikProfiles) {
-      const { username, password } = profile.credentials;
-      if (!username || !password) continue;
+      const { username, password } = profile.credentials || {};
+      log(`Profile ${profile.id} has credentials: username=${username ? 'SET' : 'MISSING'}, password=${password ? 'SET' : 'MISSING'}`);
+      if (!username || !password) {
+        log(`Skipping profile ${profile.id} - missing credentials`);
+        continue;
+      }
       
-      log(`Trying Mikrotik login with profile: ${profile.id}`);
+      log(`Trying Mikrotik login with profile: ${profile.id} user=${username}`);
       
       try {
         const api = new RouterOSAPI({

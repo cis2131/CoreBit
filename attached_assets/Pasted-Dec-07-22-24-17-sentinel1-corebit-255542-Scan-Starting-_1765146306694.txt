@@ -1,0 +1,21 @@
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Scan] Starting two-phase streaming scan for 172.16.10.254
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Scan] Phase 1: Ping sweep of 1 IPs
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Scan] Ping: 172.16.10.254 - ALIVE (0.4ms)
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Scan] Phase 1 complete: 1 reachable hosts found
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Scan] Phase 2: Fingerprinting 1 devices
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Scan] Credential profiles available: 1
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Scan] Profile: fc413736-9428-49c1-af71-f9a416edc96e (GW01-GW02 routers) type=mikrotik
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Scan] Starting fingerprint for 172.16.10.254...
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Discovery] 172.16.10.254: Checking reachability...
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Discovery] 172.16.10.254: Reachable (RTT: 0.3ms)
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Discovery] 172.16.10.254: Probing Mikrotik API port 8728...
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Discovery] 172.16.10.254: Mikrotik API port open, trying credentials...
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Discovery] 172.16.10.254: Found 1 Mikrotik credential profiles to try
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Discovery] 172.16.10.254: Mikrotik API port open but no working credentials
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Scan] 172.16.10.254: Identified as mikrotik_router (Device-172.16.10.254) via mikrotik_api_port
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Scan] Sending fingerprint_result event for 172.16.10.254
+Dec 07 22:24:17 sentinel1 corebit[255542]: [Scan] Phase 2 complete: 1 devices fingerprinted
+Dec 07 22:24:17 sentinel1 corebit[255542]: 10:24:17 PM [express] GET /api/network-scan-stream 200 in 34ms
+Dec 07 22:24:19 sentinel1 corebit[255542]: 10:24:19 PM [express] GET /api/devices 304 in 4ms :: []
+Dec 07 22:24:19 sentinel1 corebit[255542]: 10:24:19 PM [express] GET /api/map-health/summary 304 in 5ms :: []
+Dec 07 22:24:19 sentinel1 corebit[255542]: 10:24:19 PM [express] GET /api/connections/cec2a960-e30c-421f-b283-4c584b0e2d24 304 in 4ms :: []
