@@ -113,8 +113,9 @@ cat > "$RELEASE_DIR/package.json" <<EOF
 }
 EOF
 
-# Create data directories
-mkdir -p "$RELEASE_DIR/data/backups"
+# Create data and backup directories
+mkdir -p "$RELEASE_DIR/data"
+mkdir -p "$RELEASE_DIR/backups"
 
 # Create a simple install wrapper
 cat > "$RELEASE_DIR/install.sh" <<'EOF'

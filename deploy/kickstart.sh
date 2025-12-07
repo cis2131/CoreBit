@@ -558,7 +558,7 @@ SyslogIdentifier=${SERVICE_NAME}
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=${INSTALL_DIR}/data
+ReadWritePaths=${INSTALL_DIR}/data ${INSTALL_DIR}/backups
 PrivateTmp=true
 
 # Resource limits
