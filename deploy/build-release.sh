@@ -44,9 +44,9 @@ npm ci --silent
 echo -e "${BLUE}[3/7]${NC} Building frontend..."
 npm run build
 
-# Step 4: Compile TypeScript backend
+# Step 4: Compile TypeScript backend (using production entry point without vite dependency)
 echo -e "${BLUE}[4/7]${NC} Compiling backend..."
-npx esbuild server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/index.js
+npx esbuild server/index.prod.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/index.js
 
 # Step 5: Prepare release directory
 echo -e "${BLUE}[5/7]${NC} Preparing release package..."
