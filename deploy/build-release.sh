@@ -93,7 +93,7 @@ cat > "$RELEASE_DIR/package.json" <<EOF
     "bcrypt": "^5.1.1",
     "connect-pg-simple": "^10.0.0",
     "dotenv": "^16.4.0",
-    "drizzle-orm": "^0.36.0",
+    "drizzle-orm": "^0.39.1",
     "drizzle-zod": "^0.7.0",
     "express": "^4.21.0",
     "express-session": "^1.18.0",
