@@ -5,6 +5,200 @@ import { isIP, Socket } from 'net';
 import * as https from 'https';
 import * as http from 'http';
 
+// Interface cache: stores port data with TTL to avoid slow SNMP walks during fast probe cycles
+// Key: IP address, Value: { ports, timestamp, collecting }
+const interfaceCache: Map<string, { 
+  ports: any[]; 
+  timestamp: number; 
+  collecting: boolean;  // Prevents concurrent collection
+}> = new Map();
+
+const INTERFACE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const INTERFACE_COLLECT_TIMEOUT_MS = 60000; // 60 seconds for background collection
+
+// Check if cached interface data is fresh
+function getCachedInterfaces(ipAddress: string): any[] | null {
+  const cached = interfaceCache.get(ipAddress);
+  if (!cached) return null;
+  if (Date.now() - cached.timestamp > INTERFACE_CACHE_TTL_MS) return null;
+  return cached.ports;
+}
+
+// Mark device as collecting interfaces (to prevent concurrent collections)
+function isCollectingInterfaces(ipAddress: string): boolean {
+  return interfaceCache.get(ipAddress)?.collecting || false;
+}
+
+function setCollectingInterfaces(ipAddress: string, collecting: boolean): void {
+  const cached = interfaceCache.get(ipAddress);
+  if (cached) {
+    cached.collecting = collecting;
+  } else {
+    interfaceCache.set(ipAddress, { ports: [], timestamp: 0, collecting });
+  }
+}
+
+function setCachedInterfaces(ipAddress: string, ports: any[]): void {
+  interfaceCache.set(ipAddress, { ports, timestamp: Date.now(), collecting: false });
+}
+
+// Background interface collection - runs with longer timeouts, one OID at a time
+export async function collectInterfacesBackground(
+  ipAddress: string,
+  community: string,
+  snmpVersion: string = '2c',
+  credentials?: any
+): Promise<any[]> {
+  if (isCollectingInterfaces(ipAddress)) {
+    console.log(`[SNMP] Already collecting interfaces for ${ipAddress}, skipping`);
+    return getCachedInterfaces(ipAddress) || [];
+  }
+  
+  setCollectingInterfaces(ipAddress, true);
+  console.log(`[SNMP] Starting background interface collection for ${ipAddress}`);
+  
+  try {
+    const portMap: { [key: string]: any } = {};
+    
+    // Walk each OID sequentially with longer timeout
+    const walkOid = async (oid: string): Promise<any[]> => {
+      return new Promise((resolve) => {
+        const allVarbinds: any[] = [];
+        const version = snmpVersion === '1' ? snmp.Version1 : snmp.Version2c;
+        
+        const session = snmp.createSession(ipAddress, community, {
+          port: 161,
+          retries: 2,
+          timeout: 10000, // 10 second timeout per walk
+          version,
+        });
+        
+        session.on('error', () => {
+          try { session.close(); } catch (e) {}
+          resolve(allVarbinds);
+        });
+        
+        session.walk(oid, (varbinds: any[]) => {
+          varbinds.forEach(vb => {
+            if (!snmp.isVarbindError(vb)) {
+              allVarbinds.push(vb);
+            }
+          });
+        }, (error: any) => {
+          try { session.close(); } catch (e) {}
+          resolve(allVarbinds);
+        });
+        
+        // Hard timeout protection
+        setTimeout(() => {
+          try { session.close(); } catch (e) {}
+          resolve(allVarbinds);
+        }, 15000);
+      });
+    };
+    
+    // Sequential walks - slower but reliable
+    const ifDescrVbs = await walkOid('1.3.6.1.2.1.2.2.1.2');
+    const ifSpeedVbs = await walkOid('1.3.6.1.2.1.2.2.1.5');
+    const ifOperStatusVbs = await walkOid('1.3.6.1.2.1.2.2.1.8');
+    const ifNameVbs = await walkOid('1.3.6.1.2.1.31.1.1.1.1');
+    const ifHighSpeedVbs = await walkOid('1.3.6.1.2.1.31.1.1.1.15');
+    const ifAliasVbs = await walkOid('1.3.6.1.2.1.31.1.1.1.18');
+    
+    // Process results
+    ifDescrVbs.forEach((vb: any) => {
+      const parts = vb.oid.split('.');
+      const ifIndex = parts[parts.length - 1];
+      if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
+      portMap[ifIndex].ifDescr = vb.value.toString();
+    });
+    
+    ifSpeedVbs.forEach((vb: any) => {
+      const parts = vb.oid.split('.');
+      const ifIndex = parts[parts.length - 1];
+      if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
+      portMap[ifIndex].speedBps = parseInt(vb.value.toString()) || 0;
+    });
+    
+    ifOperStatusVbs.forEach((vb: any) => {
+      const parts = vb.oid.split('.');
+      const ifIndex = parts[parts.length - 1];
+      if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
+      const statusCode = parseInt(vb.value.toString()) || 0;
+      portMap[ifIndex].operStatus = statusCode === 1 ? 'up' : statusCode === 2 ? 'down' : 'unknown';
+    });
+    
+    ifNameVbs.forEach((vb: any) => {
+      const parts = vb.oid.split('.');
+      const ifIndex = parts[parts.length - 1];
+      if (portMap[ifIndex]) {
+        portMap[ifIndex].ifName = vb.value.toString();
+      }
+    });
+    
+    ifHighSpeedVbs.forEach((vb: any) => {
+      const parts = vb.oid.split('.');
+      const ifIndex = parts[parts.length - 1];
+      if (portMap[ifIndex]) {
+        const highSpeedMbps = parseInt(vb.value.toString()) || 0;
+        if (highSpeedMbps > 0) {
+          portMap[ifIndex].speedBps = highSpeedMbps * 1000000;
+        }
+      }
+    });
+    
+    ifAliasVbs.forEach((vb: any) => {
+      const parts = vb.oid.split('.');
+      const ifIndex = parts[parts.length - 1];
+      if (portMap[ifIndex]) {
+        const alias = vb.value.toString().trim();
+        if (alias && alias.length > 0) {
+          portMap[ifIndex].ifAlias = alias;
+        }
+      }
+    });
+    
+    const formatSpeed = (bps: number): string => {
+      if (bps >= 1000000000000) return `${(bps / 1000000000000).toFixed(1)}Tbps`;
+      if (bps >= 1000000000) return `${(bps / 1000000000).toFixed(0)}Gbps`;
+      if (bps >= 1000000) return `${(bps / 1000000).toFixed(0)}Mbps`;
+      if (bps >= 1000) return `${(bps / 1000).toFixed(0)}Kbps`;
+      return `${bps}bps`;
+    };
+    
+    const ports = Object.values(portMap)
+      .filter((p: any) => {
+        const name = (p.ifName || p.ifDescr || '').toLowerCase();
+        return !name.includes('loopback') && !name.includes('null') && name !== 'lo';
+      })
+      .map((p: any) => ({
+        name: p.ifName || p.ifDescr || 'unknown',
+        defaultName: p.ifDescr,
+        description: p.ifAlias || undefined,
+        status: p.operStatus || 'unknown',
+        speed: p.speedBps ? formatSpeed(p.speedBps) : undefined,
+      }));
+    
+    console.log(`[SNMP] Background collection complete for ${ipAddress}: ${ports.length} interfaces`);
+    setCachedInterfaces(ipAddress, ports);
+    return ports;
+    
+  } catch (error: any) {
+    console.error(`[SNMP] Background collection failed for ${ipAddress}: ${error.message}`);
+    setCollectingInterfaces(ipAddress, false);
+    return getCachedInterfaces(ipAddress) || [];
+  }
+}
+
+// Export for API to trigger manual refresh
+export function clearInterfaceCache(ipAddress?: string): void {
+  if (ipAddress) {
+    interfaceCache.delete(ipAddress);
+  } else {
+    interfaceCache.clear();
+  }
+}
+
 // Helper function to walk an SNMP table and return OID → value mapping
 // Uses subtree() with maxRepetitions=1 for compatibility with various devices
 async function walkSnmpTable(
@@ -858,151 +1052,38 @@ async function probeSnmpDevice(
             }
           }
 
-          // Helper to promisify SNMP walk and collect all varbinds
-          const walkOid = (oid: string): Promise<any[]> => {
-            return new Promise((resolveWalk) => {
-              const allVarbinds: any[] = [];
-              session.walk(oid, (varbinds: any[]) => {
-                varbinds.forEach(vb => {
-                  if (!snmp.isVarbindError(vb)) {
-                    allVarbinds.push(vb);
-                  }
-                });
-              }, (error: any) => {
-                resolveWalk(allVarbinds);
-              });
-            });
-          };
+          // Use cached interface data for fast probes - interface collection is slow
+          // If cache is stale/empty, trigger background collection (non-blocking)
+          const cachedPorts = getCachedInterfaces(ipAddress);
+          let ports: any[] = cachedPorts || [];
           
-          // Run ALL walks in PARALLEL instead of sequentially - much faster!
-          Promise.all([
-            walkOid('1.3.6.1.2.1.2.2.1.2'),   // ifDescr
-            walkOid('1.3.6.1.2.1.2.2.1.5'),   // ifSpeed
-            walkOid('1.3.6.1.2.1.2.2.1.8'),   // ifOperStatus
-            walkOid('1.3.6.1.2.1.31.1.1.1.1'),  // ifName
-            walkOid('1.3.6.1.2.1.31.1.1.1.15'), // ifHighSpeed
-            walkOid('1.3.6.1.2.1.31.1.1.1.18'), // ifAlias
-          ]).then(([ifDescrVbs, ifSpeedVbs, ifOperStatusVbs, ifNameVbs, ifHighSpeedVbs, ifAliasVbs]) => {
-            const portMap: { [key: string]: any } = {};
+          if (!cachedPorts) {
+            // No cache - trigger background collection (fire and forget)
+            // Use setTimeout to ensure this doesn't block the current probe
+            setTimeout(() => {
+              collectInterfacesBackground(ipAddress, community, snmpVersion, credentials)
+                .catch(err => console.error(`[SNMP] Background collection error: ${err.message}`));
+            }, 100);
             
-            // Process ifDescr
-            ifDescrVbs.forEach((vb: any) => {
-              const parts = vb.oid.split('.');
-              const ifIndex = parts[parts.length - 1];
-              if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
-              portMap[ifIndex].ifDescr = vb.value.toString();
-            });
-            
-            // Process ifSpeed
-            ifSpeedVbs.forEach((vb: any) => {
-              const parts = vb.oid.split('.');
-              const ifIndex = parts[parts.length - 1];
-              if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
-              portMap[ifIndex].speedBps = parseInt(vb.value.toString()) || 0;
-            });
-            
-            // Process ifOperStatus
-            ifOperStatusVbs.forEach((vb: any) => {
-              const parts = vb.oid.split('.');
-              const ifIndex = parts[parts.length - 1];
-              if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
-              const statusCode = parseInt(vb.value.toString()) || 0;
-              portMap[ifIndex].operStatus = statusCode === 1 ? 'up' : statusCode === 2 ? 'down' : 'unknown';
-            });
-            
-            // Process ifName
-            ifNameVbs.forEach((vb: any) => {
-              const parts = vb.oid.split('.');
-              const ifIndex = parts[parts.length - 1];
-              if (portMap[ifIndex]) {
-                portMap[ifIndex].ifName = vb.value.toString();
-              }
-            });
-            
-            // Process ifHighSpeed (for 10G+ interfaces)
-            ifHighSpeedVbs.forEach((vb: any) => {
-              const parts = vb.oid.split('.');
-              const ifIndex = parts[parts.length - 1];
-              if (portMap[ifIndex]) {
-                const highSpeedMbps = parseInt(vb.value.toString()) || 0;
-                if (highSpeedMbps > 0) {
-                  portMap[ifIndex].speedBps = highSpeedMbps * 1000000;
-                }
-              }
-            });
-            
-            // Process ifAlias (port descriptions)
-            ifAliasVbs.forEach((vb: any) => {
-              const parts = vb.oid.split('.');
-              const ifIndex = parts[parts.length - 1];
-              if (portMap[ifIndex]) {
-                const alias = vb.value.toString().trim();
-                if (alias && alias.length > 0) {
-                  portMap[ifIndex].ifAlias = alias;
-                }
-              }
-            });
-            
-            console.log(`[SNMP] Collected ${Object.keys(portMap).length} interfaces via parallel walks`);
-            
-            // Convert speed in bps to human readable format
-            const formatSpeed = (bps: number): string => {
-              if (bps >= 1000000000000) return `${(bps / 1000000000000).toFixed(1)}Tbps`;
-              if (bps >= 1000000000) return `${(bps / 1000000000).toFixed(0)}Gbps`;
-              if (bps >= 1000000) return `${(bps / 1000000).toFixed(0)}Mbps`;
-              if (bps >= 1000) return `${(bps / 1000).toFixed(0)}Kbps`;
-              return `${bps}bps`;
-            };
-            
-            // Build ports array: prefer ifName > ifDescr for the name, ifAlias for description
-            const ports = Object.values(portMap)
-              .filter((p: any) => {
-                // Filter out loopback and null interfaces
-                const name = (p.ifName || p.ifDescr || '').toLowerCase();
-                return !name.includes('loopback') && !name.includes('null') && name !== 'lo';
-              })
-              .map((p: any) => ({
-                name: p.ifName || p.ifDescr || 'unknown',
-                defaultName: p.ifDescr,
-                description: p.ifAlias || undefined,
-                status: p.operStatus || 'unknown',
-                speed: p.speedBps ? formatSpeed(p.speedBps) : undefined,
-              }));
+            // Return minimal port info for now
+            ports = [{ name: 'eth0', status: 'up', speed: undefined }];
+          }
 
-            closeSession();
-            
-            resolve({
-              model: sysDescr.substring(0, 100),
-              systemIdentity: sysName,
-              version: 'SNMP',
-              uptime: sysUpTime,
-              ports: ports.length > 0 ? ports : [{
-                name: 'eth0',
-                status: 'up',
-                speed: '1Gbps',
-              }],
-              cpuUsagePct,
-              memoryUsagePct,
-              diskUsagePct,
-            });
-          }).catch((tableError) => {
-            // Ensure session is closed on error
-            closeSession();
-            console.error(`[SNMP] Table fetch error: ${tableError}`);
-            resolve({
-              model: sysDescr.substring(0, 100),
-              systemIdentity: sysName,
-              version: 'SNMP',
-              uptime: sysUpTime,
-              ports: [{
-                name: 'eth0',
-                status: 'up',
-                speed: '1Gbps',
-              }],
-              cpuUsagePct,
-              memoryUsagePct,
-              diskUsagePct,
-            });
+          closeSession();
+          
+          resolve({
+            model: sysDescr.substring(0, 100),
+            systemIdentity: sysName,
+            version: 'SNMP',
+            uptime: sysUpTime,
+            ports: ports.length > 0 ? ports : [{
+              name: 'eth0',
+              status: 'up',
+              speed: '1Gbps',
+            }],
+            cpuUsagePct,
+            memoryUsagePct,
+            diskUsagePct,
           });
         });
       });
