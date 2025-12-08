@@ -85,6 +85,17 @@ export async function collectInterfacesBackground(
         let resolved = false;
         let lastOid = '';
         
+        // Compare OIDs numerically (string comparison fails: "1.10" < "1.9" because "1" < "9")
+        const compareOids = (oid1: string, oid2: string): number => {
+          const parts1 = oid1.split('.').map(Number);
+          const parts2 = oid2.split('.').map(Number);
+          for (let i = 0; i < Math.min(parts1.length, parts2.length); i++) {
+            if (parts1[i] < parts2[i]) return -1;
+            if (parts1[i] > parts2[i]) return 1;
+          }
+          return parts1.length - parts2.length;
+        };
+        
         const session = snmp.createSession(ipAddress, community, {
           port: 161,
           retries: 1,
@@ -123,8 +134,8 @@ export async function collectInterfacesBackground(
               return;
             }
             
-            // Detect non-increasing OID (walk going backwards = end of table)
-            if (lastOid && vbOid <= lastOid) {
+            // Detect non-increasing OID using numeric comparison (walk going backwards = end of table)
+            if (lastOid && compareOids(vbOid, lastOid) <= 0) {
               cleanup('non-increasing OID');
               return;
             }
