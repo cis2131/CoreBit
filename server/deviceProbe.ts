@@ -5,6 +5,20 @@ import { isIP, Socket } from 'net';
 import * as https from 'https';
 import * as http from 'http';
 
+// Sanitize SNMP string values - removes invalid Unicode, control chars, and null bytes
+// This prevents "unsupported Unicode escape sequence" errors in PostgreSQL JSON columns
+function sanitizeSnmpString(value: any): string {
+  if (value === null || value === undefined) return '';
+  let str = value.toString();
+  // Remove null bytes and other control characters (except newline, tab)
+  str = str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  // Replace invalid UTF-8 sequences
+  str = str.replace(/[\uFFFD\uFFFE\uFFFF]/g, '');
+  // Remove any remaining non-printable characters
+  str = str.replace(/[^\x20-\x7E\xA0-\xFF\u0100-\uFFFF]/g, '');
+  return str.trim();
+}
+
 // Interface cache: stores port data with TTL to avoid slow SNMP walks during fast probe cycles
 // Key: IP address, Value: { ports, timestamp, collecting }
 const interfaceCache: Map<string, { 
@@ -105,26 +119,26 @@ export async function collectInterfacesBackground(
     const ifHighSpeedVbs = await walkOid('1.3.6.1.2.1.31.1.1.1.15');
     const ifAliasVbs = await walkOid('1.3.6.1.2.1.31.1.1.1.18');
     
-    // Process results
+    // Process results - use sanitizeSnmpString to prevent DB Unicode errors
     ifDescrVbs.forEach((vb: any) => {
       const parts = vb.oid.split('.');
       const ifIndex = parts[parts.length - 1];
       if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
-      portMap[ifIndex].ifDescr = vb.value.toString();
+      portMap[ifIndex].ifDescr = sanitizeSnmpString(vb.value);
     });
     
     ifSpeedVbs.forEach((vb: any) => {
       const parts = vb.oid.split('.');
       const ifIndex = parts[parts.length - 1];
       if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
-      portMap[ifIndex].speedBps = parseInt(vb.value.toString()) || 0;
+      portMap[ifIndex].speedBps = parseInt(sanitizeSnmpString(vb.value)) || 0;
     });
     
     ifOperStatusVbs.forEach((vb: any) => {
       const parts = vb.oid.split('.');
       const ifIndex = parts[parts.length - 1];
       if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
-      const statusCode = parseInt(vb.value.toString()) || 0;
+      const statusCode = parseInt(sanitizeSnmpString(vb.value)) || 0;
       portMap[ifIndex].operStatus = statusCode === 1 ? 'up' : statusCode === 2 ? 'down' : 'unknown';
     });
     
@@ -132,7 +146,7 @@ export async function collectInterfacesBackground(
       const parts = vb.oid.split('.');
       const ifIndex = parts[parts.length - 1];
       if (portMap[ifIndex]) {
-        portMap[ifIndex].ifName = vb.value.toString();
+        portMap[ifIndex].ifName = sanitizeSnmpString(vb.value);
       }
     });
     
@@ -140,7 +154,7 @@ export async function collectInterfacesBackground(
       const parts = vb.oid.split('.');
       const ifIndex = parts[parts.length - 1];
       if (portMap[ifIndex]) {
-        const highSpeedMbps = parseInt(vb.value.toString()) || 0;
+        const highSpeedMbps = parseInt(sanitizeSnmpString(vb.value)) || 0;
         if (highSpeedMbps > 0) {
           portMap[ifIndex].speedBps = highSpeedMbps * 1000000;
         }
@@ -151,7 +165,7 @@ export async function collectInterfacesBackground(
       const parts = vb.oid.split('.');
       const ifIndex = parts[parts.length - 1];
       if (portMap[ifIndex]) {
-        const alias = vb.value.toString().trim();
+        const alias = sanitizeSnmpString(vb.value);
         if (alias && alias.length > 0) {
           portMap[ifIndex].ifAlias = alias;
         }
@@ -246,7 +260,7 @@ async function walkSnmpTable(
     session.subtree(oid, 1, (varbinds: any[]) => {
       for (const vb of varbinds) {
         if (snmp.isVarbindError(vb)) continue;
-        results[vb.oid] = vb.value.toString();
+        results[vb.oid] = sanitizeSnmpString(vb.value);
       }
     }, (error: any) => {
       if (error) {
@@ -320,7 +334,7 @@ async function getSnmpSystemInfo(
       for (const vb of varbinds) {
         if (!snmp.isVarbindError(vb)) {
           const oid = vb.oid;
-          const value = vb.value.toString();
+          const value = sanitizeSnmpString(vb.value);
           if (oid === '1.3.6.1.2.1.1.1.0') sysDescr = value;
           if (oid === '1.3.6.1.2.1.1.5.0') sysName = value;
         }
@@ -391,7 +405,7 @@ async function testSnmpConnectivity(
         return;
       }
       
-      resolve({ success: true, sysDescr: varbinds[0].value.toString() });
+      resolve({ success: true, sysDescr: sanitizeSnmpString(varbinds[0].value) });
     });
     
     // Timeout protection
@@ -473,7 +487,7 @@ async function fetchSnmpInterfaceIndexes(
         
         const oidParts = vb.oid.split('.');
         const ifIndex = parseInt(oidParts[oidParts.length - 1], 10);
-        const ifDescr = vb.value.toString();
+        const ifDescr = sanitizeSnmpString(vb.value);
         
         if (!isNaN(ifIndex) && ifDescr) {
           indexMap[ifDescr] = ifIndex;
@@ -992,9 +1006,9 @@ async function probeSnmpDevice(
 
       varbinds.forEach((vb, idx) => {
         if (!snmp.isVarbindError(vb)) {
-          if (idx === 0) sysDescr = vb.value.toString();
-          if (idx === 1) sysUpTime = formatUptime(parseInt(vb.value.toString()) / 100);
-          if (idx === 2) sysName = vb.value.toString();
+          if (idx === 0) sysDescr = sanitizeSnmpString(vb.value);
+          if (idx === 1) sysUpTime = formatUptime(parseInt(sanitizeSnmpString(vb.value)) / 100);
+          if (idx === 2) sysName = sanitizeSnmpString(vb.value);
         }
       });
 
@@ -1389,7 +1403,7 @@ export async function probeInterfaceTraffic(
           for (const vb of varbinds) {
             if (snmp.isVarbindError(vb)) continue;
             
-            const name = vb.value.toString();
+            const name = sanitizeSnmpString(vb.value);
             const oid = vb.oid;
             const parts = oid.split('.');
             const ifIndex = parseInt(parts[parts.length - 1]);
