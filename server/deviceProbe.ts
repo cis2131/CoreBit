@@ -858,94 +858,89 @@ async function probeSnmpDevice(
             }
           }
 
-          // Helper to promisify SNMP walk and collect all varbinds
-          const walkOid = (oid: string): Promise<any[]> => {
-            return new Promise((resolveWalk) => {
-              const allVarbinds: any[] = [];
-              session.walk(oid, (varbinds: any[]) => {
-                // Callback receives varbinds in chunks, collect them all
-                varbinds.forEach(vb => {
-                  if (!snmp.isVarbindError(vb)) {
-                    allVarbinds.push(vb);
-                  }
-                });
-              }, (error: any) => {
-                // Walk complete (or error) - resolve with collected varbinds
-                resolveWalk(allVarbinds);
+          // Use SNMP tableColumns (GET-BULK) to fetch all interface data in ONE request
+          // This is MUCH faster than 6 sequential walks, especially for large switches
+          const ifTableOid = '1.3.6.1.2.1.2.2.1';      // IF-MIB::ifEntry (ifDescr, ifSpeed, ifOperStatus)
+          const ifXTableOid = '1.3.6.1.2.1.31.1.1.1';  // IF-MIB::ifXEntry (ifName, ifHighSpeed, ifAlias)
+          
+          // Column indexes within each table
+          const ifTableColumns = [2, 5, 8];           // ifDescr=2, ifSpeed=5, ifOperStatus=8
+          const ifXTableColumns = [1, 15, 18];        // ifName=1, ifHighSpeed=15, ifAlias=18
+          
+          // Helper to fetch table columns with GET-BULK
+          const fetchTableColumns = (tableOid: string, columns: number[]): Promise<any[][]> => {
+            return new Promise((resolveFetch) => {
+              session.tableColumns(tableOid, columns, 25, (error: any, table: any) => {
+                if (error || !table) {
+                  resolveFetch([]);
+                  return;
+                }
+                resolveFetch(table);
               });
             });
           };
-
-          // Use async IIFE to allow await inside callback
-          (async () => {
-            try {
-              // Walk multiple OIDs for interface data
-              const portMap: { [key: string]: any } = {};
-              
-              // Walk ifDescr (1.3.6.1.2.1.2.2.1.2)
-              const ifDescrVarbinds = await walkOid('1.3.6.1.2.1.2.2.1.2');
-              ifDescrVarbinds.forEach((vb) => {
-                const parts = vb.oid.split('.');
-                const ifIndex = parts[parts.length - 1];
+          
+          // Fetch both tables in parallel
+          Promise.all([
+            fetchTableColumns(ifTableOid, ifTableColumns),
+            fetchTableColumns(ifXTableOid, ifXTableColumns)
+          ]).then(([ifTable, ifXTable]) => {
+            const portMap: { [key: string]: any } = {};
+            
+            // tableColumns returns an object keyed by ifIndex: { "201334784": { 2: varbind, 5: varbind, 8: varbind }, ... }
+            // Process IF-MIB::ifEntry (ifDescr, ifSpeed, ifOperStatus)
+            if (ifTable && typeof ifTable === 'object') {
+              Object.entries(ifTable).forEach(([ifIndex, row]: [string, any]) => {
+                if (!row || !ifIndex) return;
+                
                 if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
-                portMap[ifIndex].ifDescr = vb.value.toString();
+                
+                // Column 2 = ifDescr
+                if (row[2] && !snmp.isVarbindError(row[2])) {
+                  portMap[ifIndex].ifDescr = row[2].value?.toString() || row[2].toString();
+                }
+                // Column 5 = ifSpeed
+                if (row[5] && !snmp.isVarbindError(row[5])) {
+                  portMap[ifIndex].speedBps = parseInt(row[5].value?.toString() || row[5].toString()) || 0;
+                }
+                // Column 8 = ifOperStatus
+                if (row[8] && !snmp.isVarbindError(row[8])) {
+                  const statusCode = parseInt(row[8].value?.toString() || row[8].toString()) || 0;
+                  portMap[ifIndex].operStatus = statusCode === 1 ? 'up' : statusCode === 2 ? 'down' : 'unknown';
+                }
               });
+            }
             
-            // Walk ifSpeed (1.3.6.1.2.1.2.2.1.5)
-            const ifSpeedVarbinds = await walkOid('1.3.6.1.2.1.2.2.1.5');
-            ifSpeedVarbinds.forEach((vb) => {
-              const parts = vb.oid.split('.');
-              const ifIndex = parts[parts.length - 1];
-              if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
-              portMap[ifIndex].speedBps = parseInt(vb.value.toString());
-            });
-            
-            // Walk ifOperStatus (1.3.6.1.2.1.2.2.1.8)
-            const ifOperStatusVarbinds = await walkOid('1.3.6.1.2.1.2.2.1.8');
-            ifOperStatusVarbinds.forEach((vb) => {
-              const parts = vb.oid.split('.');
-              const ifIndex = parts[parts.length - 1];
-              if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
-              const statusCode = parseInt(vb.value.toString());
-              portMap[ifIndex].operStatus = statusCode === 1 ? 'up' : statusCode === 2 ? 'down' : 'unknown';
-            });
-            
-            // Walk ifName (1.3.6.1.2.1.31.1.1.1.1) - short interface names
-            const ifNameVarbinds = await walkOid('1.3.6.1.2.1.31.1.1.1.1');
-            ifNameVarbinds.forEach((vb) => {
-              const parts = vb.oid.split('.');
-              const ifIndex = parts[parts.length - 1];
-              if (portMap[ifIndex]) {
-                portMap[ifIndex].ifName = vb.value.toString();
-              }
-            });
-            
-            // Walk ifAlias (1.3.6.1.2.1.31.1.1.1.18) - port descriptions
-            const ifAliasVarbinds = await walkOid('1.3.6.1.2.1.31.1.1.1.18');
-            ifAliasVarbinds.forEach((vb) => {
-              const parts = vb.oid.split('.');
-              const ifIndex = parts[parts.length - 1];
-              if (portMap[ifIndex]) {
-                const alias = vb.value.toString().trim();
-                if (alias && alias.length > 0) {
-                  portMap[ifIndex].ifAlias = alias;
+            // Process IF-MIB::ifXEntry (ifName, ifHighSpeed, ifAlias)
+            if (ifXTable && typeof ifXTable === 'object') {
+              Object.entries(ifXTable).forEach(([ifIndex, row]: [string, any]) => {
+                if (!row || !ifIndex) return;
+                
+                // Create entry if not exists (some switches only have ifXTable)
+                if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
+                
+                // Column 1 = ifName
+                if (row[1] && !snmp.isVarbindError(row[1])) {
+                  portMap[ifIndex].ifName = row[1].value?.toString() || row[1].toString();
                 }
-              }
-            });
-            
-            // Walk ifHighSpeed (1.3.6.1.2.1.31.1.1.1.15) - for 10G+ interfaces
-            const ifHighSpeedVarbinds = await walkOid('1.3.6.1.2.1.31.1.1.1.15');
-            ifHighSpeedVarbinds.forEach((vb) => {
-              const parts = vb.oid.split('.');
-              const ifIndex = parts[parts.length - 1];
-              if (portMap[ifIndex]) {
-                const highSpeedMbps = parseInt(vb.value.toString());
-                // ifHighSpeed is in Mbps, only use if > 0 (indicates high-speed interface)
-                if (highSpeedMbps > 0) {
-                  portMap[ifIndex].speedBps = highSpeedMbps * 1000000;
+                // Column 15 = ifHighSpeed (in Mbps)
+                if (row[15] && !snmp.isVarbindError(row[15])) {
+                  const highSpeedMbps = parseInt(row[15].value?.toString() || row[15].toString()) || 0;
+                  if (highSpeedMbps > 0) {
+                    portMap[ifIndex].speedBps = highSpeedMbps * 1000000;
+                  }
                 }
-              }
-            });
+                // Column 18 = ifAlias (description)
+                if (row[18] && !snmp.isVarbindError(row[18])) {
+                  const alias = (row[18].value?.toString() || row[18].toString()).trim();
+                  if (alias && alias.length > 0) {
+                    portMap[ifIndex].ifAlias = alias;
+                  }
+                }
+              });
+            }
+            
+            console.log(`[SNMP] Collected ${Object.keys(portMap).length} interfaces from tableColumns`);
             
             // Convert speed in bps to human readable format
             const formatSpeed = (bps: number): string => {
@@ -987,26 +982,25 @@ async function probeSnmpDevice(
               memoryUsagePct,
               diskUsagePct,
             });
-            } catch (walkError) {
-              // Ensure session is closed on error
-              closeSession();
-              console.error(`[SNMP] Interface walk error: ${walkError}`);
-              resolve({
-                model: sysDescr.substring(0, 100),
-                systemIdentity: sysName,
-                version: 'SNMP',
-                uptime: sysUpTime,
-                ports: [{
-                  name: 'eth0',
-                  status: 'up',
-                  speed: '1Gbps',
-                }],
-                cpuUsagePct,
-                memoryUsagePct,
-                diskUsagePct,
-              });
-            }
-          })();
+          }).catch((tableError) => {
+            // Ensure session is closed on error
+            closeSession();
+            console.error(`[SNMP] Table fetch error: ${tableError}`);
+            resolve({
+              model: sysDescr.substring(0, 100),
+              systemIdentity: sysName,
+              version: 'SNMP',
+              uptime: sysUpTime,
+              ports: [{
+                name: 'eth0',
+                status: 'up',
+                speed: '1Gbps',
+              }],
+              cpuUsagePct,
+              memoryUsagePct,
+              diskUsagePct,
+            });
+          });
         });
       });
     });
