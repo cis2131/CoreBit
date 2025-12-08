@@ -858,143 +858,126 @@ async function probeSnmpDevice(
             }
           }
 
-          // Continue with interface walk to get names, speeds, and status
-          // First walk the basic IF-MIB for ifDescr, ifSpeed, ifOperStatus
-          session.walk('1.3.6.1.2.1.2.2.1', (varbinds: any[]) => {
+          // Helper to promisify SNMP walk and collect all varbinds
+          const walkOid = (oid: string): Promise<any[]> => {
+            return new Promise((resolveWalk) => {
+              const allVarbinds: any[] = [];
+              session.walk(oid, (varbinds: any[]) => {
+                // Callback receives varbinds in chunks, collect them all
+                varbinds.forEach(vb => {
+                  if (!snmp.isVarbindError(vb)) {
+                    allVarbinds.push(vb);
+                  }
+                });
+              }, (error: any) => {
+                // Walk complete (or error) - resolve with collected varbinds
+                resolveWalk(allVarbinds);
+              });
+            });
+          };
+
+          // Use async IIFE to allow await inside callback
+          (async () => {
+            // Walk multiple OIDs for interface data
             const portMap: { [key: string]: any } = {};
             
-            varbinds.forEach((vb) => {
-              if (snmp.isVarbindError(vb)) return;
-              
-              const oid = vb.oid;
-              const parts = oid.split('.');
+            // Walk ifDescr (1.3.6.1.2.1.2.2.1.2)
+            const ifDescrVarbinds = await walkOid('1.3.6.1.2.1.2.2.1.2');
+            ifDescrVarbinds.forEach((vb) => {
+              const parts = vb.oid.split('.');
               const ifIndex = parts[parts.length - 1];
-              
-              if (!portMap[ifIndex]) {
-                portMap[ifIndex] = { ifIndex };
-              }
-              
-              // 1.3.6.1.2.1.2.2.1.2.X - ifDescr (description - often long)
-              if (oid.startsWith('1.3.6.1.2.1.2.2.1.2.')) {
-                portMap[ifIndex].ifDescr = vb.value.toString();
-              }
-              // 1.3.6.1.2.1.2.2.1.5.X - ifSpeed (speed in bps)
-              else if (oid.startsWith('1.3.6.1.2.1.2.2.1.5.')) {
-                const speedBps = parseInt(vb.value.toString());
-                portMap[ifIndex].speedBps = speedBps;
-              }
-              // 1.3.6.1.2.1.2.2.1.6.X - ifPhysAddress
-              else if (oid.startsWith('1.3.6.1.2.1.2.2.1.6.')) {
-                portMap[ifIndex].physAddress = vb.value.toString();
-              }
-              // 1.3.6.1.2.1.2.2.1.8.X - ifOperStatus (1=up, 2=down, 3=testing, etc)
-              else if (oid.startsWith('1.3.6.1.2.1.2.2.1.8.')) {
-                const statusCode = parseInt(vb.value.toString());
-                portMap[ifIndex].operStatus = statusCode === 1 ? 'up' : statusCode === 2 ? 'down' : 'unknown';
+              if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
+              portMap[ifIndex].ifDescr = vb.value.toString();
+            });
+            
+            // Walk ifSpeed (1.3.6.1.2.1.2.2.1.5)
+            const ifSpeedVarbinds = await walkOid('1.3.6.1.2.1.2.2.1.5');
+            ifSpeedVarbinds.forEach((vb) => {
+              const parts = vb.oid.split('.');
+              const ifIndex = parts[parts.length - 1];
+              if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
+              portMap[ifIndex].speedBps = parseInt(vb.value.toString());
+            });
+            
+            // Walk ifOperStatus (1.3.6.1.2.1.2.2.1.8)
+            const ifOperStatusVarbinds = await walkOid('1.3.6.1.2.1.2.2.1.8');
+            ifOperStatusVarbinds.forEach((vb) => {
+              const parts = vb.oid.split('.');
+              const ifIndex = parts[parts.length - 1];
+              if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
+              const statusCode = parseInt(vb.value.toString());
+              portMap[ifIndex].operStatus = statusCode === 1 ? 'up' : statusCode === 2 ? 'down' : 'unknown';
+            });
+            
+            // Walk ifName (1.3.6.1.2.1.31.1.1.1.1) - short interface names
+            const ifNameVarbinds = await walkOid('1.3.6.1.2.1.31.1.1.1.1');
+            ifNameVarbinds.forEach((vb) => {
+              const parts = vb.oid.split('.');
+              const ifIndex = parts[parts.length - 1];
+              if (portMap[ifIndex]) {
+                portMap[ifIndex].ifName = vb.value.toString();
               }
             });
             
-            // Now walk the extended IF-MIB for ifName (shorter interface names)
-            session.walk('1.3.6.1.2.1.31.1.1.1.1', (ifNameVarbinds: any[]) => {
-              ifNameVarbinds.forEach((vb) => {
-                if (snmp.isVarbindError(vb)) return;
-                
-                const oid = vb.oid;
-                const parts = oid.split('.');
-                const ifIndex = parts[parts.length - 1];
-                
-                if (portMap[ifIndex]) {
-                  // ifName is typically the short interface name like "Te 0/0", "Gi1/0/1", etc
-                  portMap[ifIndex].ifName = vb.value.toString();
+            // Walk ifAlias (1.3.6.1.2.1.31.1.1.1.18) - port descriptions
+            const ifAliasVarbinds = await walkOid('1.3.6.1.2.1.31.1.1.1.18');
+            ifAliasVarbinds.forEach((vb) => {
+              const parts = vb.oid.split('.');
+              const ifIndex = parts[parts.length - 1];
+              if (portMap[ifIndex]) {
+                const alias = vb.value.toString().trim();
+                if (alias && alias.length > 0) {
+                  portMap[ifIndex].ifAlias = alias;
                 }
-              });
-              
-              // Convert speed in bps to human readable format
-              const formatSpeed = (bps: number): string => {
-                if (bps >= 1000000000000) return `${(bps / 1000000000000).toFixed(1)}Tbps`;
-                if (bps >= 1000000000) return `${(bps / 1000000000).toFixed(0)}Gbps`;
-                if (bps >= 1000000) return `${(bps / 1000000).toFixed(0)}Mbps`;
-                if (bps >= 1000) return `${(bps / 1000).toFixed(0)}Kbps`;
-                return `${bps}bps`;
-              };
-              
-              // Build ports array: prefer ifName > ifDescr for the name
-              const ports = Object.values(portMap)
-                .filter((p: any) => {
-                  // Filter out loopback and null interfaces
-                  const name = (p.ifName || p.ifDescr || '').toLowerCase();
-                  return !name.includes('loopback') && !name.includes('null') && name !== 'lo';
-                })
-                .map((p: any) => ({
-                  name: p.ifName || p.ifDescr || 'unknown',
-                  defaultName: p.ifDescr,
-                  status: p.operStatus || 'unknown',
-                  speed: p.speedBps ? formatSpeed(p.speedBps) : undefined,
-                }));
-
-              closeSession();
-              
-              resolve({
-                model: sysDescr.substring(0, 100),
-                systemIdentity: sysName,
-                version: 'SNMP',
-                uptime: sysUpTime,
-                ports: ports.length > 0 ? ports.slice(0, 48) : [{
-                  name: 'eth0',
-                  status: 'up',
-                  speed: '1Gbps',
-                }],
-                cpuUsagePct,
-                memoryUsagePct,
-                diskUsagePct,
-              });
-            }, (ifNameError: any) => {
-              // ifName walk failed - use ifDescr as name
-              const formatSpeed = (bps: number): string => {
-                if (bps >= 1000000000000) return `${(bps / 1000000000000).toFixed(1)}Tbps`;
-                if (bps >= 1000000000) return `${(bps / 1000000000).toFixed(0)}Gbps`;
-                if (bps >= 1000000) return `${(bps / 1000000).toFixed(0)}Mbps`;
-                if (bps >= 1000) return `${(bps / 1000).toFixed(0)}Kbps`;
-                return `${bps}bps`;
-              };
-              
-              const ports = Object.values(portMap)
-                .filter((p: any) => {
-                  const name = (p.ifDescr || '').toLowerCase();
-                  return !name.includes('loopback') && !name.includes('null') && name !== 'lo';
-                })
-                .map((p: any) => ({
-                  name: p.ifDescr || 'unknown',
-                  status: p.operStatus || 'unknown',
-                  speed: p.speedBps ? formatSpeed(p.speedBps) : undefined,
-                }));
-
-              closeSession();
-              
-              resolve({
-                model: sysDescr.substring(0, 100),
-                systemIdentity: sysName,
-                version: 'SNMP',
-                uptime: sysUpTime,
-                ports: ports.length > 0 ? ports.slice(0, 48) : [{
-                  name: 'eth0',
-                  status: 'up',
-                  speed: '1Gbps',
-                }],
-                cpuUsagePct,
-                memoryUsagePct,
-                diskUsagePct,
-              });
+              }
             });
-          }, (error: any) => {
+            
+            // Walk ifHighSpeed (1.3.6.1.2.1.31.1.1.1.15) - for 10G+ interfaces
+            const ifHighSpeedVarbinds = await walkOid('1.3.6.1.2.1.31.1.1.1.15');
+            ifHighSpeedVarbinds.forEach((vb) => {
+              const parts = vb.oid.split('.');
+              const ifIndex = parts[parts.length - 1];
+              if (portMap[ifIndex]) {
+                const highSpeedMbps = parseInt(vb.value.toString());
+                // ifHighSpeed is in Mbps, only use if > 0 (indicates high-speed interface)
+                if (highSpeedMbps > 0) {
+                  portMap[ifIndex].speedBps = highSpeedMbps * 1000000;
+                }
+              }
+            });
+            
+            // Convert speed in bps to human readable format
+            const formatSpeed = (bps: number): string => {
+              if (bps >= 1000000000000) return `${(bps / 1000000000000).toFixed(1)}Tbps`;
+              if (bps >= 1000000000) return `${(bps / 1000000000).toFixed(0)}Gbps`;
+              if (bps >= 1000000) return `${(bps / 1000000).toFixed(0)}Mbps`;
+              if (bps >= 1000) return `${(bps / 1000).toFixed(0)}Kbps`;
+              return `${bps}bps`;
+            };
+            
+            // Build ports array: prefer ifName > ifDescr for the name, ifAlias for description
+            const ports = Object.values(portMap)
+              .filter((p: any) => {
+                // Filter out loopback and null interfaces
+                const name = (p.ifName || p.ifDescr || '').toLowerCase();
+                return !name.includes('loopback') && !name.includes('null') && name !== 'lo';
+              })
+              .map((p: any) => ({
+                name: p.ifName || p.ifDescr || 'unknown',
+                defaultName: p.ifDescr,
+                description: p.ifAlias || undefined,
+                status: p.operStatus || 'unknown',
+                speed: p.speedBps ? formatSpeed(p.speedBps) : undefined,
+              }));
+
             closeSession();
-            // Walk failed - use basic data
+            
             resolve({
               model: sysDescr.substring(0, 100),
               systemIdentity: sysName,
               version: 'SNMP',
               uptime: sysUpTime,
-              ports: [{
+              ports: ports.length > 0 ? ports : [{
                 name: 'eth0',
                 status: 'up',
                 speed: '1Gbps',
@@ -1003,7 +986,7 @@ async function probeSnmpDevice(
               memoryUsagePct,
               diskUsagePct,
             });
-          });
+          })();
         });
       });
     });
