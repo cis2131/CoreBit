@@ -74,18 +74,21 @@ export async function collectInterfacesBackground(
   try {
     const portMap: { [key: string]: any } = {};
     
-    // Walk each OID sequentially with longer timeout for large switches
+    // Walk each OID using subtree with duplicate detection
+    // Some switches (Brocade) return duplicate OIDs instead of endOfMibView, causing walk() to loop forever
     const walkOid = async (oid: string, oidName: string): Promise<any[]> => {
       const startTime = Date.now();
       return new Promise((resolve) => {
         const allVarbinds: any[] = [];
+        const seenOids = new Set<string>();
         const version = snmpVersion === '1' ? snmp.Version1 : snmp.Version2c;
         let resolved = false;
+        let lastOid = '';
         
         const session = snmp.createSession(ipAddress, community, {
           port: 161,
           retries: 1,
-          timeout: 15000, // 15 second SNMP timeout
+          timeout: 10000,
           version,
         });
         
@@ -93,29 +96,51 @@ export async function collectInterfacesBackground(
           if (resolved) return;
           resolved = true;
           const elapsed = Date.now() - startTime;
-          console.log(`[SNMP] ${ipAddress} ${oidName}: ${allVarbinds.length} values in ${elapsed}ms (${reason})`);
+          // De-duplicate final results by OID
+          const uniqueVarbinds = allVarbinds.filter((vb, idx) => {
+            const oidStr = vb.oid;
+            return allVarbinds.findIndex(v => v.oid === oidStr) === idx;
+          });
+          console.log(`[SNMP] ${ipAddress} ${oidName}: ${uniqueVarbinds.length} values in ${elapsed}ms (${reason})`);
           try { session.close(); } catch (e) {}
-          resolve(allVarbinds);
+          resolve(uniqueVarbinds);
         };
         
         session.on('error', (err: any) => {
           cleanup(`error: ${err?.message || 'unknown'}`);
         });
         
-        session.walk(oid, (varbinds: any[]) => {
-          varbinds.forEach(vb => {
-            if (!snmp.isVarbindError(vb)) {
-              allVarbinds.push(vb);
+        // Use subtree instead of walk - more predictable behavior
+        session.subtree(oid, (varbinds: any[]) => {
+          for (const vb of varbinds) {
+            if (snmp.isVarbindError(vb)) continue;
+            
+            const vbOid = vb.oid;
+            
+            // Detect duplicate OID (Brocade bug: agent sends same OIDs repeatedly)
+            if (seenOids.has(vbOid)) {
+              cleanup('duplicate OID detected');
+              return;
             }
-          });
+            
+            // Detect non-increasing OID (walk going backwards = end of table)
+            if (lastOid && vbOid <= lastOid) {
+              cleanup('non-increasing OID');
+              return;
+            }
+            
+            seenOids.add(vbOid);
+            lastOid = vbOid;
+            allVarbinds.push(vb);
+          }
         }, (error: any) => {
-          cleanup(error ? `walk error: ${error.message}` : 'complete');
+          cleanup(error ? `subtree error: ${error.message}` : 'complete');
         });
         
-        // Hard timeout - 45 seconds for very large switches (1600+ interfaces)
+        // Hard timeout - 30 seconds max
         setTimeout(() => {
           cleanup('timeout');
-        }, 45000);
+        }, 30000);
       });
     };
     
