@@ -74,7 +74,7 @@ export async function collectInterfacesBackground(
   try {
     const portMap: { [key: string]: any } = {};
     
-    // Walk each OID sequentially with longer timeout
+    // Walk each OID sequentially with longer timeout for large switches
     const walkOid = async (oid: string, oidName: string): Promise<any[]> => {
       const startTime = Date.now();
       return new Promise((resolve) => {
@@ -84,8 +84,8 @@ export async function collectInterfacesBackground(
         
         const session = snmp.createSession(ipAddress, community, {
           port: 161,
-          retries: 1,  // Reduce retries for faster completion
-          timeout: 8000, // 8 second timeout per walk
+          retries: 1,
+          timeout: 15000, // 15 second SNMP timeout
           version,
         });
         
@@ -112,10 +112,10 @@ export async function collectInterfacesBackground(
           cleanup(error ? `walk error: ${error.message}` : 'complete');
         });
         
-        // Hard timeout protection - 12 seconds max
+        // Hard timeout - 45 seconds for very large switches (1600+ interfaces)
         setTimeout(() => {
           cleanup('timeout');
-        }, 12000);
+        }, 45000);
       });
     };
     
@@ -183,6 +183,8 @@ export async function collectInterfacesBackground(
     });
     
     const formatSpeed = (bps: number): string => {
+      // Cap at reasonable max speed (400Gbps) - higher values are likely gauge overflow
+      if (bps > 400000000000) return undefined as any; // Will be filtered out
       if (bps >= 1000000000000) return `${(bps / 1000000000000).toFixed(1)}Tbps`;
       if (bps >= 1000000000) return `${(bps / 1000000000).toFixed(0)}Gbps`;
       if (bps >= 1000000) return `${(bps / 1000000).toFixed(0)}Mbps`;
@@ -190,27 +192,56 @@ export async function collectInterfacesBackground(
       return `${bps}bps`;
     };
     
+    // Validate port name - reject numeric-only names, very short names, or obvious garbage
+    const isValidPortName = (name: string): boolean => {
+      if (!name || name.length < 2) return false;
+      if (name === 'unknown') return false;
+      // Reject pure numeric names (like "1", "65535", etc.)
+      if (/^\d+$/.test(name)) return false;
+      // Reject names that are just status codes or garbage
+      if (['up', 'down', 'ok', 'error'].includes(name.toLowerCase())) return false;
+      return true;
+    };
+    
     const ports = Object.values(portMap)
       .filter((p: any) => {
+        // Must have ifDescr from the walk (not just entries created by other OID walks)
+        if (!p.ifDescr) return false;
+        
         const name = (p.ifName || p.ifDescr || '').toLowerCase();
-        return !name.includes('loopback') && !name.includes('null') && name !== 'lo';
+        // Filter out loopback, null, and other system interfaces
+        if (name.includes('loopback') || name.includes('null') || name === 'lo') return false;
+        
+        // Validate the port name
+        const portName = p.ifName || p.ifDescr;
+        if (!isValidPortName(portName)) return false;
+        
+        return true;
       })
-      .map((p: any) => ({
-        name: p.ifName || p.ifDescr || 'unknown',
-        defaultName: p.ifDescr,
-        description: p.ifAlias || undefined,
-        status: p.operStatus || 'unknown',
-        speed: p.speedBps ? formatSpeed(p.speedBps) : undefined,
-      }));
+      .map((p: any) => {
+        const speed = p.speedBps ? formatSpeed(p.speedBps) : undefined;
+        return {
+          name: p.ifName || p.ifDescr,
+          defaultName: p.ifDescr,
+          description: p.ifAlias || undefined,
+          status: p.operStatus || 'unknown',
+          speed: speed || undefined, // Filter out invalid speeds
+          snmpIndex: parseInt(p.ifIndex) || undefined,
+        };
+      });
     
     console.log(`[SNMP] Background collection complete for ${ipAddress}: ${ports.length} interfaces`);
     setCachedInterfaces(ipAddress, ports);
+    setCollectingInterfaces(ipAddress, false);
     return ports;
     
   } catch (error: any) {
     console.error(`[SNMP] Background collection failed for ${ipAddress}: ${error.message}`);
     setCollectingInterfaces(ipAddress, false);
     return getCachedInterfaces(ipAddress) || [];
+  } finally {
+    // Ensure collecting flag is always cleared
+    setCollectingInterfaces(ipAddress, false);
   }
 }
 
