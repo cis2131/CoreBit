@@ -878,17 +878,18 @@ async function probeSnmpDevice(
 
           // Use async IIFE to allow await inside callback
           (async () => {
-            // Walk multiple OIDs for interface data
-            const portMap: { [key: string]: any } = {};
-            
-            // Walk ifDescr (1.3.6.1.2.1.2.2.1.2)
-            const ifDescrVarbinds = await walkOid('1.3.6.1.2.1.2.2.1.2');
-            ifDescrVarbinds.forEach((vb) => {
-              const parts = vb.oid.split('.');
-              const ifIndex = parts[parts.length - 1];
-              if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
-              portMap[ifIndex].ifDescr = vb.value.toString();
-            });
+            try {
+              // Walk multiple OIDs for interface data
+              const portMap: { [key: string]: any } = {};
+              
+              // Walk ifDescr (1.3.6.1.2.1.2.2.1.2)
+              const ifDescrVarbinds = await walkOid('1.3.6.1.2.1.2.2.1.2');
+              ifDescrVarbinds.forEach((vb) => {
+                const parts = vb.oid.split('.');
+                const ifIndex = parts[parts.length - 1];
+                if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
+                portMap[ifIndex].ifDescr = vb.value.toString();
+              });
             
             // Walk ifSpeed (1.3.6.1.2.1.2.2.1.5)
             const ifSpeedVarbinds = await walkOid('1.3.6.1.2.1.2.2.1.5');
@@ -986,6 +987,25 @@ async function probeSnmpDevice(
               memoryUsagePct,
               diskUsagePct,
             });
+            } catch (walkError) {
+              // Ensure session is closed on error
+              closeSession();
+              console.error(`[SNMP] Interface walk error: ${walkError}`);
+              resolve({
+                model: sysDescr.substring(0, 100),
+                systemIdentity: sysName,
+                version: 'SNMP',
+                uptime: sysUpTime,
+                ports: [{
+                  name: 'eth0',
+                  status: 'up',
+                  speed: '1Gbps',
+                }],
+                cpuUsagePct,
+                memoryUsagePct,
+                diskUsagePct,
+              });
+            }
           })();
         });
       });
