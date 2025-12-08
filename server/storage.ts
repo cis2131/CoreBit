@@ -171,6 +171,9 @@ export interface IStorage {
 
   // Map Health Summary
   getMapHealthSummary(): Promise<{ mapId: string; hasOffline: boolean }[]>;
+
+  // Bulk Delete Operations
+  deleteAllNetworkData(): Promise<{ devicesDeleted: number; mapsDeleted: number; logsDeleted: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -759,6 +762,38 @@ export class DatabaseStorage implements IStorage {
       mapId,
       hasOffline
     }));
+  }
+
+  // Bulk Delete Operations - deletes all network data but preserves users, credentials, and settings
+  async deleteAllNetworkData(): Promise<{ devicesDeleted: number; mapsDeleted: number; logsDeleted: number }> {
+    // Count before deletion for reporting
+    const allDevices = await db.select().from(devices);
+    const allMaps = await db.select().from(maps);
+    const allLogs = await db.select().from(logs);
+    
+    const devicesDeleted = allDevices.length;
+    const mapsDeleted = allMaps.length;
+    const logsDeleted = allLogs.length;
+    
+    // Delete in order - cascades will handle related data
+    // Logs first (has FK to devices)
+    await db.delete(logs);
+    // Notification history (has FK to devices)
+    await db.delete(notificationHistory);
+    // Device notifications (has FK to devices)
+    await db.delete(deviceNotifications);
+    // Port locks (has FK to devices)
+    await db.delete(portLocks);
+    // Connections (has FK to devices and maps)
+    await db.delete(connections);
+    // Device placements (has FK to devices and maps)
+    await db.delete(devicePlacements);
+    // Devices
+    await db.delete(devices);
+    // Maps
+    await db.delete(maps);
+    
+    return { devicesDeleted, mapsDeleted, logsDeleted };
   }
 }
 

@@ -2098,6 +2098,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete all network data (devices, maps, connections, logs) - admin only
+  app.delete("/api/network-data", requireAdmin as any, async (req, res) => {
+    try {
+      const result = await storage.deleteAllNetworkData();
+      console.log(`[Admin] Deleted all network data: ${result.devicesDeleted} devices, ${result.mapsDeleted} maps, ${result.logsDeleted} logs`);
+      res.json({ 
+        success: true, 
+        message: 'All network data deleted successfully',
+        ...result 
+      });
+    } catch (error) {
+      console.error('Error deleting network data:', error);
+      res.status(500).json({ error: 'Failed to delete network data' });
+    }
+  });
+
   // Parallel probing with bounded concurrency
   // For 400+ devices in 30s window: 80 concurrent * 6s timeout = ~400 devices in 30s worst-case
   const DEFAULT_CONCURRENT_PROBES = 80; // Default, can be overridden by settings

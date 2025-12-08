@@ -369,6 +369,125 @@ function BackupSection() {
   );
 }
 
+function DangerZoneSection() {
+  const { toast } = useToast();
+  const { isAdmin } = useAuth();
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+
+  const deleteNetworkDataMutation = useMutation({
+    mutationFn: async () => apiRequest("DELETE", "/api/network-data"),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/maps"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/connections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/logs"] });
+      toast({ 
+        description: `Deleted ${data.devicesDeleted} devices, ${data.mapsDeleted} maps, and ${data.logsDeleted} logs` 
+      });
+      setConfirmDialogOpen(false);
+      setConfirmText("");
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to delete network data" });
+    },
+  });
+
+  if (!isAdmin) return null;
+
+  const canDelete = confirmText === "DELETE";
+
+  return (
+    <Card className="border-destructive/50" data-testid="card-danger-zone">
+      <CardHeader>
+        <CardTitle className="text-destructive flex items-center gap-2">
+          <Trash2 className="h-5 w-5" />
+          Danger Zone
+        </CardTitle>
+        <CardDescription>
+          Destructive actions that cannot be undone
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-4 border rounded-lg border-destructive/30 bg-destructive/5">
+            <div>
+              <h4 className="font-medium text-foreground">Delete All Network Data</h4>
+              <p className="text-sm text-muted-foreground">
+                Permanently delete all devices, maps, connections, and logs. Users, credentials, and notification settings will be preserved.
+              </p>
+            </div>
+            <Button
+              variant="destructive"
+              onClick={() => setConfirmDialogOpen(true)}
+              data-testid="button-delete-all-network-data"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete All
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+
+      <AlertDialog open={confirmDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setConfirmDialogOpen(false);
+          setConfirmText("");
+        }
+      }}>
+        <AlertDialogContent data-testid="dialog-confirm-delete-network-data">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-destructive">Delete All Network Data</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-4">
+              <span className="block">
+                This will permanently delete ALL devices, maps, connections, placements, and logs.
+              </span>
+              <span className="block font-medium">
+                The following will be preserved:
+              </span>
+              <ul className="list-disc list-inside text-sm">
+                <li>User accounts and passwords</li>
+                <li>Credential profiles</li>
+                <li>Notification channels and settings</li>
+                <li>System settings</li>
+                <li>Scan profiles</li>
+              </ul>
+              <span className="block font-medium">
+                Type DELETE to confirm:
+              </span>
+              <Input
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder="Type DELETE to confirm"
+                className="mt-2"
+                data-testid="input-confirm-delete"
+              />
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-network-data">Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={() => deleteNetworkDataMutation.mutate()}
+              disabled={!canDelete || deleteNetworkDataMutation.isPending}
+              data-testid="button-confirm-delete-network-data"
+            >
+              {deleteNetworkDataMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete All Network Data"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+
 const userFormSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
   password: z.string().min(4, "Password must be at least 4 characters").optional(),
@@ -2966,10 +3085,11 @@ export default function Settings() {
 
           <BackupSection />
 
-
           <OnDutyScheduleSection />
 
           <UserManagementSection />
+
+          <DangerZoneSection />
         </div>
       </main>
 
