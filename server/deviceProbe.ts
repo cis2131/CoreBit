@@ -75,21 +75,31 @@ export async function collectInterfacesBackground(
     const portMap: { [key: string]: any } = {};
     
     // Walk each OID sequentially with longer timeout
-    const walkOid = async (oid: string): Promise<any[]> => {
+    const walkOid = async (oid: string, oidName: string): Promise<any[]> => {
+      const startTime = Date.now();
       return new Promise((resolve) => {
         const allVarbinds: any[] = [];
         const version = snmpVersion === '1' ? snmp.Version1 : snmp.Version2c;
+        let resolved = false;
         
         const session = snmp.createSession(ipAddress, community, {
           port: 161,
-          retries: 2,
-          timeout: 10000, // 10 second timeout per walk
+          retries: 1,  // Reduce retries for faster completion
+          timeout: 8000, // 8 second timeout per walk
           version,
         });
         
-        session.on('error', () => {
+        const cleanup = (reason: string) => {
+          if (resolved) return;
+          resolved = true;
+          const elapsed = Date.now() - startTime;
+          console.log(`[SNMP] ${ipAddress} ${oidName}: ${allVarbinds.length} values in ${elapsed}ms (${reason})`);
           try { session.close(); } catch (e) {}
           resolve(allVarbinds);
+        };
+        
+        session.on('error', (err: any) => {
+          cleanup(`error: ${err?.message || 'unknown'}`);
         });
         
         session.walk(oid, (varbinds: any[]) => {
@@ -99,25 +109,25 @@ export async function collectInterfacesBackground(
             }
           });
         }, (error: any) => {
-          try { session.close(); } catch (e) {}
-          resolve(allVarbinds);
+          cleanup(error ? `walk error: ${error.message}` : 'complete');
         });
         
-        // Hard timeout protection
+        // Hard timeout protection - 12 seconds max
         setTimeout(() => {
-          try { session.close(); } catch (e) {}
-          resolve(allVarbinds);
-        }, 15000);
+          cleanup('timeout');
+        }, 12000);
       });
     };
     
     // Sequential walks - slower but reliable
-    const ifDescrVbs = await walkOid('1.3.6.1.2.1.2.2.1.2');
-    const ifSpeedVbs = await walkOid('1.3.6.1.2.1.2.2.1.5');
-    const ifOperStatusVbs = await walkOid('1.3.6.1.2.1.2.2.1.8');
-    const ifNameVbs = await walkOid('1.3.6.1.2.1.31.1.1.1.1');
-    const ifHighSpeedVbs = await walkOid('1.3.6.1.2.1.31.1.1.1.15');
-    const ifAliasVbs = await walkOid('1.3.6.1.2.1.31.1.1.1.18');
+    console.log(`[SNMP] ${ipAddress}: Starting 6 sequential OID walks...`);
+    const ifDescrVbs = await walkOid('1.3.6.1.2.1.2.2.1.2', 'ifDescr');
+    const ifSpeedVbs = await walkOid('1.3.6.1.2.1.2.2.1.5', 'ifSpeed');
+    const ifOperStatusVbs = await walkOid('1.3.6.1.2.1.2.2.1.8', 'ifOperStatus');
+    const ifNameVbs = await walkOid('1.3.6.1.2.1.31.1.1.1.1', 'ifName');
+    const ifHighSpeedVbs = await walkOid('1.3.6.1.2.1.31.1.1.1.15', 'ifHighSpeed');
+    const ifAliasVbs = await walkOid('1.3.6.1.2.1.31.1.1.1.18', 'ifAlias');
+    console.log(`[SNMP] ${ipAddress}: All 6 walks completed`);
     
     // Process results - use sanitizeSnmpString to prevent DB Unicode errors
     ifDescrVbs.forEach((vb: any) => {
