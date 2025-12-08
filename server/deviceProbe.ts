@@ -88,8 +88,8 @@ async function getSnmpSystemInfo(
     
     const session = snmp.createSession(ipAddress, community, {
       version: snmp.Version2c,
-      timeout: 3000,
-      retries: 1,
+      timeout: 5000,  // 5 seconds - some enterprise switches respond slowly
+      retries: 2,
       port: 161,
       transport: 'udp4',
     });
@@ -140,14 +140,14 @@ async function getSnmpSystemInfo(
       resolve({ success: true, sysDescr, sysName });
     });
     
-    // Timeout protection
+    // Timeout protection - allow for retries
     setTimeout(() => {
       if (!resolved) {
         resolved = true;
         try { session.close(); } catch (e) { /* ignore */ }
-        resolve({ success: false, error: 'Timeout after 4s' });
+        resolve({ success: false, error: 'Timeout after 12s' });
       }
-    }, 4000);
+    }, 12000);
   });
 }
 
