@@ -700,7 +700,7 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
                 </div>
               </CardHeader>
               <CardContent className="flex-1 overflow-hidden p-0">
-                <ScrollArea className="h-[250px]">
+                <ScrollArea className="h-[400px]">
                   <div className="space-y-1 p-4">
                     {scanResults.map((result) => (
                       <div 
