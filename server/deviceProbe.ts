@@ -1472,6 +1472,10 @@ export async function probeDevice(
     return await probePingOnlyDevice(ipAddress, Math.min(timeoutSeconds, 3));
   }
 
+  // Check if Prometheus is configured (either dedicated prometheus credentials or prometheus settings in mixed credentials)
+  const hasPrometheusCredentials = credentials?.prometheusPort !== undefined || 
+    (deviceType === 'generic_server' && !credentials?.snmpCommunity && !credentials?.snmpVersion);
+
   try {
     let data: DeviceProbeData;
     if (deviceType.startsWith('mikrotik_')) {
@@ -1481,25 +1485,42 @@ export async function probeDevice(
       } else {
         data = await probeMikrotikDevice(ipAddress, credentials, detailedProbe, previousPorts, needsSnmpIndexing, timeoutSeconds);
       }
+    } else if (deviceType === 'generic_prometheus') {
+      // Prometheus-only device type
+      data = await probePrometheusDevice(ipAddress, credentials, timeoutSeconds * 1000);
     } else {
-      // Non-Mikrotik devices: use SNMP only (no API login attempts)
-      data = await probeSnmpDevice(ipAddress, credentials);
+      // Non-Mikrotik devices: try SNMP first, then Prometheus fallback
+      try {
+        data = await probeSnmpDevice(ipAddress, credentials);
+      } catch (snmpError: any) {
+        // SNMP failed - try Prometheus if available
+        if (hasPrometheusCredentials || deviceType === 'generic_server') {
+          try {
+            data = await probePrometheusDevice(ipAddress, credentials, timeoutSeconds * 1000);
+          } catch (promError: any) {
+            // Both SNMP and Prometheus failed, rethrow to trigger ping fallback
+            throw snmpError;
+          }
+        } else {
+          throw snmpError;
+        }
+      }
     }
     return { data, success: true };
   } catch (error: any) {
-    // For non-Mikrotik devices, if SNMP fails, try ping as fallback
+    // For non-Mikrotik devices, if SNMP/Prometheus fails, try ping as fallback
     // This allows devices without SNMP to still show as reachable
     if (!deviceType.startsWith('mikrotik_')) {
       try {
         const pingResult = await pingDevice(ipAddress, Math.min(timeoutSeconds, 3));
         if (pingResult.success) {
-          // Device responds to ping but not SNMP
+          // Device responds to ping but not SNMP/Prometheus
           // Return success=false to preserve existing deviceData, but set pingOnly=true
           // so the caller knows to mark as "stale" instead of "offline"
           return { 
             data: {}, 
             success: false,
-            pingOnly: true,  // Flag to indicate ping succeeded but SNMP failed
+            pingOnly: true,  // Flag to indicate ping succeeded but SNMP/Prometheus failed
             pingRtt: pingResult.rtt
           };
         }
