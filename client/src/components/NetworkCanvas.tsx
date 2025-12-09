@@ -484,6 +484,35 @@ export function NetworkCanvas({
                 ? tempPosition 
                 : target.position;
 
+              // Calculate auto-offset for parallel connections between same device pair
+              // Create a normalized key for the device pair (smaller ID first for consistency)
+              const pairKey = [conn.sourceDeviceId, conn.targetDeviceId].sort().join('-');
+              const parallelConnections = connections.filter(c => {
+                const key = [c.sourceDeviceId, c.targetDeviceId].sort().join('-');
+                return key === pairKey;
+              });
+              
+              // Only apply auto-offset if there are multiple connections and mode is 'auto'
+              let autoOffset = 0;
+              if (parallelConnections.length > 1 && conn.curveMode === 'auto') {
+                // Sort by ID for stable ordering
+                const sortedParallel = [...parallelConnections].sort((a, b) => a.id.localeCompare(b.id));
+                const index = sortedParallel.findIndex(c => c.id === conn.id);
+                const baseOffset = 50; // Base spacing between parallel lines
+                // Distribute connections symmetrically around center
+                // e.g., 2 connections: -25, +25
+                // e.g., 3 connections: -50, 0, +50
+                const mid = (parallelConnections.length - 1) / 2;
+                autoOffset = (index - mid) * baseOffset;
+                
+                // Apply direction correction: if this connection's source/target order differs
+                // from the normalized pair order, flip the offset sign
+                const normalizedFirst = [conn.sourceDeviceId, conn.targetDeviceId].sort()[0];
+                if (conn.sourceDeviceId !== normalizedFirst) {
+                  autoOffset = -autoOffset;
+                }
+              }
+
               return (
                 <ConnectionLine
                   key={conn.id}
@@ -494,6 +523,7 @@ export function NetworkCanvas({
                   onClick={() => onConnectionClick(conn.id)}
                   sourceDevice={source}
                   targetDevice={target}
+                  autoOffset={autoOffset}
                 />
               );
             })}

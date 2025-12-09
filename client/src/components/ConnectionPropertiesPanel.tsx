@@ -415,7 +415,20 @@ export function ConnectionPropertiesPanel({
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="curve-mode">Line Style</Label>
-                <Select value={curveMode} onValueChange={(v) => setCurveMode(v as 'straight' | 'curved' | 'auto')}>
+                <Select 
+                  value={curveMode} 
+                  onValueChange={(v) => {
+                    const newMode = v as 'straight' | 'curved' | 'auto';
+                    setCurveMode(newMode);
+                    // Reset curve offset when switching away from 'curved' mode
+                    if (newMode !== 'curved') {
+                      setCurveOffset(0);
+                    } else if (curveOffset === 0) {
+                      // Set a default offset when switching to curved mode
+                      setCurveOffset(50);
+                    }
+                  }}
+                >
                   <SelectTrigger id="curve-mode" data-testid="select-curve-mode">
                     <SelectValue />
                   </SelectTrigger>
