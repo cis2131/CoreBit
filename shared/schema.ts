@@ -24,7 +24,7 @@ export const maps = pgTable("maps", {
 export const credentialProfiles = pgTable("credential_profiles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
-  type: text("type").notNull(),
+  type: text("type").notNull(), // mikrotik, snmp, prometheus
   credentials: jsonb("credentials").notNull().$type<{
     username?: string;
     password?: string;
@@ -36,6 +36,10 @@ export const credentialProfiles = pgTable("credential_profiles", {
     snmpAuthKey?: string;
     snmpPrivProtocol?: 'DES' | 'AES';
     snmpPrivKey?: string;
+    // Prometheus node_exporter settings
+    prometheusPort?: number; // Default 9100
+    prometheusPath?: string; // Default /metrics
+    prometheusScheme?: 'http' | 'https';
   }>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -127,6 +131,10 @@ export const devices = pgTable("devices", {
     snmpAuthKey?: string;
     snmpPrivProtocol?: 'DES' | 'AES';
     snmpPrivKey?: string;
+    // Prometheus node_exporter settings
+    prometheusPort?: number;
+    prometheusPath?: string;
+    prometheusScheme?: 'http' | 'https';
   }>(),
   useOnDuty: boolean("use_on_duty").default(false).notNull(), // Also send alerts to on-duty operators (in addition to global channels)
   createdAt: timestamp("created_at").defaultNow().notNull(),
