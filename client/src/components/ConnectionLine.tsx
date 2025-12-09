@@ -148,8 +148,6 @@ export function ConnectionLine({
     });
   };
 
-  // For curved lines, calculate a point slightly along the actual Bézier curve
-  // This ensures indicators are placed where the curve visually exits/enters the device
   // Quadratic Bézier: P(t) = (1-t)²P0 + 2(1-t)t*P1 + t²P2
   const getPointOnQuadraticBezier = (t: number) => {
     const mt = 1 - t;
@@ -159,28 +157,92 @@ export function ConnectionLine({
     };
   };
 
-  // Get points slightly along the curve (5% and 95%) to determine direction
-  const sourceTarget = isCurved ? getPointOnQuadraticBezier(0.15) : targetPosition;
-  const targetTarget = isCurved ? getPointOnQuadraticBezier(0.85) : sourcePosition;
+  // Check if a point is inside a device rectangle
+  const isInsideDevice = (point: { x: number; y: number }, devicePos: { x: number; y: number }) => {
+    return (
+      Math.abs(point.x - devicePos.x) <= HALF_WIDTH &&
+      Math.abs(point.y - devicePos.y) <= HALF_HEIGHT
+    );
+  };
 
-  const sourceIntersection = calculateRectangleIntersection(
-    sourcePosition.x,
-    sourcePosition.y,
-    sourceTarget.x,
-    sourceTarget.y
-  );
+  // Find where the curve exits a device rectangle by sampling + binary search
+  const findCurveExitPoint = (
+    devicePos: { x: number; y: number },
+    startT: number,
+    endT: number,
+    step: number
+  ): { x: number; y: number } => {
+    // Coarse search: find first point outside the device
+    let lastInsideT = startT;
+    let firstOutsideT = endT;
+    let found = false;
 
-  const targetIntersection = calculateRectangleIntersection(
-    targetPosition.x,
-    targetPosition.y,
-    targetTarget.x,
-    targetTarget.y
-  );
+    const direction = startT < endT ? 1 : -1;
+    for (let t = startT; direction > 0 ? t <= endT : t >= endT; t += step * direction) {
+      const point = getPointOnQuadraticBezier(t);
+      if (isInsideDevice(point, devicePos)) {
+        lastInsideT = t;
+      } else {
+        firstOutsideT = t;
+        found = true;
+        break;
+      }
+    }
 
-  const sourceIndicatorX = sourceIntersection.x;
-  const sourceIndicatorY = sourceIntersection.y;
-  const targetIndicatorX = targetIntersection.x;
-  const targetIndicatorY = targetIntersection.y;
+    if (!found) {
+      // Curve never exits device, return device edge intersection
+      return getPointOnQuadraticBezier(endT);
+    }
+
+    // Binary search to refine the exit point
+    for (let i = 0; i < 10; i++) {
+      const midT = (lastInsideT + firstOutsideT) / 2;
+      const point = getPointOnQuadraticBezier(midT);
+      if (isInsideDevice(point, devicePos)) {
+        lastInsideT = midT;
+      } else {
+        firstOutsideT = midT;
+      }
+    }
+
+    // Return the first point outside (on the curve, just past the edge)
+    return getPointOnQuadraticBezier(firstOutsideT);
+  };
+
+  // Calculate indicator positions
+  let sourceIndicatorX: number, sourceIndicatorY: number;
+  let targetIndicatorX: number, targetIndicatorY: number;
+
+  if (isCurved) {
+    // For curved lines, find where curve exits each device
+    const sourceExit = findCurveExitPoint(sourcePosition, 0, 0.5, 0.02);
+    const targetExit = findCurveExitPoint(targetPosition, 1, 0.5, 0.02);
+    
+    sourceIndicatorX = sourceExit.x;
+    sourceIndicatorY = sourceExit.y;
+    targetIndicatorX = targetExit.x;
+    targetIndicatorY = targetExit.y;
+  } else {
+    // For straight lines, use the rectangle intersection calculation
+    const sourceIntersection = calculateRectangleIntersection(
+      sourcePosition.x,
+      sourcePosition.y,
+      targetPosition.x,
+      targetPosition.y
+    );
+
+    const targetIntersection = calculateRectangleIntersection(
+      targetPosition.x,
+      targetPosition.y,
+      sourcePosition.x,
+      sourcePosition.y
+    );
+
+    sourceIndicatorX = sourceIntersection.x;
+    sourceIndicatorY = sourceIntersection.y;
+    targetIndicatorX = targetIntersection.x;
+    targetIndicatorY = targetIntersection.y;
+  }
 
   // Get port status colors
   const getPortStatusColor = (device: Device | undefined, portName: string | undefined): string => {
