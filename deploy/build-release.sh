@@ -16,11 +16,40 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# Get version from package.json or use date
-VERSION=${1:-$(date +%Y%m%d%H%M%S)}
-RELEASE_NAME="corebit-${VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+VERSION_FILE="$PROJECT_ROOT/version.json"
+
+cd "$PROJECT_ROOT"
+
+# Read current version from version.json, auto-increment build number
+if [ -f "$VERSION_FILE" ]; then
+  CURRENT_VERSION=$(cat "$VERSION_FILE" | grep '"version"' | sed 's/.*: *"\([^"]*\)".*/\1/')
+  CURRENT_BUILD=$(cat "$VERSION_FILE" | grep '"buildNumber"' | sed 's/.*: *\([0-9]*\).*/\1/')
+else
+  CURRENT_VERSION="1.0.0"
+  CURRENT_BUILD=0
+fi
+
+# Increment build number
+NEW_BUILD=$((CURRENT_BUILD + 1))
+BUILD_DATE=$(date +%Y-%m-%d)
+
+# Use provided version or current version
+VERSION=${1:-$CURRENT_VERSION}
+
+# Update version.json
+cat > "$VERSION_FILE" <<EOF
+{
+  "version": "${VERSION}",
+  "buildDate": "${BUILD_DATE}",
+  "buildNumber": ${NEW_BUILD}
+}
+EOF
+
+echo -e "${GREEN}Updated version.json: v${VERSION} build ${NEW_BUILD} (${BUILD_DATE})${NC}"
+
+RELEASE_NAME="corebit-${VERSION}-b${NEW_BUILD}"
 BUILD_DIR="$PROJECT_ROOT/dist/releases"
 TEMP_DIR=$(mktemp -d)
 
@@ -29,11 +58,9 @@ echo -e "${BLUE}  Building Release: ${RELEASE_NAME}${NC}"
 echo -e "${BLUE}======================================================${NC}"
 echo ""
 
-cd "$PROJECT_ROOT"
-
 # Step 1: Clean previous builds
 echo -e "${BLUE}[1/7]${NC} Cleaning previous builds..."
-rm -rf dist/releases/"${RELEASE_NAME}"*
+rm -rf dist/releases/"corebit-${VERSION}"*
 mkdir -p "$BUILD_DIR"
 
 # Step 2: Install dependencies
@@ -56,6 +83,9 @@ mkdir -p "$RELEASE_DIR"
 # Copy built files
 cp -r dist/public "$RELEASE_DIR/"
 cp dist/index.js "$RELEASE_DIR/"
+
+# Copy version file
+cp version.json "$RELEASE_DIR/"
 
 # Copy essential files (NOT package-lock.json - we generate a new one for the trimmed package.json)
 # The root package-lock.json has dev dependencies that don't match our trimmed package.json

@@ -15,7 +15,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw, Users, Crown, Shield, Eye, Loader2, UserCog, Calendar, Sun, Moon, Webhook, Mail, MessageSquare } from "lucide-react";
+import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw, Users, Crown, Shield, Eye, Loader2, UserCog, Calendar, Sun, Moon, Webhook, Mail, MessageSquare, Info } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { z } from "zod";
 import type { CredentialProfile, InsertCredentialProfile, Notification, InsertNotification, Backup, UserNotificationChannel, DutyUserSchedule } from "@shared/schema";
@@ -484,6 +485,41 @@ function DangerZoneSection() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </Card>
+  );
+}
+
+function VersionSection() {
+  const { data: versionData } = useQuery<{
+    version: string;
+    buildDate: string;
+    buildNumber: number;
+  }>({
+    queryKey: ["/api/version"],
+  });
+
+  return (
+    <Card data-testid="card-version">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Info className="h-4 w-4" />
+          About CoreBit
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+          <span>Version:</span>
+          <Badge variant="secondary" className="font-mono">
+            v{versionData?.version || "dev"}
+          </Badge>
+          {versionData?.buildNumber ? (
+            <span className="text-xs">Build {versionData.buildNumber}</span>
+          ) : null}
+          {versionData?.buildDate && (
+            <span className="text-xs">({versionData.buildDate})</span>
+          )}
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -3090,6 +3126,8 @@ export default function Settings() {
           <UserManagementSection />
 
           <DangerZoneSection />
+
+          <VersionSection />
         </div>
       </main>
 

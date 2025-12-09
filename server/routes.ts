@@ -316,6 +316,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
   
+  // Get application version
+  app.get("/api/version", async (_req, res) => {
+    try {
+      const versionPath = path.join(process.cwd(), "version.json");
+      if (fs.existsSync(versionPath)) {
+        const versionData = JSON.parse(fs.readFileSync(versionPath, "utf-8"));
+        res.json(versionData);
+      } else {
+        res.json({ version: "dev", buildDate: new Date().toISOString().split("T")[0], buildNumber: 0 });
+      }
+    } catch (error) {
+      res.json({ version: "unknown", buildDate: "", buildNumber: 0 });
+    }
+  });
+  
   // Get current session
   app.get("/api/auth/session", async (req, res) => {
     
