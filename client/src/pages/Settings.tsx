@@ -23,7 +23,7 @@ import type { CredentialProfile, InsertCredentialProfile, Notification, InsertNo
 
 const credentialFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  type: z.enum(["mikrotik", "snmp"]),
+  type: z.enum(["mikrotik", "snmp", "prometheus"]),
   credentials: z.object({
     username: z.string().optional(),
     password: z.string().optional(),
@@ -35,6 +35,10 @@ const credentialFormSchema = z.object({
     snmpAuthKey: z.string().optional(),
     snmpPrivProtocol: z.enum(["DES", "AES"]).optional(),
     snmpPrivKey: z.string().optional(),
+    // Prometheus node_exporter settings
+    prometheusPort: z.coerce.number().optional(),
+    prometheusPath: z.string().optional(),
+    prometheusScheme: z.enum(["http", "https"]).optional(),
   }),
 });
 
@@ -2024,6 +2028,7 @@ function CredentialProfileDialog({
                     <SelectContent>
                       <SelectItem value="mikrotik">Mikrotik Device</SelectItem>
                       <SelectItem value="snmp">SNMP Device</SelectItem>
+                      <SelectItem value="prometheus">Prometheus (node_exporter)</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -2361,6 +2366,84 @@ function CredentialProfileDialog({
                     </div>
                   </>
                 )}
+              </>
+            )}
+
+            {credentialType === "prometheus" && (
+              <>
+                <div className="space-y-3 p-4 border rounded-md">
+                  <h4 className="text-sm font-medium">Prometheus node_exporter Settings</h4>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Connect to servers running Prometheus node_exporter for system metrics
+                  </p>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="credentials.prometheusPort"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Port</FormLabel>
+                          <FormControl>
+                            <Input 
+                              {...field} 
+                              type="number" 
+                              placeholder="9100" 
+                              data-testid="input-prometheus-port" 
+                            />
+                          </FormControl>
+                          <FormDescription className="text-xs">
+                            Default: 9100
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="credentials.prometheusScheme"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Protocol</FormLabel>
+                          <Select value={field.value || "http"} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-prometheus-scheme">
+                                <SelectValue placeholder="http" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="http">HTTP</SelectItem>
+                              <SelectItem value="https">HTTPS</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="credentials.prometheusPath"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Metrics Path</FormLabel>
+                        <FormControl>
+                          <Input 
+                            {...field} 
+                            placeholder="/metrics" 
+                            data-testid="input-prometheus-path" 
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          Default: /metrics
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </>
             )}
 
