@@ -157,6 +157,9 @@ export function ConnectionLine({
     };
   };
 
+  // Calculate curve apex (point at t=0.5) for selection indicator and traffic banner
+  const curveApex = isCurved ? getPointOnQuadraticBezier(0.5) : { x: (sourcePosition.x + targetPosition.x) / 2, y: (sourcePosition.y + targetPosition.y) / 2 };
+
   // Check if a point is inside a device rectangle
   const isInsideDevice = (point: { x: number; y: number }, devicePos: { x: number; y: number }) => {
     return (
@@ -363,8 +366,8 @@ export function ConnectionLine({
 
       {isSelected && (
         <circle
-          cx={midX}
-          cy={midY}
+          cx={curveApex.x}
+          cy={curveApex.y}
           r="6"
           fill="hsl(var(--primary))"
           stroke="white"
@@ -390,8 +393,8 @@ export function ConnectionLine({
           <g>
             {/* Background box for traffic stats */}
             <rect
-              x={midX - 50}
-              y={midY - 28}
+              x={curveApex.x - 50}
+              y={curveApex.y - 28}
               width="100"
               height="36"
               rx="4"
@@ -402,8 +405,8 @@ export function ConnectionLine({
             />
             {/* Inbound traffic (towards source) */}
             <text
-              x={midX}
-              y={midY - 14}
+              x={curveApex.x}
+              y={curveApex.y - 14}
               textAnchor="middle"
               className="text-[10px] font-mono fill-blue-500"
               data-testid="text-connection-inbound"
@@ -412,8 +415,8 @@ export function ConnectionLine({
             </text>
             {/* Outbound traffic (towards target) */}
             <text
-              x={midX}
-              y={midY + 2}
+              x={curveApex.x}
+              y={curveApex.y + 2}
               textAnchor="middle"
               className="text-[10px] font-mono fill-green-500"
               data-testid="text-connection-outbound"
