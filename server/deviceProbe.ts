@@ -1202,6 +1202,257 @@ function formatUptime(seconds: number): string {
   return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+// Parse Prometheus text exposition format
+// Returns a map of metric names to their values and labels
+function parsePrometheusMetrics(text: string): Map<string, { value: number; labels: Record<string, string> }[]> {
+  const metrics = new Map<string, { value: number; labels: Record<string, string> }[]>();
+  const lines = text.split('\n');
+  
+  for (const line of lines) {
+    // Skip comments and empty lines
+    if (line.startsWith('#') || line.trim() === '') continue;
+    
+    // Parse metric line: metric_name{label="value"} value
+    // Or simple: metric_name value
+    const labelMatch = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)\{([^}]*)\}\s+([\d.eE+-]+|NaN|[+-]?Inf)$/);
+    const simpleMatch = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)\s+([\d.eE+-]+|NaN|[+-]?Inf)$/);
+    
+    if (labelMatch) {
+      const [, name, labelsStr, valueStr] = labelMatch;
+      const value = parseFloat(valueStr);
+      if (isNaN(value)) continue;
+      
+      // Parse labels: key="value",key2="value2"
+      const labels: Record<string, string> = {};
+      const labelParts = labelsStr.match(/([a-zA-Z_][a-zA-Z0-9_]*)="([^"]*)"/g);
+      if (labelParts) {
+        for (const part of labelParts) {
+          const [key, val] = part.split('=');
+          labels[key] = val.replace(/^"|"$/g, '');
+        }
+      }
+      
+      if (!metrics.has(name)) metrics.set(name, []);
+      metrics.get(name)!.push({ value, labels });
+    } else if (simpleMatch) {
+      const [, name, valueStr] = simpleMatch;
+      const value = parseFloat(valueStr);
+      if (isNaN(value)) continue;
+      
+      if (!metrics.has(name)) metrics.set(name, []);
+      metrics.get(name)!.push({ value, labels: {} });
+    }
+  }
+  
+  return metrics;
+}
+
+// Probe device via Prometheus node_exporter endpoint
+export async function probePrometheusDevice(
+  ipAddress: string,
+  credentials?: any,
+  timeoutMs: number = 5000
+): Promise<DeviceProbeData> {
+  const port = credentials?.prometheusPort || 9100;
+  const path = credentials?.prometheusPath || '/metrics';
+  const scheme = credentials?.prometheusScheme || 'http';
+  const url = `${scheme}://${ipAddress}:${port}${path}`;
+  
+  return new Promise((resolve, reject) => {
+    const httpModule = scheme === 'https' ? https : http;
+    
+    const req = httpModule.get(url, {
+      timeout: timeoutMs,
+      headers: {
+        'Accept': 'text/plain',
+        'User-Agent': 'CoreBit/1.0'
+      },
+      // For https, allow self-signed certs (common on internal servers)
+      ...(scheme === 'https' ? { rejectUnauthorized: false } : {})
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode}`));
+        return;
+      }
+      
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const metrics = parsePrometheusMetrics(data);
+          
+          // Extract system info from node_uname_info
+          let systemIdentity = '';
+          let model = 'Linux Server';
+          let version = '';
+          
+          const unameInfo = metrics.get('node_uname_info');
+          if (unameInfo && unameInfo.length > 0) {
+            const labels = unameInfo[0].labels;
+            systemIdentity = labels.nodename || '';
+            model = `${labels.sysname || 'Linux'} ${labels.machine || ''}`.trim();
+            version = labels.release || '';
+          }
+          
+          // Calculate uptime from node_boot_time_seconds
+          let uptime = '';
+          const bootTime = metrics.get('node_boot_time_seconds');
+          if (bootTime && bootTime.length > 0) {
+            const bootSeconds = bootTime[0].value;
+            const uptimeSeconds = Math.floor(Date.now() / 1000 - bootSeconds);
+            uptime = formatUptime(uptimeSeconds);
+          }
+          
+          // CPU usage from node_cpu_seconds_total
+          // Sum idle time across all CPUs and calculate percentage
+          let cpuUsagePct: number | undefined;
+          const cpuSeconds = metrics.get('node_cpu_seconds_total');
+          if (cpuSeconds) {
+            const idleSeconds = cpuSeconds
+              .filter(m => m.labels.mode === 'idle')
+              .reduce((sum, m) => sum + m.value, 0);
+            const totalSeconds = cpuSeconds.reduce((sum, m) => sum + m.value, 0);
+            if (totalSeconds > 0) {
+              cpuUsagePct = Math.round((1 - idleSeconds / totalSeconds) * 100);
+            }
+          }
+          
+          // Memory usage from node_memory_*
+          let memoryUsagePct: number | undefined;
+          const memTotal = metrics.get('node_memory_MemTotal_bytes');
+          const memAvailable = metrics.get('node_memory_MemAvailable_bytes');
+          if (memTotal && memAvailable && memTotal.length > 0 && memAvailable.length > 0) {
+            const total = memTotal[0].value;
+            const available = memAvailable[0].value;
+            if (total > 0) {
+              memoryUsagePct = Math.round((1 - available / total) * 100);
+            }
+          }
+          
+          // Disk usage from node_filesystem_*
+          // Sum across all filesystems (excluding tmpfs, etc)
+          let diskUsagePct: number | undefined;
+          const fsSize = metrics.get('node_filesystem_size_bytes');
+          const fsAvail = metrics.get('node_filesystem_avail_bytes');
+          if (fsSize && fsAvail) {
+            // Filter to real filesystems (ext4, xfs, etc)
+            const realFs = fsSize.filter(m => 
+              m.labels.fstype && 
+              !['tmpfs', 'devtmpfs', 'squashfs', 'overlay'].includes(m.labels.fstype)
+            );
+            
+            let totalSize = 0;
+            let totalAvail = 0;
+            for (const fs of realFs) {
+              const mountpoint = fs.labels.mountpoint;
+              totalSize += fs.value;
+              const avail = fsAvail.find(a => a.labels.mountpoint === mountpoint);
+              if (avail) totalAvail += avail.value;
+            }
+            if (totalSize > 0) {
+              diskUsagePct = Math.round((1 - totalAvail / totalSize) * 100);
+            }
+          }
+          
+          // Network interfaces from node_network_*
+          const ports: Array<{ name: string; status: string; speed?: string }> = [];
+          const netUp = metrics.get('node_network_up');
+          const netSpeed = metrics.get('node_network_speed_bytes');
+          
+          if (netUp) {
+            for (const iface of netUp) {
+              const name = iface.labels.device;
+              if (!name || name === 'lo') continue; // Skip loopback
+              
+              const status = iface.value === 1 ? 'up' : 'down';
+              let speed: string | undefined;
+              
+              // Find speed for this interface
+              if (netSpeed) {
+                const speedEntry = netSpeed.find(s => s.labels.device === name);
+                if (speedEntry && speedEntry.value > 0) {
+                  const bytesPerSec = speedEntry.value;
+                  const bitsPerSec = bytesPerSec * 8;
+                  if (bitsPerSec >= 10e9) {
+                    speed = `${Math.round(bitsPerSec / 1e9)}Gbps`;
+                  } else if (bitsPerSec >= 1e9) {
+                    speed = '1Gbps';
+                  } else if (bitsPerSec >= 100e6) {
+                    speed = '100Mbps';
+                  } else if (bitsPerSec >= 10e6) {
+                    speed = '10Mbps';
+                  }
+                }
+              }
+              
+              ports.push({ name, status, speed });
+            }
+          }
+          
+          resolve({
+            model,
+            systemIdentity,
+            version: `Prometheus | ${version}`,
+            uptime,
+            ports: ports.length > 0 ? ports : [{ name: 'eth0', status: 'up', speed: '1Gbps' }],
+            cpuUsagePct,
+            memoryUsagePct,
+            diskUsagePct,
+          });
+        } catch (parseError: any) {
+          reject(new Error(`Parse error: ${parseError.message}`));
+        }
+      });
+    });
+    
+    req.on('error', (err) => {
+      reject(err);
+    });
+    
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Timeout'));
+    });
+  });
+}
+
+// Quick check if Prometheus node_exporter is available on a host
+export async function checkPrometheusAvailable(
+  ipAddress: string,
+  port: number = 9100,
+  timeoutMs: number = 3000
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const url = `http://${ipAddress}:${port}/metrics`;
+    
+    const req = http.get(url, { timeout: timeoutMs }, (res) => {
+      // Just check if we get a response with metrics
+      if (res.statusCode === 200) {
+        let data = '';
+        res.on('data', chunk => {
+          data += chunk;
+          // Check for node_exporter signature early
+          if (data.includes('node_uname_info') || data.includes('node_cpu_seconds_total')) {
+            req.destroy();
+            resolve(true);
+          }
+        });
+        res.on('end', () => {
+          resolve(data.includes('node_') || data.includes('process_'));
+        });
+      } else {
+        resolve(false);
+      }
+    });
+    
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
 export async function probeDevice(
   deviceType: string,
   ipAddress?: string,
