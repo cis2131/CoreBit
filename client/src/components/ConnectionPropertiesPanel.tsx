@@ -26,7 +26,9 @@ import {
   AlertTriangle,
   RefreshCw,
   BarChart3,
+  Spline,
 } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -71,6 +73,10 @@ export function ConnectionPropertiesPanel({
   const [monitorInterface, setMonitorInterface] = useState<string>(
     connection.monitorInterface || "none",
   );
+  const [curveMode, setCurveMode] = useState<'straight' | 'curved' | 'auto'>(
+    (connection.curveMode as 'straight' | 'curved' | 'auto') || "straight",
+  );
+  const [curveOffset, setCurveOffset] = useState(connection.curveOffset || 0);
   const [saving, setSaving] = useState(false);
   const [resettingIndex, setResettingIndex] = useState(false);
 
@@ -87,12 +93,16 @@ export function ConnectionPropertiesPanel({
     setSourcePort(connection.sourcePort || "none");
     setTargetPort(connection.targetPort || "none");
     setMonitorInterface(connection.monitorInterface || "none");
+    setCurveMode((connection.curveMode as 'straight' | 'curved' | 'auto') || "straight");
+    setCurveOffset(connection.curveOffset || 0);
   }, [
     connection.id,
     connection.linkSpeed,
     connection.sourcePort,
     connection.targetPort,
     connection.monitorInterface,
+    connection.curveMode,
+    connection.curveOffset,
   ]);
 
   const sourcePorts = sourceDevice.deviceData?.ports || [];
@@ -113,7 +123,9 @@ export function ConnectionPropertiesPanel({
     linkSpeed !== (connection.linkSpeed || "1G") ||
     sourcePort !== (connection.sourcePort || "none") ||
     targetPort !== (connection.targetPort || "none") ||
-    monitorInterface !== (connection.monitorInterface || "none");
+    monitorInterface !== (connection.monitorInterface || "none") ||
+    curveMode !== ((connection.curveMode as 'straight' | 'curved' | 'auto') || "straight") ||
+    curveOffset !== (connection.curveOffset || 0);
 
   const handleSave = async () => {
     setSaving(true);
@@ -123,6 +135,8 @@ export function ConnectionPropertiesPanel({
         sourcePort: sourcePort === "none" ? "" : sourcePort,
         targetPort: targetPort === "none" ? "" : targetPort,
         monitorInterface: monitorInterface === "none" ? null : monitorInterface,
+        curveMode,
+        curveOffset,
       });
       queryClient.invalidateQueries({
         queryKey: ["/api/connections", connection.mapId],
@@ -386,6 +400,55 @@ export function ConnectionPropertiesPanel({
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Spline className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm">Line Appearance</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="curve-mode">Line Style</Label>
+                <Select value={curveMode} onValueChange={(v) => setCurveMode(v as 'straight' | 'curved' | 'auto')}>
+                  <SelectTrigger id="curve-mode" data-testid="select-curve-mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="straight">Straight</SelectItem>
+                    <SelectItem value="curved">Curved</SelectItem>
+                    <SelectItem value="auto">Auto (for parallel links)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Use curved lines when multiple connections exist between the same devices.
+                </p>
+              </div>
+              
+              {curveMode === 'curved' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="curve-offset">Curve Intensity</Label>
+                    <span className="text-xs text-muted-foreground">{curveOffset}px</span>
+                  </div>
+                  <Slider
+                    id="curve-offset"
+                    data-testid="slider-curve-intensity"
+                    min={-150}
+                    max={150}
+                    step={10}
+                    value={[curveOffset]}
+                    onValueChange={(v) => setCurveOffset(v[0])}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Negative values curve left, positive values curve right.
+                  </p>
                 </div>
               )}
             </CardContent>
