@@ -376,13 +376,15 @@ export function ConnectionLine({
       {connection.monitorInterface && connection.linkStats && (() => {
         // When monitoring on target device, flip RX/TX to show correct direction
         // from the connection's perspective (source → target)
+        // Also apply manual flip if user toggled the switch
         const isMonitoringTarget = connection.monitorInterface === 'target';
-        const inbound = isMonitoringTarget 
-          ? connection.linkStats.outBitsPerSec || 0  // TX on target = traffic coming from source
-          : connection.linkStats.inBitsPerSec || 0;  // RX on source = traffic coming from target
-        const outbound = isMonitoringTarget
-          ? connection.linkStats.inBitsPerSec || 0   // RX on target = traffic going to source
-          : connection.linkStats.outBitsPerSec || 0; // TX on source = traffic going to target
+        const shouldFlip = isMonitoringTarget !== (connection.flipTrafficDirection || false); // XOR logic
+        const inbound = shouldFlip 
+          ? connection.linkStats.outBitsPerSec || 0
+          : connection.linkStats.inBitsPerSec || 0;
+        const outbound = shouldFlip
+          ? connection.linkStats.inBitsPerSec || 0
+          : connection.linkStats.outBitsPerSec || 0;
         
         return (
           <g>

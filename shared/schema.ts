@@ -163,6 +163,7 @@ export const connections = pgTable("connections", {
   curveOffset: integer("curve_offset").default(0),
   monitorInterface: text("monitor_interface").$type<'source' | 'target' | null>(),
   monitorSnmpIndex: integer("monitor_snmp_index"),
+  flipTrafficDirection: boolean("flip_traffic_direction").default(false),
   linkStats: jsonb("link_stats").$type<{
     inBytesPerSec?: number;
     outBytesPerSec?: number;

@@ -29,6 +29,7 @@ import {
   Spline,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -77,6 +78,7 @@ export function ConnectionPropertiesPanel({
     (connection.curveMode as 'straight' | 'curved' | 'auto') || "straight",
   );
   const [curveOffset, setCurveOffset] = useState(connection.curveOffset || 0);
+  const [flipTrafficDirection, setFlipTrafficDirection] = useState(connection.flipTrafficDirection || false);
   const [saving, setSaving] = useState(false);
   const [resettingIndex, setResettingIndex] = useState(false);
 
@@ -125,7 +127,8 @@ export function ConnectionPropertiesPanel({
     targetPort !== (connection.targetPort || "none") ||
     monitorInterface !== (connection.monitorInterface || "none") ||
     curveMode !== ((connection.curveMode as 'straight' | 'curved' | 'auto') || "straight") ||
-    curveOffset !== (connection.curveOffset || 0);
+    curveOffset !== (connection.curveOffset || 0) ||
+    flipTrafficDirection !== (connection.flipTrafficDirection || false);
 
   const handleSave = async () => {
     setSaving(true);
@@ -137,6 +140,7 @@ export function ConnectionPropertiesPanel({
         monitorInterface: monitorInterface === "none" ? null : monitorInterface,
         curveMode,
         curveOffset,
+        flipTrafficDirection,
       });
       queryClient.invalidateQueries({
         queryKey: ["/api/connections", connection.mapId],
@@ -522,24 +526,40 @@ export function ConnectionPropertiesPanel({
                 </Select>
               </div>
               {monitorInterface !== "none" && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="secondary" className="text-xs">
-                    Monitoring:{" "}
-                    {monitorInterface === "source"
-                      ? sourceDevice.name
-                      : targetDevice.name}
-                  </Badge>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleResetSnmpIndex}
-                    disabled={resettingIndex}
-                    className="h-6 text-xs"
-                    data-testid="button-reset-snmp-index"
-                  >
-                    <RefreshCw className={`h-3 w-3 mr-1 ${resettingIndex ? 'animate-spin' : ''}`} />
-                    {resettingIndex ? "Refreshing..." : "Refresh Index"}
-                  </Button>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge variant="secondary" className="text-xs">
+                      Monitoring:{" "}
+                      {monitorInterface === "source"
+                        ? sourceDevice.name
+                        : targetDevice.name}
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleResetSnmpIndex}
+                      disabled={resettingIndex}
+                      className="h-6 text-xs"
+                      data-testid="button-reset-snmp-index"
+                    >
+                      <RefreshCw className={`h-3 w-3 mr-1 ${resettingIndex ? 'animate-spin' : ''}`} />
+                      {resettingIndex ? "Refreshing..." : "Refresh Index"}
+                    </Button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="flip-direction" className="text-sm">Flip RX/TX Direction</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Swap inbound/outbound if connection was drawn backwards
+                      </p>
+                    </div>
+                    <Switch
+                      id="flip-direction"
+                      checked={flipTrafficDirection}
+                      onCheckedChange={setFlipTrafficDirection}
+                      data-testid="switch-flip-traffic"
+                    />
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -548,12 +568,14 @@ export function ConnectionPropertiesPanel({
           {connection.linkStats && (() => {
             // When monitoring on target device, flip RX/TX to show correct direction
             // from the connection's perspective (source → target)
+            // Also apply manual flip if user toggled the switch
             const linkStats = connection.linkStats!;
             const isMonitoringTarget = connection.monitorInterface === 'target';
-            const inboundBps = isMonitoringTarget 
+            const shouldFlip = isMonitoringTarget !== flipTrafficDirection; // XOR logic
+            const inboundBps = shouldFlip 
               ? linkStats.outBitsPerSec || 0
               : linkStats.inBitsPerSec || 0;
-            const outboundBps = isMonitoringTarget
+            const outboundBps = shouldFlip
               ? linkStats.inBitsPerSec || 0
               : linkStats.outBitsPerSec || 0;
             
@@ -667,8 +689,8 @@ export function ConnectionPropertiesPanel({
                               hour: '2-digit', 
                               minute: '2-digit' 
                             }),
-                            rx: (isMonitoringTarget ? point.outBitsPerSec : point.inBitsPerSec) / 1000000,
-                            tx: (isMonitoringTarget ? point.inBitsPerSec : point.outBitsPerSec) / 1000000,
+                            rx: (shouldFlip ? point.outBitsPerSec : point.inBitsPerSec) / 1000000,
+                            tx: (shouldFlip ? point.inBitsPerSec : point.outBitsPerSec) / 1000000,
                           }))}
                           margin={{ top: 5, right: 5, left: 0, bottom: 0 }}
                         >
