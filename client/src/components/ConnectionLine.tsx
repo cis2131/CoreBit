@@ -148,18 +148,23 @@ export function ConnectionLine({
     });
   };
 
+  // For curved lines, use the control point as the direction target
+  // This ensures indicators are placed where the curve actually exits/enters the device
+  const sourceTarget = isCurved ? { x: midX, y: midY } : targetPosition;
+  const targetTarget = isCurved ? { x: midX, y: midY } : sourcePosition;
+
   const sourceIntersection = calculateRectangleIntersection(
     sourcePosition.x,
     sourcePosition.y,
-    targetPosition.x,
-    targetPosition.y
+    sourceTarget.x,
+    sourceTarget.y
   );
 
   const targetIntersection = calculateRectangleIntersection(
     targetPosition.x,
     targetPosition.y,
-    sourcePosition.x,
-    sourcePosition.y
+    targetTarget.x,
+    targetTarget.y
   );
 
   const sourceIndicatorX = sourceIntersection.x;
