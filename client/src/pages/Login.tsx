@@ -62,9 +62,7 @@ export default function Login() {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center gap-2">
           <div className="flex justify-center mb-2">
-            <div className="p-3 rounded-full bg-primary/10">
-              <Network className="h-8 w-8 text-primary" />
-            </div>
+            <img src="/favicon.png" alt="CoreBit" className="h-16 w-16" />
           </div>
           <CardTitle className="text-2xl" data-testid="text-login-title">CoreBit</CardTitle>
           <CardDescription data-testid="text-login-description">

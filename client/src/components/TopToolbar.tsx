@@ -200,7 +200,7 @@ export function TopToolbar({
     <div className="h-14 bg-secondary border-b border-border flex items-center justify-between px-4 gap-4">
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
-          <Network className="h-6 w-6 text-primary" />
+          <img src="/favicon.png" alt="CoreBit" className="h-7 w-7" />
           <h1 className="text-base font-bold text-foreground hidden sm:block">CoreBit</h1>
         </div>
 
