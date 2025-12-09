@@ -177,7 +177,10 @@ export async function collectInterfacesBackground(
       const parts = vb.oid.split('.');
       const ifIndex = parts[parts.length - 1];
       if (!portMap[ifIndex]) portMap[ifIndex] = { ifIndex };
-      portMap[ifIndex].speedBps = parseInt(sanitizeSnmpString(vb.value)) || 0;
+      const speedBps = parseInt(sanitizeSnmpString(vb.value)) || 0;
+      portMap[ifIndex].speedBps = speedBps;
+      // Mark if ifSpeed is at/near 32-bit max (gauge overflow for 10G+ interfaces)
+      portMap[ifIndex].speedGaugeOverflow = speedBps >= 4000000000;
     });
     
     ifOperStatusVbs.forEach((vb: any) => {
@@ -201,8 +204,11 @@ export async function collectInterfacesBackground(
       const ifIndex = parts[parts.length - 1];
       if (portMap[ifIndex]) {
         const highSpeedMbps = parseInt(sanitizeSnmpString(vb.value)) || 0;
+        portMap[ifIndex].highSpeedMbps = highSpeedMbps;
+        // ifHighSpeed is in Mbps, always prefer it over ifSpeed when available
         if (highSpeedMbps > 0) {
           portMap[ifIndex].speedBps = highSpeedMbps * 1000000;
+          portMap[ifIndex].speedGaugeOverflow = false; // Fixed by ifHighSpeed
         }
       }
     });
@@ -218,7 +224,9 @@ export async function collectInterfacesBackground(
       }
     });
     
-    const formatSpeed = (bps: number): string => {
+    const formatSpeed = (bps: number, gaugeOverflow?: boolean): string => {
+      // If gauge overflow and no ifHighSpeed fix, show as 10G+ (common for VMware/hypervisors)
+      if (gaugeOverflow) return '10Gbps+';
       // Cap at reasonable max speed (400Gbps) - higher values are likely gauge overflow
       if (bps > 400000000000) return undefined as any; // Will be filtered out
       if (bps >= 1000000000000) return `${(bps / 1000000000000).toFixed(1)}Tbps`;
@@ -255,7 +263,7 @@ export async function collectInterfacesBackground(
         return true;
       })
       .map((p: any) => {
-        const speed = p.speedBps ? formatSpeed(p.speedBps) : undefined;
+        const speed = p.speedBps ? formatSpeed(p.speedBps, p.speedGaugeOverflow) : undefined;
         return {
           name: p.ifName || p.ifDescr,
           defaultName: p.ifDescr,
