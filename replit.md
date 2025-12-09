@@ -32,6 +32,7 @@ The application is built with a client-server architecture.
 -   **Device Types:** Supports multiple device types:
     -   **Mikrotik Router/Switch:** Uses Mikrotik API for detailed monitoring (ports, system info, link speeds)
     -   **Generic SNMP Device:** Uses SNMP for device monitoring with ping fallback
+    -   **Prometheus Device:** Scrapes Prometheus node_exporter (port 9100) for Linux server monitoring - gets CPU, memory, disk, uptime, and network interfaces
     -   **Ping Only Device:** For devices without SNMP/API support - monitored via 2 concurrent ICMP pings for reliability
     -   **Server/Access Point:** SNMP-based monitoring with appropriate icons
 -   **Offline Threshold:** All device types respect configurable offline threshold - devices only go offline after N consecutive failed probes (default 3), preventing notification spam from transient failures.

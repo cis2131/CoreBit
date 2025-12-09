@@ -2184,6 +2184,9 @@ interface CredentialProfile {
     snmpCommunity?: string;
     snmpVersion?: string;
     apiPort?: number;
+    prometheusPort?: number;
+    prometheusPath?: string;
+    prometheusScheme?: 'http' | 'https';
   };
 }
 
@@ -2349,6 +2352,36 @@ export async function discoverDevice(
     }
   }
   log('SNMP not available or timed out');
+  
+  // Step 3.5: Try Prometheus node_exporter (common on Linux servers)
+  log('Probing Prometheus node_exporter (port 9100)...');
+  const prometheusAvailable = await checkPrometheusAvailable(ipAddress, 9100, 2000);
+  if (prometheusAvailable) {
+    log('Prometheus node_exporter detected');
+    try {
+      const promData = await probePrometheusDevice(ipAddress, {}, 3000);
+      const hostname = promData.systemIdentity || '';
+      return {
+        reachable: true,
+        fingerprint: {
+          deviceType: 'generic_prometheus',
+          confidence: 'high',
+          detectedVia: 'prometheus_node_exporter',
+          detectedModel: promData.model || 'Linux Server',
+          additionalInfo: { 
+            version: promData.version,
+            cpuUsagePct: promData.cpuUsagePct,
+            memoryUsagePct: promData.memoryUsagePct,
+            diskUsagePct: promData.diskUsagePct,
+          },
+        },
+        pingRtt: pingResult.rtt,
+        sysName: hostname,
+      };
+    } catch (promErr: any) {
+      log(`Prometheus probe failed: ${promErr.message}`);
+    }
+  }
   
   // Step 4: Try SSH banner grab
   log('Probing SSH port 22...');
