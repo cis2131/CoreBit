@@ -148,10 +148,20 @@ export function ConnectionLine({
     });
   };
 
-  // For curved lines, use the control point as the direction target
-  // This ensures indicators are placed where the curve actually exits/enters the device
-  const sourceTarget = isCurved ? { x: midX, y: midY } : targetPosition;
-  const targetTarget = isCurved ? { x: midX, y: midY } : sourcePosition;
+  // For curved lines, calculate a point slightly along the actual Bézier curve
+  // This ensures indicators are placed where the curve visually exits/enters the device
+  // Quadratic Bézier: P(t) = (1-t)²P0 + 2(1-t)t*P1 + t²P2
+  const getPointOnQuadraticBezier = (t: number) => {
+    const mt = 1 - t;
+    return {
+      x: mt * mt * sourcePosition.x + 2 * mt * t * midX + t * t * targetPosition.x,
+      y: mt * mt * sourcePosition.y + 2 * mt * t * midY + t * t * targetPosition.y,
+    };
+  };
+
+  // Get points slightly along the curve (5% and 95%) to determine direction
+  const sourceTarget = isCurved ? getPointOnQuadraticBezier(0.15) : targetPosition;
+  const targetTarget = isCurved ? getPointOnQuadraticBezier(0.85) : sourcePosition;
 
   const sourceIntersection = calculateRectangleIntersection(
     sourcePosition.x,
