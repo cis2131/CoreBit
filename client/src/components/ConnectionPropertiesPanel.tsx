@@ -97,6 +97,7 @@ export function ConnectionPropertiesPanel({
     setMonitorInterface(connection.monitorInterface || "none");
     setCurveMode((connection.curveMode as 'straight' | 'curved' | 'auto') || "straight");
     setCurveOffset(connection.curveOffset || 0);
+    setFlipTrafficDirection(connection.flipTrafficDirection || false);
   }, [
     connection.id,
     connection.linkSpeed,
@@ -105,6 +106,7 @@ export function ConnectionPropertiesPanel({
     connection.monitorInterface,
     connection.curveMode,
     connection.curveOffset,
+    connection.flipTrafficDirection,
   ]);
 
   const sourcePorts = sourceDevice.deviceData?.ports || [];
