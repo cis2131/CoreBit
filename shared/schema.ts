@@ -159,6 +159,8 @@ export const connections = pgTable("connections", {
   targetPort: text("target_port"),
   connectionType: text("connection_type").default("ethernet"),
   linkSpeed: text("link_speed").default("1G"),
+  curveMode: text("curve_mode").$type<'straight' | 'curved' | 'auto'>().default("straight"),
+  curveOffset: integer("curve_offset").default(0),
   monitorInterface: text("monitor_interface").$type<'source' | 'target' | null>(),
   monitorSnmpIndex: integer("monitor_snmp_index"),
   linkStats: jsonb("link_stats").$type<{

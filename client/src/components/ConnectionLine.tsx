@@ -9,6 +9,7 @@ interface ConnectionLineProps {
   onClick: () => void;
   sourceDevice?: Device;
   targetDevice?: Device;
+  autoOffset?: number;
 }
 
 // Format bits per second to human readable (network standard)
@@ -37,13 +38,39 @@ export function ConnectionLine({
   onClick,
   sourceDevice,
   targetDevice,
+  autoOffset = 0,
 }: ConnectionLineProps) {
-  const midX = (sourcePosition.x + targetPosition.x) / 2;
-  const midY = (sourcePosition.y + targetPosition.y) / 2;
-
   const speed = (connection.linkSpeed || '1G') as keyof typeof linkSpeedStyles;
   const style = linkSpeedStyles[speed] || linkSpeedStyles['1G'];
   const strokeWidth = isSelected ? style.width + 2 : style.width;
+
+  // Calculate curve offset - use manual offset if set, otherwise use auto-offset for duplicate connections
+  const curveMode = connection.curveMode || 'straight';
+  const manualOffset = connection.curveOffset || 0;
+  const effectiveOffset = curveMode === 'curved' 
+    ? (manualOffset || 50) 
+    : curveMode === 'auto' 
+      ? autoOffset 
+      : 0;
+
+  // Calculate perpendicular offset for curve control points
+  const dx = targetPosition.x - sourcePosition.x;
+  const dy = targetPosition.y - sourcePosition.y;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  
+  // Normal vector (perpendicular to the line)
+  const nx = length > 0 ? -dy / length : 0;
+  const ny = length > 0 ? dx / length : 0;
+
+  // Control point for quadratic/cubic bezier - at midpoint, offset perpendicular to the line
+  const midX = (sourcePosition.x + targetPosition.x) / 2 + nx * effectiveOffset;
+  const midY = (sourcePosition.y + targetPosition.y) / 2 + ny * effectiveOffset;
+
+  // Original midpoint for labels (before curve offset)
+  const labelMidX = (sourcePosition.x + targetPosition.x) / 2;
+  const labelMidY = (sourcePosition.y + targetPosition.y) / 2;
+
+  const isCurved = effectiveOffset !== 0;
 
   // Calculate intersection points with device rectangle boundaries
   // Device nodes are 320px wide and approximately 130px tall, centered at their position
@@ -166,27 +193,53 @@ export function ConnectionLine({
       style={{ pointerEvents: 'auto' }}
       data-testid={`connection-line-${connection.id}`}
     >
-      <line
-        x1={sourcePosition.x}
-        y1={sourcePosition.y}
-        x2={targetPosition.x}
-        y2={targetPosition.y}
-        stroke={style.color}
-        strokeWidth={strokeWidth}
-        strokeOpacity={0.7}
-        strokeDasharray={style.dashArray}
-        className="transition-all"
-      />
-      
-      <line
-        x1={sourcePosition.x}
-        y1={sourcePosition.y}
-        x2={targetPosition.x}
-        y2={targetPosition.y}
-        stroke="transparent"
-        strokeWidth="20"
-        pointerEvents="stroke"
-      />
+      {isCurved ? (
+        <>
+          {/* Curved path using quadratic bezier */}
+          <path
+            d={`M ${sourcePosition.x} ${sourcePosition.y} Q ${midX} ${midY} ${targetPosition.x} ${targetPosition.y}`}
+            fill="none"
+            stroke={style.color}
+            strokeWidth={strokeWidth}
+            strokeOpacity={0.7}
+            strokeDasharray={style.dashArray}
+            className="transition-all"
+          />
+          {/* Invisible hit area for curved path */}
+          <path
+            d={`M ${sourcePosition.x} ${sourcePosition.y} Q ${midX} ${midY} ${targetPosition.x} ${targetPosition.y}`}
+            fill="none"
+            stroke="transparent"
+            strokeWidth="20"
+            pointerEvents="stroke"
+          />
+        </>
+      ) : (
+        <>
+          {/* Straight line */}
+          <line
+            x1={sourcePosition.x}
+            y1={sourcePosition.y}
+            x2={targetPosition.x}
+            y2={targetPosition.y}
+            stroke={style.color}
+            strokeWidth={strokeWidth}
+            strokeOpacity={0.7}
+            strokeDasharray={style.dashArray}
+            className="transition-all"
+          />
+          {/* Invisible hit area for straight line */}
+          <line
+            x1={sourcePosition.x}
+            y1={sourcePosition.y}
+            x2={targetPosition.x}
+            y2={targetPosition.y}
+            stroke="transparent"
+            strokeWidth="20"
+            pointerEvents="stroke"
+          />
+        </>
+      )}
 
       {/* Port status indicators at connection endpoints */}
       {(connection.sourcePort && connection.sourcePort !== 'none') && (
@@ -242,7 +295,7 @@ export function ConnectionLine({
         />
       )}
 
-      {/* Traffic stats display when monitoring is enabled */}
+      {/* Traffic stats display when monitoring is enabled - positioned at curve apex */}
       {connection.monitorInterface && connection.linkStats && (
         <g>
           {/* Background box for traffic stats */}
