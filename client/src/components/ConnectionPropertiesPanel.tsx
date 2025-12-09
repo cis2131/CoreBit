@@ -545,8 +545,20 @@ export function ConnectionPropertiesPanel({
             </CardContent>
           </Card>
 
-          {connection.linkStats && (
-            <Card className={connection.linkStats.isStale ? "opacity-60" : ""}>
+          {connection.linkStats && (() => {
+            // When monitoring on target device, flip RX/TX to show correct direction
+            // from the connection's perspective (source → target)
+            const linkStats = connection.linkStats!;
+            const isMonitoringTarget = connection.monitorInterface === 'target';
+            const inboundBps = isMonitoringTarget 
+              ? linkStats.outBitsPerSec || 0
+              : linkStats.inBitsPerSec || 0;
+            const outboundBps = isMonitoringTarget
+              ? linkStats.inBitsPerSec || 0
+              : linkStats.outBitsPerSec || 0;
+            
+            return (
+            <Card className={linkStats.isStale ? "opacity-60" : ""}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -555,7 +567,7 @@ export function ConnectionPropertiesPanel({
                       Traffic Statistics
                     </CardTitle>
                   </div>
-                  {connection.linkStats.isStale && (
+                  {linkStats.isStale && (
                     <Badge
                       variant="outline"
                       className="text-xs text-yellow-600 border-yellow-600"
@@ -567,7 +579,7 @@ export function ConnectionPropertiesPanel({
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {connection.linkStats.inBitsPerSec !== undefined && (
+                {inboundBps !== undefined && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
@@ -578,14 +590,14 @@ export function ConnectionPropertiesPanel({
                         className="font-mono font-semibold text-foreground"
                         data-testid="text-inbound-traffic"
                       >
-                        {connection.linkStats.isStale
+                        {linkStats.isStale
                           ? "—"
-                          : formatBitsPerSec(connection.linkStats.inBitsPerSec)}
+                          : formatBitsPerSec(inboundBps)}
                       </span>
                     </div>
                   </div>
                 )}
-                {connection.linkStats.outBitsPerSec !== undefined && (
+                {outboundBps !== undefined && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
@@ -596,16 +608,14 @@ export function ConnectionPropertiesPanel({
                         className="font-mono font-semibold text-foreground"
                         data-testid="text-outbound-traffic"
                       >
-                        {connection.linkStats.isStale
+                        {linkStats.isStale
                           ? "—"
-                          : formatBitsPerSec(
-                              connection.linkStats.outBitsPerSec,
-                            )}
+                          : formatBitsPerSec(outboundBps)}
                       </span>
                     </div>
                   </div>
                 )}
-                {connection.linkStats.utilizationPct !== undefined && (
+                {linkStats.utilizationPct !== undefined && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-foreground font-medium">
@@ -615,29 +625,29 @@ export function ConnectionPropertiesPanel({
                         className="font-mono font-semibold text-foreground"
                         data-testid="text-utilization"
                       >
-                        {connection.linkStats.isStale
+                        {linkStats.isStale
                           ? "—"
-                          : `${connection.linkStats.utilizationPct}%`}
+                          : `${linkStats.utilizationPct}%`}
                       </span>
                     </div>
                     <Progress
                       value={
-                        connection.linkStats.isStale
+                        linkStats.isStale
                           ? 0
-                          : connection.linkStats.utilizationPct
+                          : linkStats.utilizationPct
                       }
                       className="h-2"
                       data-testid="progress-utilization"
                     />
                   </div>
                 )}
-                {connection.linkStats.lastSampleAt && (
+                {linkStats.lastSampleAt && (
                   <div className="text-xs text-muted-foreground">
                     Last updated:{" "}
                     {new Date(
-                      connection.linkStats.lastSampleAt,
+                      linkStats.lastSampleAt,
                     ).toLocaleString()}
-                    {connection.linkStats.isStale && " (no response)"}
+                    {linkStats.isStale && " (no response)"}
                   </div>
                 )}
                 
@@ -657,8 +667,8 @@ export function ConnectionPropertiesPanel({
                               hour: '2-digit', 
                               minute: '2-digit' 
                             }),
-                            rx: point.inBitsPerSec / 1000000,
-                            tx: point.outBitsPerSec / 1000000,
+                            rx: (isMonitoringTarget ? point.outBitsPerSec : point.inBitsPerSec) / 1000000,
+                            tx: (isMonitoringTarget ? point.inBitsPerSec : point.outBitsPerSec) / 1000000,
                           }))}
                           margin={{ top: 5, right: 5, left: 0, bottom: 0 }}
                         >
@@ -730,7 +740,8 @@ export function ConnectionPropertiesPanel({
                 )}
               </CardContent>
             </Card>
-          )}
+          );
+          })()}
         </div>
       </ScrollArea>
 

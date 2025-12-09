@@ -373,42 +373,54 @@ export function ConnectionLine({
       )}
 
       {/* Traffic stats display when monitoring is enabled - positioned at curve apex */}
-      {connection.monitorInterface && connection.linkStats && (
-        <g>
-          {/* Background box for traffic stats */}
-          <rect
-            x={midX - 50}
-            y={midY - 28}
-            width="100"
-            height="36"
-            rx="4"
-            fill="hsl(var(--background))"
-            stroke="hsl(var(--border))"
-            strokeWidth="1"
-            opacity="0.95"
-          />
-          {/* RX traffic */}
-          <text
-            x={midX}
-            y={midY - 14}
-            textAnchor="middle"
-            className="text-[10px] font-mono fill-blue-500"
-            data-testid="text-connection-inbound"
-          >
-            ↓ {formatBitsPerSec(connection.linkStats.inBitsPerSec || 0)}
-          </text>
-          {/* TX traffic */}
-          <text
-            x={midX}
-            y={midY + 2}
-            textAnchor="middle"
-            className="text-[10px] font-mono fill-green-500"
-            data-testid="text-connection-outbound"
-          >
-            ↑ {formatBitsPerSec(connection.linkStats.outBitsPerSec || 0)}
-          </text>
-        </g>
-      )}
+      {connection.monitorInterface && connection.linkStats && (() => {
+        // When monitoring on target device, flip RX/TX to show correct direction
+        // from the connection's perspective (source → target)
+        const isMonitoringTarget = connection.monitorInterface === 'target';
+        const inbound = isMonitoringTarget 
+          ? connection.linkStats.outBitsPerSec || 0  // TX on target = traffic coming from source
+          : connection.linkStats.inBitsPerSec || 0;  // RX on source = traffic coming from target
+        const outbound = isMonitoringTarget
+          ? connection.linkStats.inBitsPerSec || 0   // RX on target = traffic going to source
+          : connection.linkStats.outBitsPerSec || 0; // TX on source = traffic going to target
+        
+        return (
+          <g>
+            {/* Background box for traffic stats */}
+            <rect
+              x={midX - 50}
+              y={midY - 28}
+              width="100"
+              height="36"
+              rx="4"
+              fill="hsl(var(--background))"
+              stroke="hsl(var(--border))"
+              strokeWidth="1"
+              opacity="0.95"
+            />
+            {/* Inbound traffic (towards source) */}
+            <text
+              x={midX}
+              y={midY - 14}
+              textAnchor="middle"
+              className="text-[10px] font-mono fill-blue-500"
+              data-testid="text-connection-inbound"
+            >
+              ↓ {formatBitsPerSec(inbound)}
+            </text>
+            {/* Outbound traffic (towards target) */}
+            <text
+              x={midX}
+              y={midY + 2}
+              textAnchor="middle"
+              className="text-[10px] font-mono fill-green-500"
+              data-testid="text-connection-outbound"
+            >
+              ↑ {formatBitsPerSec(outbound)}
+            </text>
+          </g>
+        );
+      })()}
     </g>
   );
 }
