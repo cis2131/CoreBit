@@ -119,61 +119,6 @@ export function DeviceNode({ device, isSelected, isHighlighted, isOffline, linke
           data-testid={`status-indicator-${device.status}`}
         />
 
-        {/* Notification indicators - positioned below status dot */}
-        {(hasGlobalNotifications || device.useOnDuty || isMuted) && (
-          <div className="absolute top-8 right-2 flex items-center gap-1">
-            {isMuted ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="p-0.5 rounded bg-orange-100 dark:bg-orange-900/30">
-                    <BellOff className="h-3 w-3 text-orange-500" />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="left">
-                  <p className="text-xs">Notifications muted</p>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <>
-                {hasGlobalNotifications && device.useOnDuty ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="p-0.5 rounded bg-blue-100 dark:bg-blue-900/30 flex items-center gap-0.5">
-                        <Bell className="h-3 w-3 text-blue-500" />
-                        <Users className="h-3 w-3 text-blue-500" />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="left">
-                      <p className="text-xs">Global + On-duty notifications</p>
-                    </TooltipContent>
-                  </Tooltip>
-                ) : hasGlobalNotifications ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="p-0.5 rounded bg-blue-100 dark:bg-blue-900/30">
-                        <Bell className="h-3 w-3 text-blue-500" />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="left">
-                      <p className="text-xs">Global notifications enabled</p>
-                    </TooltipContent>
-                  </Tooltip>
-                ) : device.useOnDuty ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="p-0.5 rounded bg-blue-100 dark:bg-blue-900/30">
-                        <Users className="h-3 w-3 text-blue-500" />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="left">
-                      <p className="text-xs">On-duty notifications enabled</p>
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null}
-              </>
-            )}
-          </div>
-        )}
 
         {/* Main content */}
         <div className="p-3">
@@ -288,6 +233,58 @@ export function DeviceNode({ device, isSelected, isHighlighted, isOffline, linke
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* Notification indicators */}
+              {(hasGlobalNotifications || device.useOnDuty || isMuted) && (
+                <>
+                  {isMuted ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="p-1 rounded bg-orange-100 dark:bg-orange-900/30">
+                          <BellOff className="h-4 w-4 text-orange-500" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p className="text-xs">Notifications muted</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : hasGlobalNotifications && device.useOnDuty ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="p-1 rounded bg-blue-100 dark:bg-blue-900/30 flex items-center gap-0.5">
+                          <Bell className="h-4 w-4 text-blue-500" />
+                          <Users className="h-4 w-4 text-blue-500" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p className="text-xs">Global + On-duty notifications</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : hasGlobalNotifications ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="p-1 rounded bg-blue-100 dark:bg-blue-900/30">
+                          <Bell className="h-4 w-4 text-blue-500" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p className="text-xs">Global notifications enabled</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : device.useOnDuty ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="p-1 rounded bg-blue-100 dark:bg-blue-900/30">
+                          <Users className="h-4 w-4 text-blue-500" />
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        <p className="text-xs">On-duty notifications enabled</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                </>
               )}
             </div>
           </div>
