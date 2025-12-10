@@ -148,7 +148,7 @@ export function DeviceNode({ device, isSelected, isHighlighted, isOffline, linke
             ) : hasGlobalNotifications ? (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="p-1 rounded bg-blue-100 dark:bg-blue-900/30">
+                  <div className="p-1 rounded bg-blue-100 dark:bg-blue-900/30 mt-[36px] mb-[36px]">
                     <Bell className="h-4 w-4 text-blue-500" />
                   </div>
                 </TooltipTrigger>
