@@ -193,11 +193,7 @@ export function DeviceNode({ device, isSelected, isHighlighted, isOffline, linke
               <Button
                 size="icon"
                 variant="ghost"
-                className={`h-7 w-7 flex-shrink-0 ${
-                  linkedMapHasOffline 
-                    ? 'text-red-500 animate-pulse shadow-[0_0_8px_2px_rgba(239,68,68,0.6)] rounded-md' 
-                    : ''
-                }`}
+                className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover-elevate active-elevate-2 border border-transparent h-7 w-7 flex-shrink-0 text-red-500 animate-pulse shadow-[0_0_8px_2px_rgba(239,68,68,0.6)] rounded-md mt-[0px] mb-[0px] pt-[0px] pb-[0px] pl-[0px] pr-[0px] ml-[14px] mr-[14px]"
                 onClick={(e) => {
                   e.stopPropagation();
                   onMapLinkClick(linkedMapId);
