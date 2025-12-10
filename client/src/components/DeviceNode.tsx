@@ -125,7 +125,7 @@ export function DeviceNode({ device, isSelected, isHighlighted, isOffline, linke
             {isMuted ? (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="p-1 rounded bg-orange-100 dark:bg-orange-900/30">
+                  <div className="p-1 rounded bg-orange-100 dark:bg-orange-900/30 mt-[33px] mb-[33px]">
                     <BellOff className="h-4 w-4 text-orange-500" />
                   </div>
                 </TooltipTrigger>
