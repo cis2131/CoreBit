@@ -148,6 +148,12 @@ export default function NetworkTopology() {
     refetchInterval: 10000, // Refetch every 10 seconds to match device status refresh
   });
 
+  // Device notification summary - tracks which devices have global notifications enabled
+  const { data: deviceNotificationMap = {} } = useQuery<Record<string, boolean>>({
+    queryKey: ['/api/device-notification-summary'],
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
   // Merge devices with their placements for the current map
   const devicesOnMap = placements.map(placement => {
     const device = allDevices.find(d => d.id === placement.deviceId);
@@ -646,6 +652,7 @@ export default function NetworkTopology() {
                 setSelectedConnectionId(null);
               }}
               mapHealthSummary={mapHealthSummary}
+              deviceNotificationMap={deviceNotificationMap}
             />
           ) : (
             <div className="h-full flex items-center justify-center bg-white dark:bg-gray-950">

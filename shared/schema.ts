@@ -137,6 +137,7 @@ export const devices = pgTable("devices", {
     prometheusScheme?: 'http' | 'https';
   }>(),
   useOnDuty: boolean("use_on_duty").default(false).notNull(), // Also send alerts to on-duty operators (in addition to global channels)
+  mutedUntil: timestamp("muted_until"), // Device notifications muted until this time (null = not muted)
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

@@ -28,6 +28,7 @@ interface NetworkCanvasProps {
   onFocusComplete?: () => void;
   onMapLinkClick?: (mapId: string) => void;
   mapHealthSummary?: MapHealthSummary[];
+  deviceNotificationMap?: Record<string, boolean>; // deviceId -> hasGlobalNotifications
 }
 
 export function NetworkCanvas({
@@ -48,6 +49,7 @@ export function NetworkCanvas({
   onFocusComplete,
   onMapLinkClick,
   mapHealthSummary = [],
+  deviceNotificationMap = {},
 }: NetworkCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -552,6 +554,8 @@ export function NetworkCanvas({
                 isOffline={device.status === 'offline'}
                 linkedMapId={placementLinkedMapId}
                 linkedMapHasOffline={linkedMapHealth?.hasOffline}
+                hasGlobalNotifications={deviceNotificationMap[device.id] || false}
+                isMuted={device.mutedUntil ? new Date(device.mutedUntil) > new Date() : false}
                 onClick={() => {
                   if (!deviceWasDragged) {
                     onDeviceClick(device.id);

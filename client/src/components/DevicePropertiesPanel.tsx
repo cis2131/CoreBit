@@ -31,6 +31,7 @@ import {
   Cpu,
   MemoryStick,
   Bell,
+  BellOff,
   Link as LinkIcon,
   Clock,
   AlertTriangle,
@@ -366,6 +367,38 @@ export function DevicePropertiesPanel({
       toast({
         variant: "destructive",
         description: "Failed to update on-duty setting",
+      });
+    },
+  });
+
+  // Mute device mutation
+  const muteMutation = useMutation({
+    mutationFn: async (duration: number | 'forever') =>
+      apiRequest("POST", `/api/devices/${device.id}/mute`, { duration }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      toast({ description: "Device notifications muted" });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        description: "Failed to mute device",
+      });
+    },
+  });
+
+  // Unmute device mutation
+  const unmuteMutation = useMutation({
+    mutationFn: async () =>
+      apiRequest("DELETE", `/api/devices/${device.id}/mute`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      toast({ description: "Device notifications unmuted" });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        description: "Failed to unmute device",
       });
     },
   });
@@ -913,6 +946,67 @@ export function DevicePropertiesPanel({
                     </p>
                   </div>
                 </div>
+              </div>
+              
+              <Separator />
+              
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <BellOff className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm font-medium">Mute Notifications</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Temporarily silence alerts for maintenance
+                    </p>
+                  </div>
+                </div>
+                
+                {device.mutedUntil && new Date(device.mutedUntil) > new Date() ? (
+                  <div className="flex items-center justify-between p-2 bg-orange-50 dark:bg-orange-900/20 rounded-md">
+                    <div className="flex items-center gap-2">
+                      <BellOff className="h-4 w-4 text-orange-500" />
+                      <span className="text-sm text-orange-700 dark:text-orange-400">
+                        Muted until {new Date(device.mutedUntil).getTime() > Date.now() + 50 * 365 * 24 * 60 * 60 * 1000 
+                          ? 'Forever' 
+                          : new Date(device.mutedUntil).toLocaleString()}
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      onClick={() => unmuteMutation.mutate()}
+                      disabled={!canModify || unmuteMutation.isPending}
+                      data-testid="button-unmute-device"
+                    >
+                      Unmute
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2 flex-wrap">
+                    {([
+                      { label: '1h', value: 1 },
+                      { label: '3h', value: 3 },
+                      { label: '10h', value: 10 },
+                      { label: '24h', value: 24 },
+                      { label: 'Forever', value: 'forever' as const },
+                    ] as const).map((option) => (
+                      <Button
+                        key={option.label}
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => muteMutation.mutate(option.value)}
+                        disabled={!canModify || muteMutation.isPending}
+                        data-testid={`button-mute-${option.label}`}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

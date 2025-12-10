@@ -1195,6 +1195,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Device mute routes
+  app.post("/api/devices/:deviceId/mute", canModify as any, async (req, res) => {
+    try {
+      const { duration } = req.body; // duration in hours, or 'forever'
+      let mutedUntil: Date | null = null;
+      
+      if (duration === 'forever') {
+        // Set to 100 years in the future
+        mutedUntil = new Date(Date.now() + 100 * 365 * 24 * 60 * 60 * 1000);
+      } else if (typeof duration === 'number' && duration > 0) {
+        mutedUntil = new Date(Date.now() + duration * 60 * 60 * 1000);
+      } else {
+        return res.status(400).json({ error: 'Invalid duration' });
+      }
+      
+      const device = await storage.updateDevice(req.params.deviceId, { mutedUntil });
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+      res.json(device);
+    } catch (error) {
+      console.error('Error muting device:', error);
+      res.status(500).json({ error: 'Failed to mute device' });
+    }
+  });
+
+  app.delete("/api/devices/:deviceId/mute", canModify as any, async (req, res) => {
+    try {
+      const device = await storage.updateDevice(req.params.deviceId, { mutedUntil: null });
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+      res.json(device);
+    } catch (error) {
+      console.error('Error unmuting device:', error);
+      res.status(500).json({ error: 'Failed to unmute device' });
+    }
+  });
+
+  // Get notification summary for all devices (which devices have global notifications)
+  app.get("/api/device-notification-summary", async (req, res) => {
+    try {
+      const devices = await storage.getAllDevices();
+      const summary: Record<string, boolean> = {};
+      
+      for (const device of devices) {
+        const notifications = await storage.getDeviceNotifications(device.id);
+        summary[device.id] = notifications.length > 0;
+      }
+      
+      res.json(summary);
+    } catch (error) {
+      console.error('Error fetching device notification summary:', error);
+      res.status(500).json({ error: 'Failed to fetch device notification summary' });
+    }
+  });
+
   // =============================================
   // User Notification Channels Routes
   // =============================================
