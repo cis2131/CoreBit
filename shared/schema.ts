@@ -138,6 +138,8 @@ export const devices = pgTable("devices", {
   }>(),
   useOnDuty: boolean("use_on_duty").default(false).notNull(), // Also send alerts to on-duty operators (in addition to global channels)
   mutedUntil: timestamp("muted_until"), // Device notifications muted until this time (null = not muted)
+  statusChangedAt: timestamp("status_changed_at"), // Timestamp when status last changed (for offline duration display)
+  lastProbeError: text("last_probe_error"), // Last error message from failed probe (for diagnostics)
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
