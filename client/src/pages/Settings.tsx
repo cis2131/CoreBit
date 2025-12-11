@@ -577,6 +577,11 @@ function UserManagementSection() {
         botToken: "",
         chatId: "",
         messageTemplate: "[Device.Name] ([Device.Address]) is now [Service.Status]",
+        pushoverUserKey: "",
+        pushoverAppToken: "",
+        pushoverDevice: "",
+        pushoverSound: "pushover",
+        pushoverPriority: 0,
       },
     },
   });
@@ -585,7 +590,7 @@ function UserManagementSection() {
     if (editingChannel) {
       channelForm.reset({
         name: editingChannel.name,
-        type: editingChannel.type as "webhook" | "email" | "telegram",
+        type: editingChannel.type as "webhook" | "email" | "telegram" | "pushover",
         enabled: editingChannel.enabled,
         config: {
           url: "",
@@ -593,6 +598,11 @@ function UserManagementSection() {
           botToken: "",
           chatId: "",
           messageTemplate: "[Device.Name] ([Device.Address]) is now [Service.Status]",
+          pushoverUserKey: "",
+          pushoverAppToken: "",
+          pushoverDevice: "",
+          pushoverSound: "pushover",
+          pushoverPriority: 0,
           ...(editingChannel.config as any),
         },
       });
@@ -607,6 +617,11 @@ function UserManagementSection() {
           botToken: "",
           chatId: "",
           messageTemplate: "[Device.Name] ([Device.Address]) is now [Service.Status]",
+          pushoverUserKey: "",
+          pushoverAppToken: "",
+          pushoverDevice: "",
+          pushoverSound: "pushover",
+          pushoverPriority: 0,
         },
       });
     }
@@ -1085,6 +1100,7 @@ function UserManagementSection() {
                       {channel.type === 'webhook' && <Webhook className="h-4 w-4 text-blue-500" />}
                       {channel.type === 'email' && <Mail className="h-4 w-4 text-green-500" />}
                       {channel.type === 'telegram' && <MessageSquare className="h-4 w-4 text-sky-500" />}
+                      {channel.type === 'pushover' && <Bell className="h-4 w-4 text-purple-500" />}
                       <div>
                         <div className="font-medium text-foreground flex items-center gap-2">
                           {channel.name}
@@ -1165,6 +1181,7 @@ function UserManagementSection() {
                       <SelectContent>
                         <SelectItem value="webhook">Webhook</SelectItem>
                         <SelectItem value="telegram">Telegram</SelectItem>
+                        <SelectItem value="pushover">Pushover</SelectItem>
                         <SelectItem value="email">Email (coming soon)</SelectItem>
                       </SelectContent>
                     </Select>
@@ -1260,6 +1277,122 @@ function UserManagementSection() {
                 </>
               )}
 
+              {channelForm.watch("type") === "pushover" && (
+                <>
+                  <FormField
+                    control={channelForm.control}
+                    name="config.pushoverUserKey"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>User Key</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value || ""} placeholder="Your Pushover user key" data-testid="input-channel-pushover-user" />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          Find this on your Pushover dashboard
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={channelForm.control}
+                    name="config.pushoverAppToken"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>API Token</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value || ""} placeholder="Your app API token" data-testid="input-channel-pushover-token" />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          Create an app at pushover.net/apps/build
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={channelForm.control}
+                    name="config.pushoverDevice"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Device (optional)</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value || ""} placeholder="Leave empty for all devices" data-testid="input-channel-pushover-device" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={channelForm.control}
+                    name="config.pushoverSound"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Sound</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || "pushover"}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-channel-pushover-sound">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="pushover">Pushover (default)</SelectItem>
+                            <SelectItem value="bike">Bike</SelectItem>
+                            <SelectItem value="bugle">Bugle</SelectItem>
+                            <SelectItem value="cashregister">Cash Register</SelectItem>
+                            <SelectItem value="classical">Classical</SelectItem>
+                            <SelectItem value="cosmic">Cosmic</SelectItem>
+                            <SelectItem value="falling">Falling</SelectItem>
+                            <SelectItem value="gamelan">Gamelan</SelectItem>
+                            <SelectItem value="incoming">Incoming</SelectItem>
+                            <SelectItem value="intermission">Intermission</SelectItem>
+                            <SelectItem value="magic">Magic</SelectItem>
+                            <SelectItem value="mechanical">Mechanical</SelectItem>
+                            <SelectItem value="pianobar">Piano Bar</SelectItem>
+                            <SelectItem value="siren">Siren</SelectItem>
+                            <SelectItem value="spacealarm">Space Alarm</SelectItem>
+                            <SelectItem value="tugboat">Tugboat</SelectItem>
+                            <SelectItem value="alien">Alien</SelectItem>
+                            <SelectItem value="climb">Climb</SelectItem>
+                            <SelectItem value="persistent">Persistent</SelectItem>
+                            <SelectItem value="echo">Echo</SelectItem>
+                            <SelectItem value="updown">Up Down</SelectItem>
+                            <SelectItem value="vibrate">Vibrate</SelectItem>
+                            <SelectItem value="none">None (silent)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={channelForm.control}
+                    name="config.pushoverPriority"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Priority</FormLabel>
+                        <Select onValueChange={(v) => field.onChange(parseInt(v))} value={String(field.value ?? 0)}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-channel-pushover-priority">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="-2">Lowest (no alert)</SelectItem>
+                            <SelectItem value="-1">Low (quiet)</SelectItem>
+                            <SelectItem value="0">Normal</SelectItem>
+                            <SelectItem value="1">High</SelectItem>
+                            <SelectItem value="2">Emergency (requires ack)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
+
               <FormField
                 control={channelForm.control}
                 name="config.messageTemplate"
@@ -1318,7 +1451,7 @@ function UserManagementSection() {
 // User Notification Channels schema
 const userChannelFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  type: z.enum(["webhook", "email", "telegram"]),
+  type: z.enum(["webhook", "email", "telegram", "pushover"]),
   enabled: z.boolean().optional(),
   config: z.object({
     url: z.string().optional(),
@@ -1327,6 +1460,11 @@ const userChannelFormSchema = z.object({
     emailAddress: z.string().email().optional().or(z.literal("")),
     botToken: z.string().optional(),
     chatId: z.string().optional(),
+    pushoverUserKey: z.string().optional(),
+    pushoverAppToken: z.string().optional(),
+    pushoverDevice: z.string().optional(),
+    pushoverSound: z.string().optional(),
+    pushoverPriority: z.number().min(-2).max(2).optional(),
   }),
 });
 

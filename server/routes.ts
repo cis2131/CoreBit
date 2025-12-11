@@ -1424,6 +1424,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Test notification channel - sends a test message
+  app.post("/api/user-notification-channels/:id/test", requireAuth as any, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = req.user?.id;
+      const channel = await storage.getUserNotificationChannel(req.params.id);
+      if (!channel) {
+        return res.status(404).json({ error: 'Channel not found' });
+      }
+      // Only allow testing own channels unless admin
+      if (channel.userId !== userId && req.user?.role !== 'admin') {
+        return res.status(403).json({ error: 'Not authorized' });
+      }
+      
+      // Create a mock device for test notification
+      const mockDevice = {
+        id: 'test',
+        name: 'Test Device',
+        ipAddress: '192.168.1.1',
+        type: 'mikrotik_router',
+        status: 'online',
+      };
+      
+      // Send test notification
+      await sendUserNotification(channel, mockDevice, 'online', 'offline');
+      
+      res.json({ success: true, message: 'Test notification sent' });
+    } catch (error: any) {
+      console.error('Error sending test notification:', error);
+      res.status(500).json({ error: 'Failed to send test notification', details: error.message });
+    }
+  });
+
   // =============================================
   // Duty User Schedules Routes (simplified: assign users to shifts)
   // =============================================
