@@ -89,6 +89,33 @@ function formatLastSeen(date: Date): string {
   }
 }
 
+function formatStatusDuration(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffSecs < 60) {
+    return `for ${diffSecs} second${diffSecs !== 1 ? "s" : ""}`;
+  } else if (diffMins < 60) {
+    return `for ${diffMins} minute${diffMins !== 1 ? "s" : ""}`;
+  } else if (diffHours < 24) {
+    const remainingMins = diffMins % 60;
+    if (remainingMins > 0) {
+      return `for ${diffHours}h ${remainingMins}m`;
+    }
+    return `for ${diffHours} hour${diffHours !== 1 ? "s" : ""}`;
+  } else {
+    const remainingHours = diffHours % 24;
+    if (remainingHours > 0) {
+      return `for ${diffDays}d ${remainingHours}h`;
+    }
+    return `for ${diffDays} day${diffDays !== 1 ? "s" : ""}`;
+  }
+}
+
 export function DevicePropertiesPanel({
   device,
   connections = [],
@@ -488,6 +515,19 @@ export function DevicePropertiesPanel({
                     {status.label}
                   </span>
                 </div>
+                {(device.status === 'offline' || device.status === 'stale') && device.statusChangedAt && (
+                  <p className="text-xs text-muted-foreground mt-1" data-testid="text-offline-duration">
+                    {formatStatusDuration(new Date(device.statusChangedAt))}
+                  </p>
+                )}
+                {(device.status === 'offline' || device.status === 'stale') && device.lastProbeError && (
+                  <div className="flex items-start gap-1.5 mt-2 p-2 bg-destructive/10 rounded-md border border-destructive/20">
+                    <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+                    <p className="text-xs text-destructive" data-testid="text-probe-error">
+                      {device.lastProbeError}
+                    </p>
+                  </div>
+                )}
               </div>
               {device.lastSeen && (
                 <div>
