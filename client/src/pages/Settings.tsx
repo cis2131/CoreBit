@@ -15,7 +15,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw, Users, Crown, Shield, Eye, Loader2, UserCog, Calendar, Sun, Moon, Webhook, Mail, MessageSquare, Info } from "lucide-react";
+import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw, Users, Crown, Shield, Eye, Loader2, UserCog, Calendar, Sun, Moon, Webhook, Mail, MessageSquare, Info, Send } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { z } from "zod";
@@ -684,6 +684,23 @@ function UserManagementSection() {
     },
   });
 
+  const [testingChannelId, setTestingChannelId] = useState<string | null>(null);
+  
+  const testChannelMutation = useMutation({
+    mutationFn: async (id: string) => {
+      setTestingChannelId(id);
+      return apiRequest("POST", `/api/user-notification-channels/${id}/test`);
+    },
+    onSuccess: () => {
+      toast({ description: "Test notification sent successfully" });
+      setTestingChannelId(null);
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", description: error?.message || "Failed to send test notification" });
+      setTestingChannelId(null);
+    },
+  });
+
   const handleChannelSubmit = (data: UserChannelFormData) => {
     if (editingChannel) {
       updateChannelMutation.mutate({ id: editingChannel.id, data });
@@ -1114,6 +1131,20 @@ function UserManagementSection() {
                       </div>
                     </div>
                     <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => testChannelMutation.mutate(channel.id)}
+                        disabled={testingChannelId === channel.id}
+                        title="Send test notification"
+                        data-testid={`button-test-channel-${channel.id}`}
+                      >
+                        {testingChannelId === channel.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="h-4 w-4" />
+                        )}
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
