@@ -2354,12 +2354,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const statusChanged = status !== oldStatus;
           
           if (status !== device.status || quickProbe.success) {
-            const updated = await safeUpdateDevice({
+            const updateData: any = {
               status,
               deviceData: quickProbe.data,
               failureCount: 0, // Reset failure count on successful probe
               lastSeen: new Date(), // Update last seen timestamp on successful probe
-            });
+              lastProbeError: null, // Clear error on success
+            };
+            if (statusChanged) {
+              updateData.statusChangedAt = new Date();
+            }
+            const updated = await safeUpdateDevice(updateData);
             if (!updated && timedOut) {
               return { device, success: false, timeout: true };
             }
@@ -2467,16 +2472,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         if (currentFailureCount < offlineThreshold) {
           // Haven't reached threshold yet - keep current status but increment failure count
-          await safeUpdateDevice({ failureCount: currentFailureCount });
+          const errorMsg = 'Probe failed - no response from device';
+          await safeUpdateDevice({ failureCount: currentFailureCount, lastProbeError: errorMsg });
           console.log(`[${timestamp}] [Probing] ${device.name}: probe failed (${currentFailureCount}/${offlineThreshold}) - keeping status as ${oldStatus}`);
           // Don't change status to offline yet
           status = oldStatus === 'online' ? 'online' : oldStatus; // Keep previous status
         } else {
           // Reached threshold - allow offline status and update device
+          const errorMsg = `Probe failed - offline after ${currentFailureCount} consecutive failures`;
           console.log(`[${timestamp}] [Probing] ${device.name}: probe failed (${currentFailureCount}/${offlineThreshold}) - threshold reached, marking offline`);
           await safeUpdateDevice({
             status: 'offline',
             failureCount: currentFailureCount,
+            statusChangedAt: new Date(),
+            lastProbeError: errorMsg,
           });
         }
       }
@@ -2485,12 +2494,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if ((status !== device.status || probeResult.success) && probeResult.success) {
         // Only update device data on successful probe
-        const updated = await safeUpdateDevice({
+        const updateData: any = {
           status,
           deviceData: probeResult.data,
           failureCount: 0, // Reset failure count on successful probe
           lastSeen: new Date(), // Update last seen timestamp on successful probe
-        });
+          lastProbeError: null, // Clear error on success
+        };
+        if (statusChanged) {
+          updateData.statusChangedAt = new Date();
+        }
+        const updated = await safeUpdateDevice(updateData);
         if (!updated && timedOut) {
           return { device, success: false, timeout: true };
         }
@@ -2589,10 +2603,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
             
             const targetStatus = useStaleStatus ? 'stale' : 'offline';
+            const timeoutErrorMsg = useStaleStatus 
+              ? 'Connection timed out - device responds to ping but API/SNMP unreachable'
+              : `Connection timed out after ${currentFailureCount} consecutive failures`;
             
             // Only update and log if status is actually changing
             if (oldStatus !== targetStatus) {
-              await storage.updateDevice(device.id, { status: targetStatus, failureCount: currentFailureCount });
+              await storage.updateDevice(device.id, { 
+                status: targetStatus, 
+                failureCount: currentFailureCount,
+                statusChangedAt: new Date(),
+                lastProbeError: timeoutErrorMsg,
+              });
               
               // IMPORTANT: Update the device object so downstream code doesn't overwrite with stale status
               device.status = targetStatus;
@@ -2759,7 +2781,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
               
               // Ping failed - now mark as truly offline
               const oldStatus = device.status;
-              await storage.updateDevice(device.id, { status: 'offline' });
+              const staleErrorMsg = `Stale ${Math.round(timeSinceLastSeen / 1000)}s - API unreachable and ping failed`;
+              await storage.updateDevice(device.id, { 
+                status: 'offline',
+                statusChangedAt: new Date(),
+                lastProbeError: staleErrorMsg,
+              });
               device.status = 'offline'; // Update local copy too
               staleCount++;
               
