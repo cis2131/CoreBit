@@ -166,6 +166,43 @@ async function sendUserNotification(channel: UserNotificationChannel, device: an
       if (!response.ok) {
         console.error(`[UserNotification] HTTP ${response.status} from ${finalUrl}`);
       }
+    } else if (channel.type === 'pushover' && config.pushoverUserKey && config.pushoverAppToken) {
+      const message = renderMessageTemplate(config.messageTemplate || '[Device.Name] is now [Service.Status]', device, newStatus, oldStatus);
+      const title = `CoreBit: ${device.name}`;
+      
+      const pushoverData: Record<string, string | number> = {
+        token: config.pushoverAppToken,
+        user: config.pushoverUserKey,
+        message: message,
+        title: title,
+      };
+      
+      if (config.pushoverDevice) {
+        pushoverData.device = config.pushoverDevice;
+      }
+      if (config.pushoverSound) {
+        pushoverData.sound = config.pushoverSound;
+      }
+      if (config.pushoverPriority !== undefined) {
+        pushoverData.priority = config.pushoverPriority;
+        if (config.pushoverPriority === 2) {
+          pushoverData.retry = 60;
+          pushoverData.expire = 3600;
+        }
+      }
+      
+      const response = await fetch('https://api.pushover.net/1/messages.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pushoverData),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[UserNotification] Pushover HTTP ${response.status}: ${errorText}`);
+      } else {
+        console.log(`[UserNotification] Pushover notification sent to ${channel.name}`);
+      }
     }
     // Future: Add email and telegram support here
   } catch (error: any) {

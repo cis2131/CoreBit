@@ -417,7 +417,7 @@ export const userNotificationChannels = pgTable("user_notification_channels", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  type: text("type").notNull().$type<'webhook' | 'email' | 'telegram'>(),
+  type: text("type").notNull().$type<'webhook' | 'email' | 'telegram' | 'pushover'>(),
   config: jsonb("config").notNull().$type<{
     // Webhook config
     url?: string;
@@ -428,6 +428,12 @@ export const userNotificationChannels = pgTable("user_notification_channels", {
     // Telegram config
     botToken?: string;
     chatId?: string;
+    // Pushover config
+    pushoverUserKey?: string;
+    pushoverAppToken?: string;
+    pushoverDevice?: string;
+    pushoverSound?: string;
+    pushoverPriority?: number;
   }>(),
   enabled: boolean("enabled").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -470,7 +476,7 @@ export const insertUserNotificationChannelSchema = createInsertSchema(userNotifi
   createdAt: true,
   updatedAt: true,
 }).extend({
-  type: z.enum(['webhook', 'email', 'telegram']),
+  type: z.enum(['webhook', 'email', 'telegram', 'pushover']),
   config: z.object({
     url: z.string().optional(),
     method: z.string().optional(),
@@ -478,6 +484,11 @@ export const insertUserNotificationChannelSchema = createInsertSchema(userNotifi
     emailAddress: z.string().email().optional(),
     botToken: z.string().optional(),
     chatId: z.string().optional(),
+    pushoverUserKey: z.string().optional(),
+    pushoverAppToken: z.string().optional(),
+    pushoverDevice: z.string().optional(),
+    pushoverSound: z.string().optional(),
+    pushoverPriority: z.number().min(-2).max(2).optional(),
   }),
   enabled: z.boolean().optional(),
 });
