@@ -193,6 +193,7 @@ export interface IStorage {
   getProxmoxVmByMatchedDevice(matchedDeviceId: string): Promise<ProxmoxVm | undefined>;
   getAllProxmoxVms(): Promise<ProxmoxVm[]>;
   matchProxmoxVmToDevice(vmId: string, matchedDeviceId: string | null): Promise<ProxmoxVm | undefined>;
+  autoMatchVmToDevices(vmId: string, ipAddresses: string[], macAddresses?: string[]): Promise<string | null>;
 
   // Map Health Summary
   getMapHealthSummary(): Promise<{ mapId: string; hasOffline: boolean }[]>;
@@ -961,6 +962,34 @@ export class DatabaseStorage implements IStorage {
       .where(eq(proxmoxVms.id, vmId))
       .returning();
     return updated || undefined;
+  }
+
+  async autoMatchVmToDevices(vmId: string, ipAddresses: string[], macAddresses?: string[]): Promise<string | null> {
+    if (!ipAddresses || ipAddresses.length === 0) {
+      return null;
+    }
+
+    // Get all devices to match against
+    const allDevices = await this.getAllDevices();
+    
+    // Try to find a device with a matching IP address
+    for (const ip of ipAddresses) {
+      // Skip link-local and localhost addresses
+      if (ip.startsWith('127.') || ip.startsWith('169.254.') || ip === '::1' || ip.startsWith('fe80:')) {
+        continue;
+      }
+      
+      const matchedDevice = allDevices.find(d => d.ipAddress === ip);
+      if (matchedDevice) {
+        // Update the VM with the matched device ID
+        await this.matchProxmoxVmToDevice(vmId, matchedDevice.id);
+        return matchedDevice.id;
+      }
+    }
+
+    // No match found - clear any existing match
+    await this.matchProxmoxVmToDevice(vmId, null);
+    return null;
   }
 
   // Map Health Summary - aggregate device statuses per map

@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { Device, Connection, ProxmoxVm } from '@shared/schema';
 import { DeviceNode } from './DeviceNode';
 import { ProxmoxHostNode } from './ProxmoxHostNode';
+import { ProxmoxVMModal } from './ProxmoxVMModal';
 import { ConnectionLine } from './ConnectionLine';
 import { Plus, Minus, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -64,6 +65,7 @@ export function NetworkCanvas({
   const pendingPositionRef = useRef<{ x: number; y: number } | null>(null);
   const [deviceWasDragged, setDeviceWasDragged] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [vmModalDevice, setVmModalDevice] = useState<Device | null>(null);
 
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
@@ -571,6 +573,7 @@ export function NetworkCanvas({
                 <ProxmoxHostNode
                   key={device.id}
                   {...commonProps}
+                  onVmClick={() => setVmModalDevice(device)}
                 />
               );
             }
@@ -646,6 +649,13 @@ export function NetworkCanvas({
           Hold <kbd className="px-1.5 py-0.5 bg-muted rounded text-foreground font-mono">Shift</kbd> for free placement
         </div>
       </div>
+
+      <ProxmoxVMModal
+        device={vmModalDevice}
+        isOpen={!!vmModalDevice}
+        onClose={() => setVmModalDevice(null)}
+        onDeviceClick={onDeviceClick}
+      />
     </div>
   );
 }

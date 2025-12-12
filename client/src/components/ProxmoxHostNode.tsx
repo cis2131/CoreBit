@@ -368,9 +368,17 @@ export function ProxmoxHostNode({
                 </div>
                 {hasMoreVms && (
                   <div className="text-center mt-1.5">
-                    <span className="text-xs text-muted-foreground">
+                    <button
+                      className="text-xs text-[#E57000] hover:underline cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onVmClick?.(vms[0]);
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      data-testid={`button-show-more-vms-${device.id}`}
+                    >
                       +{vms.length - 6} more VMs
-                    </span>
+                    </button>
                   </div>
                 )}
               </>
