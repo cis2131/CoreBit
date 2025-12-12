@@ -669,19 +669,19 @@ export function DevicePropertiesPanel({
           )}
 
           {device.type === "proxmox" && proxmoxVms.length > 0 && (
-            <Card data-testid="card-proxmox-vms">
+            <Card data-testid="card-proxmox-vms" className="overflow-hidden">
               <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <CardTitle className="text-sm">Virtual Machines</CardTitle>
-                  <Badge variant="secondary" className="text-xs" data-testid="badge-vm-count">
+                  <Badge variant="secondary" className="text-xs flex-shrink-0" data-testid="badge-vm-count">
                     {proxmoxVms.filter(vm => vm.status === 'running').length}/{proxmoxVms.length} running
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="overflow-hidden">
                 <div className="space-y-2">
                   {proxmoxVms.map((vm) => (
-                    <div key={vm.id} className="flex items-center gap-2 text-sm" data-testid={`row-vm-${vm.vmid}`}>
+                    <div key={vm.id} className="flex items-center gap-1.5 text-sm w-full" data-testid={`row-vm-${vm.vmid}`}>
                       <div
                         className={`w-2 h-2 rounded-full flex-shrink-0 ${
                           vm.status === "running"
@@ -697,7 +697,7 @@ export function DevicePropertiesPanel({
                       ) : (
                         <Server className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                       )}
-                      <div className="flex-1 min-w-0 overflow-hidden">
+                      <div className="min-w-0 flex-1" style={{ maxWidth: 'calc(100% - 90px)' }}>
                         <p className="font-medium text-foreground truncate" title={vm.name} data-testid={`text-vm-name-${vm.vmid}`}>
                           {vm.name}
                         </p>
@@ -708,7 +708,7 @@ export function DevicePropertiesPanel({
                           </p>
                         )}
                       </div>
-                      <Badge variant="outline" className="text-xs flex-shrink-0 whitespace-nowrap" data-testid={`badge-vm-type-${vm.vmid}`}>
+                      <Badge variant="outline" className="text-xs flex-shrink-0 whitespace-nowrap ml-auto" data-testid={`badge-vm-type-${vm.vmid}`}>
                         {vm.vmType.toUpperCase()} {vm.vmid}
                       </Badge>
                     </div>
