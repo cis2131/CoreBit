@@ -18,6 +18,7 @@ import {
   dutyShiftConfig,
   alarmMutes,
   deviceStatusEvents,
+  proxmoxVms,
   type Map, 
   type InsertMap,
   type Device,
@@ -51,7 +52,9 @@ import {
   type AlarmMute,
   type InsertAlarmMute,
   type DeviceStatusEvent,
-  type InsertDeviceStatusEvent
+  type InsertDeviceStatusEvent,
+  type ProxmoxVm,
+  type InsertProxmoxVm
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNotNull, isNull, or, gt } from "drizzle-orm";
@@ -177,6 +180,19 @@ export interface IStorage {
   getDeviceStatusEvents(deviceId: string, options?: { since?: Date; until?: Date; includeWarnings?: boolean; limit?: number }): Promise<DeviceStatusEvent[]>;
   getDeviceStatusSummary(deviceId: string, since: Date): Promise<{ status: string; durationMs: number }[]>;
   deleteOldDeviceStatusEvents(olderThan: Date): Promise<number>;
+
+  // Proxmox VMs
+  getProxmoxVmsByHost(hostDeviceId: string): Promise<ProxmoxVm[]>;
+  getProxmoxVm(id: string): Promise<ProxmoxVm | undefined>;
+  getProxmoxVmByVmid(hostDeviceId: string, vmid: number): Promise<ProxmoxVm | undefined>;
+  createProxmoxVm(vm: InsertProxmoxVm): Promise<ProxmoxVm>;
+  updateProxmoxVm(id: string, vm: Partial<InsertProxmoxVm>): Promise<ProxmoxVm | undefined>;
+  upsertProxmoxVm(hostDeviceId: string, vmid: number, vm: Partial<InsertProxmoxVm>): Promise<ProxmoxVm>;
+  deleteProxmoxVm(id: string): Promise<void>;
+  deleteProxmoxVmsByHost(hostDeviceId: string): Promise<void>;
+  getProxmoxVmByMatchedDevice(matchedDeviceId: string): Promise<ProxmoxVm | undefined>;
+  getAllProxmoxVms(): Promise<ProxmoxVm[]>;
+  matchProxmoxVmToDevice(vmId: string, matchedDeviceId: string | null): Promise<ProxmoxVm | undefined>;
 
   // Map Health Summary
   getMapHealthSummary(): Promise<{ mapId: string; hasOffline: boolean }[]>;
@@ -867,6 +883,84 @@ export class DatabaseStorage implements IStorage {
       .where(lt(deviceStatusEvents.createdAt, olderThan))
       .returning();
     return result.length;
+  }
+
+  // Proxmox VMs
+  async getProxmoxVmsByHost(hostDeviceId: string): Promise<ProxmoxVm[]> {
+    return await db.select().from(proxmoxVms)
+      .where(eq(proxmoxVms.hostDeviceId, hostDeviceId))
+      .orderBy(proxmoxVms.vmid);
+  }
+
+  async getProxmoxVm(id: string): Promise<ProxmoxVm | undefined> {
+    const [vm] = await db.select().from(proxmoxVms).where(eq(proxmoxVms.id, id));
+    return vm || undefined;
+  }
+
+  async getProxmoxVmByVmid(hostDeviceId: string, vmid: number): Promise<ProxmoxVm | undefined> {
+    const [vm] = await db.select().from(proxmoxVms)
+      .where(and(
+        eq(proxmoxVms.hostDeviceId, hostDeviceId),
+        eq(proxmoxVms.vmid, vmid)
+      ));
+    return vm || undefined;
+  }
+
+  async createProxmoxVm(vm: InsertProxmoxVm): Promise<ProxmoxVm> {
+    const [created] = await db.insert(proxmoxVms).values(vm).returning();
+    return created;
+  }
+
+  async updateProxmoxVm(id: string, vm: Partial<InsertProxmoxVm>): Promise<ProxmoxVm | undefined> {
+    const [updated] = await db.update(proxmoxVms)
+      .set({ ...vm, lastSeen: new Date() })
+      .where(eq(proxmoxVms.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async upsertProxmoxVm(hostDeviceId: string, vmid: number, vm: Partial<InsertProxmoxVm>): Promise<ProxmoxVm> {
+    const existing = await this.getProxmoxVmByVmid(hostDeviceId, vmid);
+    if (existing) {
+      const updated = await this.updateProxmoxVm(existing.id, vm);
+      return updated!;
+    } else {
+      return await this.createProxmoxVm({
+        hostDeviceId,
+        vmid,
+        vmType: vm.vmType || 'qemu',
+        name: vm.name || `VM ${vmid}`,
+        status: vm.status || 'unknown',
+        node: vm.node || 'unknown',
+        ...vm
+      } as InsertProxmoxVm);
+    }
+  }
+
+  async deleteProxmoxVm(id: string): Promise<void> {
+    await db.delete(proxmoxVms).where(eq(proxmoxVms.id, id));
+  }
+
+  async deleteProxmoxVmsByHost(hostDeviceId: string): Promise<void> {
+    await db.delete(proxmoxVms).where(eq(proxmoxVms.hostDeviceId, hostDeviceId));
+  }
+
+  async getProxmoxVmByMatchedDevice(matchedDeviceId: string): Promise<ProxmoxVm | undefined> {
+    const [vm] = await db.select().from(proxmoxVms)
+      .where(eq(proxmoxVms.matchedDeviceId, matchedDeviceId));
+    return vm || undefined;
+  }
+
+  async getAllProxmoxVms(): Promise<ProxmoxVm[]> {
+    return await db.select().from(proxmoxVms).orderBy(proxmoxVms.hostDeviceId, proxmoxVms.vmid);
+  }
+
+  async matchProxmoxVmToDevice(vmId: string, matchedDeviceId: string | null): Promise<ProxmoxVm | undefined> {
+    const [updated] = await db.update(proxmoxVms)
+      .set({ matchedDeviceId })
+      .where(eq(proxmoxVms.id, vmId))
+      .returning();
+    return updated || undefined;
   }
 
   // Map Health Summary - aggregate device statuses per map

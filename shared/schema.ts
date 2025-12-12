@@ -24,7 +24,7 @@ export const maps = pgTable("maps", {
 export const credentialProfiles = pgTable("credential_profiles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
-  type: text("type").notNull(), // mikrotik, snmp, prometheus
+  type: text("type").notNull(), // mikrotik, snmp, prometheus, proxmox
   credentials: jsonb("credentials").notNull().$type<{
     username?: string;
     password?: string;
@@ -40,6 +40,12 @@ export const credentialProfiles = pgTable("credential_profiles", {
     prometheusPort?: number; // Default 9100
     prometheusPath?: string; // Default /metrics
     prometheusScheme?: 'http' | 'https';
+    // Proxmox VE API settings
+    proxmoxPort?: number; // Default 8006
+    proxmoxApiTokenId?: string; // API token ID (user@realm!tokenid)
+    proxmoxApiTokenSecret?: string; // API token secret
+    proxmoxVerifySsl?: boolean; // Default false (self-signed certs common)
+    proxmoxRealm?: string; // Default 'pam'
   }>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -135,6 +141,12 @@ export const devices = pgTable("devices", {
     prometheusPort?: number;
     prometheusPath?: string;
     prometheusScheme?: 'http' | 'https';
+    // Proxmox VE API settings
+    proxmoxPort?: number;
+    proxmoxApiTokenId?: string;
+    proxmoxApiTokenSecret?: string;
+    proxmoxVerifySsl?: boolean;
+    proxmoxRealm?: string;
   }>(),
   useOnDuty: boolean("use_on_duty").default(false).notNull(), // Also send alerts to on-duty operators (in addition to global channels)
   mutedUntil: timestamp("muted_until"), // Device notifications muted until this time (null = not muted)
@@ -292,6 +304,16 @@ const credentialsSchema = z.object({
   snmpAuthKey: z.string().optional(),
   snmpPrivProtocol: z.enum(['DES', 'AES']).optional(),
   snmpPrivKey: z.string().optional(),
+  // Prometheus settings
+  prometheusPort: z.number().optional(),
+  prometheusPath: z.string().optional(),
+  prometheusScheme: z.enum(['http', 'https']).optional(),
+  // Proxmox VE API settings
+  proxmoxPort: z.number().optional(),
+  proxmoxApiTokenId: z.string().optional(),
+  proxmoxApiTokenSecret: z.string().optional(),
+  proxmoxVerifySsl: z.boolean().optional(),
+  proxmoxRealm: z.string().optional(),
 });
 
 export const insertCredentialProfileSchema = createInsertSchema(credentialProfiles).omit({
@@ -485,6 +507,32 @@ export const deviceStatusEvents = pgTable("device_status_events", {
   index("idx_device_status_events_device_created").on(table.deviceId, table.createdAt),
 ]);
 
+// Proxmox VM instances - tracks VMs running on Proxmox hosts
+export const proxmoxVms = pgTable("proxmox_vms", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  hostDeviceId: varchar("host_device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
+  vmid: integer("vmid").notNull(), // Proxmox VM ID (e.g., 100, 101)
+  vmType: text("vm_type").notNull().$type<'qemu' | 'lxc'>(), // QEMU VM or LXC container
+  name: text("name").notNull(),
+  status: text("status").notNull(), // running, stopped, paused, etc.
+  node: text("node").notNull(), // Proxmox node name (for cluster tracking)
+  cpuUsage: integer("cpu_usage"), // CPU cores assigned
+  cpuUsagePct: integer("cpu_usage_pct"), // CPU usage percentage
+  memoryBytes: text("memory_bytes"), // Memory in bytes
+  memoryUsagePct: integer("memory_usage_pct"), // Memory usage percentage
+  diskBytes: text("disk_bytes"), // Disk size in bytes
+  uptime: integer("uptime"), // Uptime in seconds
+  ipAddresses: text("ip_addresses").array(), // IP addresses detected
+  macAddresses: text("mac_addresses").array(), // MAC addresses from config
+  matchedDeviceId: varchar("matched_device_id").references(() => devices.id, { onDelete: "set null" }), // Link to existing device by IP/MAC
+  clusterName: text("cluster_name"), // Proxmox cluster name if clustered
+  lastSeen: timestamp("last_seen").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_proxmox_vms_host").on(table.hostDeviceId),
+  index("idx_proxmox_vms_matched").on(table.matchedDeviceId),
+]);
+
 export const insertUserNotificationChannelSchema = createInsertSchema(userNotificationChannels).omit({
   id: true,
   createdAt: true,
@@ -535,6 +583,16 @@ export const insertDeviceStatusEventSchema = createInsertSchema(deviceStatusEven
   createdAt: true,
 });
 
+export const insertProxmoxVmSchema = createInsertSchema(proxmoxVms).omit({
+  id: true,
+  createdAt: true,
+  lastSeen: true,
+}).extend({
+  vmType: z.enum(['qemu', 'lxc']),
+  ipAddresses: z.array(z.string()).optional(),
+  macAddresses: z.array(z.string()).optional(),
+});
+
 export type Map = typeof maps.$inferSelect;
 export type InsertMap = z.infer<typeof insertMapSchema>;
 export type Device = typeof devices.$inferSelect;
@@ -569,3 +627,5 @@ export type AlarmMute = typeof alarmMutes.$inferSelect;
 export type InsertAlarmMute = z.infer<typeof insertAlarmMuteSchema>;
 export type DeviceStatusEvent = typeof deviceStatusEvents.$inferSelect;
 export type InsertDeviceStatusEvent = z.infer<typeof insertDeviceStatusEventSchema>;
+export type ProxmoxVm = typeof proxmoxVms.$inferSelect;
+export type InsertProxmoxVm = z.infer<typeof insertProxmoxVmSchema>;
