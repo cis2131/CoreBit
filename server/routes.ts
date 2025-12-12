@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probeMikrotikWithPool, pingDevice, discoverDevice, type DeviceFingerprint } from "./deviceProbe";
 import { mikrotikPool } from "./mikrotikConnectionPool";
-import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, insertUserNotificationChannelSchema, insertDutyUserScheduleSchema, insertDutyShiftConfigSchema, type Device, type Connection, type UserNotificationChannel } from "@shared/schema";
+import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, insertUserNotificationChannelSchema, insertDutyUserScheduleSchema, insertDutyShiftConfigSchema, insertIpamPoolSchema, insertIpamAddressSchema, type Device, type Connection, type UserNotificationChannel } from "@shared/schema";
 import { z } from "zod";
 import * as fs from "fs";
 import * as path from "path";
@@ -4086,6 +4086,237 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   startPeriodicProbing();
   startTrafficPolling();
+
+  // ========== IPAM ROUTES ==========
+
+  // IPAM Pools
+  app.get("/api/ipam/pools", requireAuth as any, async (_req, res) => {
+    try {
+      const pools = await storage.getAllIpamPools();
+      res.json(pools);
+    } catch (error) {
+      console.error('Error fetching IPAM pools:', error);
+      res.status(500).json({ error: 'Failed to fetch IPAM pools' });
+    }
+  });
+
+  app.get("/api/ipam/pools/:id", requireAuth as any, async (req, res) => {
+    try {
+      const pool = await storage.getIpamPool(req.params.id);
+      if (!pool) {
+        return res.status(404).json({ error: 'Pool not found' });
+      }
+      res.json(pool);
+    } catch (error) {
+      console.error('Error fetching IPAM pool:', error);
+      res.status(500).json({ error: 'Failed to fetch IPAM pool' });
+    }
+  });
+
+  app.post("/api/ipam/pools", canModify as any, async (req, res) => {
+    try {
+      const data = insertIpamPoolSchema.parse(req.body);
+      const pool = await storage.createIpamPool(data);
+      res.status(201).json(pool);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid pool data', details: error.errors });
+      }
+      console.error('Error creating IPAM pool:', error);
+      res.status(500).json({ error: 'Failed to create IPAM pool' });
+    }
+  });
+
+  app.patch("/api/ipam/pools/:id", canModify as any, async (req, res) => {
+    try {
+      const data = insertIpamPoolSchema.partial().parse(req.body);
+      const pool = await storage.updateIpamPool(req.params.id, data);
+      if (!pool) {
+        return res.status(404).json({ error: 'Pool not found' });
+      }
+      res.json(pool);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid pool data', details: error.errors });
+      }
+      console.error('Error updating IPAM pool:', error);
+      res.status(500).json({ error: 'Failed to update IPAM pool' });
+    }
+  });
+
+  app.delete("/api/ipam/pools/:id", canModify as any, async (req, res) => {
+    try {
+      await storage.deleteIpamPool(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting IPAM pool:', error);
+      res.status(500).json({ error: 'Failed to delete IPAM pool' });
+    }
+  });
+
+  // Expand pool to individual addresses
+  app.post("/api/ipam/pools/:id/expand", canModify as any, async (req, res) => {
+    try {
+      const pool = await storage.getIpamPool(req.params.id);
+      if (!pool) {
+        return res.status(404).json({ error: 'Pool not found' });
+      }
+
+      let ips: string[] = [];
+      if (pool.entryType === 'cidr' && pool.cidr) {
+        ips = expandCidr(pool.cidr);
+      } else if (pool.entryType === 'range' && pool.rangeStart && pool.rangeEnd) {
+        ips = expandCidr(`${pool.rangeStart}-${pool.rangeEnd}`);
+      } else if (pool.entryType === 'single' && pool.cidr) {
+        ips = [pool.cidr];
+      }
+
+      // Get existing addresses in this pool to avoid duplicates
+      const existingAddresses = await storage.getIpamAddressesByPool(pool.id);
+      const existingIps = new Set(existingAddresses.map(a => a.ipAddress));
+
+      // Filter out already existing IPs
+      const newIps = ips.filter(ip => !existingIps.has(ip));
+
+      if (newIps.length === 0) {
+        return res.json({ created: 0, message: 'All addresses already exist' });
+      }
+
+      // Create new addresses
+      const addresses = await storage.createIpamAddressesBulk(
+        newIps.map(ip => ({
+          ipAddress: ip,
+          poolId: pool.id,
+          status: 'available' as const,
+        }))
+      );
+
+      res.json({ created: addresses.length, addresses });
+    } catch (error) {
+      console.error('Error expanding IPAM pool:', error);
+      res.status(500).json({ error: 'Failed to expand IPAM pool' });
+    }
+  });
+
+  // IPAM Addresses
+  app.get("/api/ipam/addresses", requireAuth as any, async (req, res) => {
+    try {
+      const { poolId, deviceId, status } = req.query;
+      
+      let addresses;
+      if (poolId && typeof poolId === 'string') {
+        addresses = await storage.getIpamAddressesByPool(poolId);
+      } else if (deviceId && typeof deviceId === 'string') {
+        addresses = await storage.getIpamAddressesByDevice(deviceId);
+      } else {
+        addresses = await storage.getAllIpamAddresses();
+      }
+
+      // Filter by status if provided
+      if (status && typeof status === 'string') {
+        addresses = addresses.filter(a => a.status === status);
+      }
+
+      res.json(addresses);
+    } catch (error) {
+      console.error('Error fetching IPAM addresses:', error);
+      res.status(500).json({ error: 'Failed to fetch IPAM addresses' });
+    }
+  });
+
+  app.get("/api/ipam/addresses/:id", requireAuth as any, async (req, res) => {
+    try {
+      const address = await storage.getIpamAddress(req.params.id);
+      if (!address) {
+        return res.status(404).json({ error: 'Address not found' });
+      }
+      res.json(address);
+    } catch (error) {
+      console.error('Error fetching IPAM address:', error);
+      res.status(500).json({ error: 'Failed to fetch IPAM address' });
+    }
+  });
+
+  app.post("/api/ipam/addresses", canModify as any, async (req, res) => {
+    try {
+      const data = insertIpamAddressSchema.parse(req.body);
+      
+      // Check if IP already exists
+      const existing = await storage.getIpamAddressByIp(data.ipAddress);
+      if (existing) {
+        return res.status(400).json({ error: 'IP address already exists' });
+      }
+
+      const address = await storage.createIpamAddress(data);
+      res.status(201).json(address);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid address data', details: error.errors });
+      }
+      console.error('Error creating IPAM address:', error);
+      res.status(500).json({ error: 'Failed to create IPAM address' });
+    }
+  });
+
+  app.patch("/api/ipam/addresses/:id", canModify as any, async (req, res) => {
+    try {
+      const data = insertIpamAddressSchema.partial().parse(req.body);
+      const address = await storage.updateIpamAddress(req.params.id, data);
+      if (!address) {
+        return res.status(404).json({ error: 'Address not found' });
+      }
+      res.json(address);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid address data', details: error.errors });
+      }
+      console.error('Error updating IPAM address:', error);
+      res.status(500).json({ error: 'Failed to update IPAM address' });
+    }
+  });
+
+  app.delete("/api/ipam/addresses/:id", canModify as any, async (req, res) => {
+    try {
+      await storage.deleteIpamAddress(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting IPAM address:', error);
+      res.status(500).json({ error: 'Failed to delete IPAM address' });
+    }
+  });
+
+  // Auto-sync device IPs to IPAM
+  app.post("/api/ipam/sync-devices", canModify as any, async (_req, res) => {
+    try {
+      const devices = await storage.getAllDevices();
+      const addresses = await storage.getAllIpamAddresses();
+      const addressMap = new Map(addresses.map(a => [a.ipAddress, a]));
+
+      let updated = 0;
+      for (const device of devices) {
+        if (!device.ipAddress) continue;
+        
+        const existingAddr = addressMap.get(device.ipAddress);
+        if (existingAddr) {
+          // Update assignment if different
+          if (existingAddr.assignedDeviceId !== device.id) {
+            await storage.updateIpamAddress(existingAddr.id, {
+              assignedDeviceId: device.id,
+              assignmentSource: 'auto',
+              status: 'assigned',
+              lastSeenAt: new Date(),
+            });
+            updated++;
+          }
+        }
+      }
+
+      res.json({ synced: updated });
+    } catch (error) {
+      console.error('Error syncing devices to IPAM:', error);
+      res.status(500).json({ error: 'Failed to sync devices' });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;
