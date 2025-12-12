@@ -237,13 +237,17 @@ export class ProxmoxApi {
   async getAllVMs(): Promise<ProxmoxVMInfo[]> {
     const authenticated = await this.authenticate();
     if (!authenticated) {
+      console.log(`[Proxmox API] ${this.credentials.host}: Authentication failed`);
       return [];
     }
 
     const nodesResult = await this.getNodes();
     if (!nodesResult.success || !nodesResult.data) {
+      console.log(`[Proxmox API] ${this.credentials.host}: getNodes failed: ${nodesResult.error || 'no data'}`);
       return [];
     }
+    
+    console.log(`[Proxmox API] ${this.credentials.host}: Found ${nodesResult.data.length} nodes: ${nodesResult.data.map(n => n.node).join(', ')}`);
 
     const allVMs: ProxmoxVMInfo[] = [];
 
@@ -252,6 +256,10 @@ export class ProxmoxApi {
         this.getNodeQemuVMs(node.node),
         this.getNodeLxcContainers(node.node)
       ]);
+
+      console.log(`[Proxmox API] ${this.credentials.host}: Node ${node.node} - QEMU: ${qemuResult.success ? (qemuResult.data?.length || 0) : 'failed'}, LXC: ${lxcResult.success ? (lxcResult.data?.length || 0) : 'failed'}`);
+      if (!qemuResult.success) console.log(`[Proxmox API] QEMU error: ${qemuResult.error}`);
+      if (!lxcResult.success) console.log(`[Proxmox API] LXC error: ${lxcResult.error}`);
 
       if (qemuResult.success && qemuResult.data) {
         allVMs.push(...qemuResult.data.filter(vm => !vm.template));

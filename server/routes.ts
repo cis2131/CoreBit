@@ -2608,7 +2608,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Persist Proxmox VMs if this is a Proxmox device probe
         // Note: We process even when proxmoxVms is empty to clean up removed VMs
+        if (device.type === 'proxmox') {
+          console.log(`[Proxmox] ${device.name}: hasProxmoxVms=${!!probeResult.proxmoxVms}, vmCount=${probeResult.proxmoxVms?.length || 0}`);
+        }
         if (device.type === 'proxmox' && probeResult.proxmoxVms) {
+          console.log(`[Proxmox] ${device.name}: Persisting ${probeResult.proxmoxVms.length} VMs to database`);
           try {
             for (const vmInfo of probeResult.proxmoxVms) {
               // Check if VM already exists by vmid

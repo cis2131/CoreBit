@@ -1475,6 +1475,7 @@ export async function probeProxmoxDevice(
 
   // Get all VMs for storage update
   const allVMs = await api.getAllVMs();
+  console.log(`[Proxmox] ${ipAddress}: getAllVMs returned ${allVMs.length} VMs`);
   
   // Fetch network info (IP/MAC) for each running VM in parallel
   // Only probe running VMs to avoid unnecessary API calls
