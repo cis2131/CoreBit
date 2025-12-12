@@ -7,6 +7,7 @@ import {
   type CredentialProfile,
   type Notification,
   type DeviceNotification,
+  type ProxmoxVm,
 } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +37,8 @@ import {
   Clock,
   AlertTriangle,
   Map as MapIcon,
+  Server,
+  Container,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -262,6 +265,16 @@ export function DevicePropertiesPanel({
       if (!response.ok) throw new Error("Failed to fetch device notifications");
       return response.json();
     },
+  });
+
+  const { data: proxmoxVms = [] } = useQuery<ProxmoxVm[]>({
+    queryKey: ["/api/devices", device.id, "vms"],
+    queryFn: async () => {
+      const response = await fetch(`/api/devices/${device.id}/vms`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: device.type === "proxmox",
   });
 
   const addNotificationMutation = useMutation({
@@ -651,6 +664,58 @@ export function DevicePropertiesPanel({
                     </p>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {device.type === "proxmox" && proxmoxVms.length > 0 && (
+            <Card data-testid="card-proxmox-vms">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">Virtual Machines</CardTitle>
+                  <Badge variant="secondary" className="text-xs" data-testid="badge-vm-count">
+                    {proxmoxVms.filter(vm => vm.status === 'running').length}/{proxmoxVms.length} running
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {proxmoxVms.map((vm) => (
+                    <div key={vm.id} className="flex items-start gap-2 text-sm" data-testid={`row-vm-${vm.vmid}`}>
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <div
+                          className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                            vm.status === "running"
+                              ? "bg-green-500"
+                              : vm.status === "stopped"
+                              ? "bg-gray-400"
+                              : "bg-yellow-500"
+                          }`}
+                          data-testid={`status-vm-${vm.vmid}`}
+                        />
+                        {vm.vmType === 'lxc' ? (
+                          <Container className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                        ) : (
+                          <Server className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-foreground truncate" title={vm.name} data-testid={`text-vm-name-${vm.vmid}`}>
+                            {vm.name}
+                          </p>
+                          {vm.ipAddresses && vm.ipAddresses.length > 0 && (
+                            <p className="text-xs text-muted-foreground font-mono" data-testid={`text-vm-ip-${vm.vmid}`}>
+                              {vm.ipAddresses[0]}
+                              {vm.ipAddresses.length > 1 && ` +${vm.ipAddresses.length - 1}`}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="text-xs flex-shrink-0" data-testid={`badge-vm-type-${vm.vmid}`}>
+                        {vm.vmType.toUpperCase()} {vm.vmid}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           )}

@@ -234,6 +234,11 @@ export class ProxmoxApi {
     return this.makeRequest<any[]>('GET', `/nodes/${node}/qemu/${vmid}/agent/network-get-interfaces`);
   }
 
+  async getClusterResources(type?: 'vm' | 'node' | 'storage'): Promise<ProxmoxApiResult<any[]>> {
+    const path = type ? `/cluster/resources?type=${type}` : '/cluster/resources';
+    return this.makeRequest<any[]>('GET', path);
+  }
+
   async getAllVMs(): Promise<ProxmoxVMInfo[]> {
     const authenticated = await this.authenticate();
     if (!authenticated) {
@@ -241,34 +246,34 @@ export class ProxmoxApi {
       return [];
     }
 
-    const nodesResult = await this.getNodes();
-    if (!nodesResult.success || !nodesResult.data) {
-      console.log(`[Proxmox API] ${this.credentials.host}: getNodes failed: ${nodesResult.error || 'no data'}`);
+    // Use cluster/resources endpoint for efficient single-call VM discovery
+    const resourcesResult = await this.getClusterResources('vm');
+    if (!resourcesResult.success || !resourcesResult.data) {
+      console.log(`[Proxmox API] ${this.credentials.host}: cluster/resources failed: ${resourcesResult.error || 'no data'}`);
       return [];
     }
-    
-    console.log(`[Proxmox API] ${this.credentials.host}: Found ${nodesResult.data.length} nodes: ${nodesResult.data.map(n => n.node).join(', ')}`);
 
-    const allVMs: ProxmoxVMInfo[] = [];
+    const allVMs: ProxmoxVMInfo[] = resourcesResult.data
+      .filter((vm: any) => !vm.template && (vm.type === 'qemu' || vm.type === 'lxc'))
+      .map((vm: any) => ({
+        vmid: vm.vmid,
+        name: vm.name || `VM ${vm.vmid}`,
+        status: vm.status,
+        type: vm.type as 'qemu' | 'lxc',
+        node: vm.node,
+        cpu: vm.cpu || 0,
+        cpus: vm.maxcpu || 1,
+        mem: vm.mem || 0,
+        maxmem: vm.maxmem || 0,
+        disk: vm.disk || 0,
+        maxdisk: vm.maxdisk || 0,
+        uptime: vm.uptime || 0,
+        netin: vm.netin,
+        netout: vm.netout,
+        template: vm.template === 1,
+      }));
 
-    for (const node of nodesResult.data) {
-      const [qemuResult, lxcResult] = await Promise.all([
-        this.getNodeQemuVMs(node.node),
-        this.getNodeLxcContainers(node.node)
-      ]);
-
-      console.log(`[Proxmox API] ${this.credentials.host}: Node ${node.node} - QEMU: ${qemuResult.success ? (qemuResult.data?.length || 0) : 'failed'}, LXC: ${lxcResult.success ? (lxcResult.data?.length || 0) : 'failed'}`);
-      if (!qemuResult.success) console.log(`[Proxmox API] QEMU error: ${qemuResult.error}`);
-      if (!lxcResult.success) console.log(`[Proxmox API] LXC error: ${lxcResult.error}`);
-
-      if (qemuResult.success && qemuResult.data) {
-        allVMs.push(...qemuResult.data.filter(vm => !vm.template));
-      }
-      if (lxcResult.success && lxcResult.data) {
-        allVMs.push(...lxcResult.data.filter(vm => !vm.template));
-      }
-    }
-
+    console.log(`[Proxmox API] ${this.credentials.host}: Found ${allVMs.length} VMs via cluster/resources`);
     return allVMs;
   }
 
