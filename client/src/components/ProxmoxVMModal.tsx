@@ -165,7 +165,7 @@ export function ProxmoxVMModal({ device, isOpen, onClose, onDeviceClick }: Proxm
           )}
         </div>
 
-        <ScrollArea className="flex-1 min-h-0">
+        <ScrollArea className="flex-1 min-h-0 overflow-y-auto" style={{ maxHeight: 'calc(85vh - 200px)' }}>
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#E57000] border-t-transparent" />

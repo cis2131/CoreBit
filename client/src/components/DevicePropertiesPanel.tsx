@@ -268,9 +268,9 @@ export function DevicePropertiesPanel({
   });
 
   const { data: proxmoxVms = [] } = useQuery<ProxmoxVm[]>({
-    queryKey: ["/api/devices", device.id, "vms"],
+    queryKey: ["/api/devices", device.id, "proxmox-vms"],
     queryFn: async () => {
-      const response = await fetch(`/api/devices/${device.id}/vms`);
+      const response = await fetch(`/api/devices/${device.id}/proxmox-vms`);
       if (!response.ok) return [];
       return response.json();
     },
