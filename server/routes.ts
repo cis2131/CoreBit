@@ -2628,7 +2628,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 name: vmInfo.name,
                 status: vmInfo.status,
                 vmType: vmInfo.type,
-                nodeName: vmInfo.node,
+                node: vmInfo.node,
                 cpuUsage: vmInfo.cpus?.toString() || null,
                 memoryBytes: vmInfo.mem?.toString() || null,
                 diskBytes: vmInfo.disk?.toString() || null,
@@ -2640,24 +2640,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
               let vmRecord: any;
               if (existingVm) {
                 // Detect cluster migration - VM moved to a different node
-                // Only log if nodeName actually changed (deduplication via stored nodeName comparison)
-                if (existingVm.nodeName && existingVm.nodeName !== vmInfo.node) {
+                // Only log if node actually changed (deduplication via stored node comparison)
+                if (existingVm.node && existingVm.node !== vmInfo.node) {
                   const timestamp = new Date().toISOString();
-                  console.log(`[${timestamp}] [Proxmox] VM ${vmInfo.name} (vmid ${vmInfo.vmid}) migrated: ${existingVm.nodeName} → ${vmInfo.node}`);
+                  console.log(`[${timestamp}] [Proxmox] VM ${vmInfo.name} (vmid ${vmInfo.vmid}) migrated: ${existingVm.node} → ${vmInfo.node}`);
                   
                   // Log the migration event - only once per actual node change
-                  // The nodeName update below ensures subsequent probes won't re-log
+                  // The node update below ensures subsequent probes won't re-log
                   try {
                     await storage.createLog({
                       deviceId: device.id,
                       eventType: 'vm_migration',
                       severity: 'info',
-                      message: `VM "${vmInfo.name}" (vmid ${vmInfo.vmid}) migrated from node "${existingVm.nodeName}" to node "${vmInfo.node}"`,
+                      message: `VM "${vmInfo.name}" (vmid ${vmInfo.vmid}) migrated from node "${existingVm.node}" to node "${vmInfo.node}"`,
                       metadata: { 
                         vmId: existingVm.id,
                         vmid: vmInfo.vmid,
                         vmName: vmInfo.name,
-                        previousNode: existingVm.nodeName,
+                        previousNode: existingVm.node,
                         newNode: vmInfo.node,
                         hostDeviceId: device.id 
                       },
