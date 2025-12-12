@@ -8,6 +8,7 @@ import {
   type Notification,
   type DeviceNotification,
   type ProxmoxVm,
+  type IpamAddress,
 } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,7 @@ import {
   Map as MapIcon,
   Server,
   Container,
+  Network,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -275,6 +277,15 @@ export function DevicePropertiesPanel({
       return response.json();
     },
     enabled: device.type === "proxmox",
+  });
+
+  const { data: deviceIpamAddresses = [] } = useQuery<IpamAddress[]>({
+    queryKey: ["/api/ipam/addresses", { deviceId: device.id }],
+    queryFn: async () => {
+      const response = await fetch(`/api/ipam/addresses?deviceId=${device.id}`);
+      if (!response.ok) return [];
+      return response.json();
+    },
   });
 
   const addNotificationMutation = useMutation({
@@ -517,6 +528,26 @@ export function DevicePropertiesPanel({
                   >
                     {device.ipAddress}
                   </p>
+                </div>
+              )}
+              {deviceIpamAddresses.length > 0 && (
+                <div>
+                  <p className="text-muted-foreground text-xs flex items-center gap-1">
+                    <Network className="h-3 w-3" />
+                    IPAM Addresses
+                  </p>
+                  <div className="space-y-1 mt-1" data-testid="ipam-addresses-list">
+                    {deviceIpamAddresses.map((addr) => (
+                      <div key={addr.id} className="flex items-center gap-2">
+                        <Badge variant="secondary" className="font-mono text-xs" data-testid={`badge-ipam-${addr.id}`}>
+                          {addr.ipAddress}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground capitalize">
+                          {addr.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               <div>

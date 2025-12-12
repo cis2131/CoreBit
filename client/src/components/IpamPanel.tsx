@@ -607,7 +607,7 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
               {viewAddressesPool?.name} - IP Addresses
             </DialogTitle>
             <DialogDescription>
-              {getPoolTypeLabel(viewAddressesPool!)}
+              {viewAddressesPool && getPoolTypeLabel(viewAddressesPool)}
               {viewAddressesPool?.gateway && ` • Gateway: ${viewAddressesPool.gateway}`}
             </DialogDescription>
           </DialogHeader>
