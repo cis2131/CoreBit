@@ -23,7 +23,7 @@ import type { CredentialProfile, InsertCredentialProfile, Notification, InsertNo
 
 const credentialFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  type: z.enum(["mikrotik", "snmp", "prometheus"]),
+  type: z.enum(["mikrotik", "snmp", "prometheus", "proxmox"]),
   credentials: z.object({
     username: z.string().optional(),
     password: z.string().optional(),
@@ -39,6 +39,11 @@ const credentialFormSchema = z.object({
     prometheusPort: z.coerce.number().optional(),
     prometheusPath: z.string().optional(),
     prometheusScheme: z.enum(["http", "https"]).optional(),
+    // Proxmox VE settings
+    proxmoxApiTokenId: z.string().optional(),
+    proxmoxApiTokenSecret: z.string().optional(),
+    proxmoxRealm: z.string().optional(),
+    proxmoxPort: z.coerce.number().optional(),
   }),
 });
 
@@ -2198,6 +2203,7 @@ function CredentialProfileDialog({
                       <SelectItem value="mikrotik">Mikrotik Device</SelectItem>
                       <SelectItem value="snmp">SNMP Device</SelectItem>
                       <SelectItem value="prometheus">Prometheus (node_exporter)</SelectItem>
+                      <SelectItem value="proxmox">Proxmox VE Host</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -2607,6 +2613,148 @@ function CredentialProfileDialog({
                         </FormControl>
                         <FormDescription className="text-xs">
                           Default: /metrics
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </>
+            )}
+
+            {credentialType === "proxmox" && (
+              <>
+                <div className="space-y-3 p-4 border rounded-md">
+                  <h4 className="text-sm font-medium">Proxmox VE API Credentials</h4>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Connect to Proxmox VE hosts using API tokens (recommended) or username/password
+                  </p>
+                  
+                  <FormField
+                    control={form.control}
+                    name="credentials.proxmoxApiTokenId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>API Token ID</FormLabel>
+                        <FormControl>
+                          <Input 
+                            {...field} 
+                            placeholder="user@pam!tokenname" 
+                            autoComplete="off"
+                            data-testid="input-proxmox-token-id" 
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          Format: user@realm!tokenname (leave empty to use username/password)
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="credentials.proxmoxApiTokenSecret"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>API Token Secret</FormLabel>
+                        <FormControl>
+                          <Input 
+                            {...field} 
+                            type="password" 
+                            placeholder="••••••••" 
+                            autoComplete="new-password"
+                            data-testid="input-proxmox-token-secret" 
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <div className="border-t pt-3 mt-3">
+                    <p className="text-xs text-muted-foreground mb-3">Or use username/password authentication:</p>
+                    
+                    <FormField
+                      control={form.control}
+                      name="credentials.username"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Username</FormLabel>
+                          <FormControl>
+                            <Input 
+                              {...field} 
+                              placeholder="root" 
+                              autoComplete="off"
+                              data-testid="input-proxmox-username" 
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="credentials.password"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Password</FormLabel>
+                          <FormControl>
+                            <Input 
+                              {...field} 
+                              type="password" 
+                              placeholder="••••••••" 
+                              autoComplete="new-password"
+                              data-testid="input-proxmox-password" 
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="credentials.proxmoxRealm"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Realm</FormLabel>
+                          <Select value={field.value || "pam"} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-proxmox-realm">
+                                <SelectValue placeholder="pam" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="pam">PAM (Linux)</SelectItem>
+                              <SelectItem value="pve">PVE (Proxmox)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="credentials.proxmoxPort"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>API Port</FormLabel>
+                        <FormControl>
+                          <Input 
+                            {...field} 
+                            type="number" 
+                            placeholder="8006" 
+                            value={field.value || ""}
+                            onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
+                            data-testid="input-proxmox-port" 
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          Default: 8006
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

@@ -46,6 +46,7 @@ const deviceTypes = [
   { value: 'generic_ping', label: 'Ping Only Device' },
   { value: 'server', label: 'Server' },
   { value: 'access_point', label: 'Access Point' },
+  { value: 'proxmox', label: 'Proxmox VE Host' },
 ];
 
 export function AddDeviceDialog({
@@ -76,6 +77,15 @@ export function AddDeviceDialog({
   const [snmpAuthKey, setSnmpAuthKey] = useState('');
   const [snmpPrivProtocol, setSnmpPrivProtocol] = useState<'DES' | 'AES'>('DES');
   const [snmpPrivKey, setSnmpPrivKey] = useState('');
+  
+  // Custom Proxmox credentials
+  const [proxmoxAuthType, setProxmoxAuthType] = useState<'token' | 'password'>('token');
+  const [proxmoxApiTokenId, setProxmoxApiTokenId] = useState('');
+  const [proxmoxApiTokenSecret, setProxmoxApiTokenSecret] = useState('');
+  const [proxmoxUsername, setProxmoxUsername] = useState('');
+  const [proxmoxPassword, setProxmoxPassword] = useState('');
+  const [proxmoxRealm, setProxmoxRealm] = useState('pam');
+  const [proxmoxPort, setProxmoxPort] = useState('8006');
 
   const { data: profiles = [] } = useQuery<CredentialProfile[]>({
     queryKey: ['/api/credential-profiles'],
@@ -85,6 +95,7 @@ export function AddDeviceDialog({
   const deviceCategory = type.startsWith('mikrotik') ? 'mikrotik' : 
                         (type === 'generic_snmp' || type === 'server' || type === 'access_point') ? 'snmp' : 
                         type === 'generic_ping' ? 'ping' :
+                        type === 'proxmox' ? 'proxmox' :
                         'none';
 
   const availableProfiles = profiles.filter(p => 
@@ -114,6 +125,17 @@ export function AddDeviceDialog({
         if (creds.snmpAuthKey) setSnmpAuthKey(creds.snmpAuthKey);
         if (creds.snmpPrivProtocol) setSnmpPrivProtocol(creds.snmpPrivProtocol);
         if (creds.snmpPrivKey) setSnmpPrivKey(creds.snmpPrivKey);
+        if (creds.proxmoxApiTokenId) {
+          setProxmoxAuthType('token');
+          setProxmoxApiTokenId(creds.proxmoxApiTokenId);
+          setProxmoxApiTokenSecret(creds.proxmoxApiTokenSecret || '');
+        } else if (creds.proxmoxRealm) {
+          setProxmoxAuthType('password');
+          setProxmoxUsername(creds.username || '');
+          setProxmoxPassword(creds.password || '');
+          setProxmoxRealm(creds.proxmoxRealm);
+        }
+        if (creds.proxmoxPort) setProxmoxPort(creds.proxmoxPort.toString());
       } else {
         setCredMode('none');
       }
@@ -123,6 +145,23 @@ export function AddDeviceDialog({
       setIpAddress('');
       setCredMode('none');
       setSelectedProfileId('');
+      setMikrotikUsername('');
+      setMikrotikPassword('');
+      setMikrotikPort('8728');
+      setSnmpVersion('2c');
+      setSnmpCommunity('public');
+      setSnmpUsername('');
+      setSnmpAuthProtocol('MD5');
+      setSnmpAuthKey('');
+      setSnmpPrivProtocol('DES');
+      setSnmpPrivKey('');
+      setProxmoxAuthType('token');
+      setProxmoxApiTokenId('');
+      setProxmoxApiTokenSecret('');
+      setProxmoxUsername('');
+      setProxmoxPassword('');
+      setProxmoxRealm('pam');
+      setProxmoxPort('8006');
     }
   }, [editDevice, initialType, open]);
 
@@ -164,6 +203,25 @@ export function AddDeviceDialog({
           }
           
           credentialData = { customCredentials: snmpCreds };
+        } else if (deviceCategory === 'proxmox') {
+          if (proxmoxAuthType === 'token') {
+            credentialData = {
+              customCredentials: {
+                proxmoxApiTokenId,
+                proxmoxApiTokenSecret,
+                proxmoxPort: parseInt(proxmoxPort) || 8006,
+              },
+            };
+          } else {
+            credentialData = {
+              customCredentials: {
+                username: proxmoxUsername,
+                password: proxmoxPassword,
+                proxmoxRealm,
+                proxmoxPort: parseInt(proxmoxPort) || 8006,
+              },
+            };
+          }
         }
       }
 
@@ -400,6 +458,100 @@ export function AddDeviceDialog({
                         </div>
                       </>
                     )}
+                  </div>
+                )}
+
+                {credMode === 'custom' && deviceCategory === 'proxmox' && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Authentication Type</Label>
+                      <RadioGroup value={proxmoxAuthType} onValueChange={(v) => setProxmoxAuthType(v as 'token' | 'password')} data-testid="radio-proxmox-auth-type">
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="token" id="proxmox-token" data-testid="radio-proxmox-token" />
+                          <Label htmlFor="proxmox-token" className="font-normal">API Token (recommended)</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="password" id="proxmox-password" data-testid="radio-proxmox-password" />
+                          <Label htmlFor="proxmox-password" className="font-normal">Username/Password</Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+
+                    {proxmoxAuthType === 'token' && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>API Token ID</Label>
+                          <Input
+                            placeholder="user@pam!tokenname"
+                            value={proxmoxApiTokenId}
+                            onChange={(e) => setProxmoxApiTokenId(e.target.value)}
+                            autoComplete="off"
+                            data-testid="input-proxmox-token-id"
+                          />
+                          <p className="text-xs text-muted-foreground">Format: user@realm!tokenname</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>API Token Secret</Label>
+                          <Input
+                            type="password"
+                            placeholder="••••••••"
+                            value={proxmoxApiTokenSecret}
+                            onChange={(e) => setProxmoxApiTokenSecret(e.target.value)}
+                            autoComplete="new-password"
+                            data-testid="input-proxmox-token-secret"
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {proxmoxAuthType === 'password' && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>Username</Label>
+                          <Input
+                            placeholder="root"
+                            value={proxmoxUsername}
+                            onChange={(e) => setProxmoxUsername(e.target.value)}
+                            autoComplete="off"
+                            data-testid="input-proxmox-username"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Password</Label>
+                          <Input
+                            type="password"
+                            placeholder="••••••••"
+                            value={proxmoxPassword}
+                            onChange={(e) => setProxmoxPassword(e.target.value)}
+                            autoComplete="new-password"
+                            data-testid="input-proxmox-password"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Realm</Label>
+                          <Select value={proxmoxRealm} onValueChange={setProxmoxRealm}>
+                            <SelectTrigger data-testid="select-proxmox-realm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="pam">PAM (Linux)</SelectItem>
+                              <SelectItem value="pve">PVE (Proxmox)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="space-y-2">
+                      <Label>API Port</Label>
+                      <Input
+                        type="number"
+                        placeholder="8006"
+                        value={proxmoxPort}
+                        onChange={(e) => setProxmoxPort(e.target.value)}
+                        data-testid="input-proxmox-port"
+                      />
+                    </div>
                   </div>
                 )}
               </div>
