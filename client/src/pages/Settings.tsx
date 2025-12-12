@@ -3415,7 +3415,7 @@ export default function Settings() {
                           {profile.name}
                         </div>
                         <div className="text-sm text-muted-foreground" data-testid={`text-profile-type-${profile.id}`}>
-                          {profile.type === "mikrotik" ? "Mikrotik Device" : "SNMP Device"}
+                          {profile.type === "mikrotik" ? "Mikrotik Device" : profile.type === "proxmox" ? "Proxmox Device" : "SNMP Device"}
                         </div>
                       </div>
                       <div className="flex gap-2">
