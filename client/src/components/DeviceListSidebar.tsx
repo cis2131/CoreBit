@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChevronLeft, ChevronRight, Server, Router, Wifi, HardDrive, Settings, Eye, EyeOff } from 'lucide-react';
 import { OnDutyPanel } from './OnDutyPanel';
+import { IpamPanel } from './IpamPanel';
 
 interface DeviceListSidebarProps {
   devices: Device[];
@@ -87,6 +88,7 @@ export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragS
       </div>
 
       <OnDutyPanel isCollapsed={isCollapsed} />
+      <IpamPanel isCollapsed={isCollapsed} />
 
       {!isCollapsed && (
         <>
