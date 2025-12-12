@@ -23,6 +23,7 @@ const deviceIcons = {
   generic_snmp: Server,
   server: HardDrive,
   access_point: Wifi,
+  proxmox: Server,
 };
 
 const statusColors = {

@@ -1416,6 +1416,98 @@ export async function probePrometheusDevice(
   });
 }
 
+// Import Proxmox API client
+import { ProxmoxApi, detectProxmox, ProxmoxVMInfo } from './proxmoxApi';
+
+// Probe Proxmox VE host - fetches host info and VM list
+// Returns device data with Proxmox version, node stats, and VM summary
+export async function probeProxmoxDevice(
+  ipAddress: string,
+  credentials?: any,
+  timeoutMs: number = 10000
+): Promise<{ hostData: DeviceProbeData; vms: ProxmoxVMInfo[]; clusterName?: string }> {
+  const port = credentials?.proxmoxPort || 8006;
+  const apiTokenId = credentials?.proxmoxApiTokenId;
+  const apiTokenSecret = credentials?.proxmoxApiTokenSecret;
+  const username = credentials?.username;
+  const password = credentials?.password;
+  const realm = credentials?.proxmoxRealm || 'pam';
+  const verifySsl = credentials?.proxmoxVerifySsl ?? false;
+
+  const api = new ProxmoxApi({
+    host: ipAddress,
+    port,
+    apiTokenId,
+    apiTokenSecret,
+    username,
+    password,
+    realm,
+    verifySsl
+  });
+
+  const hostInfo = await api.getHostInfo();
+  if (!hostInfo) {
+    throw new Error('Failed to authenticate or connect to Proxmox API');
+  }
+
+  // Aggregate node stats for host info
+  let totalCpu = 0;
+  let usedCpu = 0;
+  let totalMem = 0;
+  let usedMem = 0;
+  let totalDisk = 0;
+  let usedDisk = 0;
+  let maxUptime = 0;
+
+  for (const node of hostInfo.nodes) {
+    totalCpu += node.maxcpu || 0;
+    usedCpu += (node.cpu || 0) * (node.maxcpu || 1);
+    totalMem += node.maxmem || 0;
+    usedMem += node.mem || 0;
+    totalDisk += node.maxdisk || 0;
+    usedDisk += node.disk || 0;
+    maxUptime = Math.max(maxUptime, node.uptime || 0);
+  }
+
+  const cpuUsagePct = totalCpu > 0 ? Math.round((usedCpu / totalCpu) * 100) : undefined;
+  const memoryUsagePct = totalMem > 0 ? Math.round((usedMem / totalMem) * 100) : undefined;
+  const diskUsagePct = totalDisk > 0 ? Math.round((usedDisk / totalDisk) * 100) : undefined;
+
+  // Get all VMs for storage update
+  const allVMs = await api.getAllVMs();
+
+  const hostData: DeviceProbeData = {
+    model: `Proxmox VE ${hostInfo.version || ''}`.trim(),
+    version: hostInfo.version || 'Unknown',
+    systemIdentity: hostInfo.clusterName || hostInfo.nodes[0]?.node || 'Proxmox Host',
+    uptime: maxUptime > 0 ? formatUptime(maxUptime) : undefined,
+    cpuUsagePct,
+    memoryUsagePct,
+    diskUsagePct,
+    // Store VM summary in ports array for display
+    ports: hostInfo.nodes.map(node => ({
+      name: node.node,
+      status: node.status === 'online' ? 'up' : 'down',
+      speed: `${hostInfo.runningVMs}/${hostInfo.totalVMs} VMs`
+    }))
+  };
+
+  return {
+    hostData,
+    vms: allVMs,
+    clusterName: hostInfo.clusterName
+  };
+}
+
+// Quick check if Proxmox VE is available on a host
+export async function checkProxmoxAvailable(
+  ipAddress: string,
+  port: number = 8006,
+  timeoutMs: number = 5000
+): Promise<boolean> {
+  return detectProxmox(ipAddress, port, timeoutMs);
+}
+
 // Quick check if Prometheus node_exporter is available on a host
 export async function checkPrometheusAvailable(
   ipAddress: string,
@@ -1462,7 +1554,7 @@ export async function probeDevice(
   needsSnmpIndexing: boolean = false,  // Only true when device has monitored connections
   timeoutSeconds: number = 5,  // Device probe timeout in seconds
   abortSignal?: AbortSignal
-): Promise<{ data: DeviceProbeData; success: boolean; pingOnly?: boolean; pingRtt?: number }> {
+): Promise<{ data: DeviceProbeData; success: boolean; pingOnly?: boolean; pingRtt?: number; proxmoxVms?: ProxmoxVMInfo[] }> {
   if (!ipAddress) {
     return { data: {}, success: false };
   }
@@ -1488,6 +1580,12 @@ export async function probeDevice(
     } else if (deviceType === 'generic_prometheus') {
       // Prometheus-only device type
       data = await probePrometheusDevice(ipAddress, credentials, timeoutSeconds * 1000);
+    } else if (deviceType === 'proxmox') {
+      // Proxmox VE hypervisor - returns host data and VM list
+      const proxmoxResult = await probeProxmoxDevice(ipAddress, credentials, timeoutSeconds * 1000);
+      data = proxmoxResult.hostData;
+      // Return VMs for storage persistence by caller
+      return { data, success: true, proxmoxVms: proxmoxResult.vms };
     } else {
       // Non-Mikrotik devices: try SNMP first, then Prometheus fallback
       try {
@@ -2064,7 +2162,7 @@ const HTTP_FINGERPRINT_PATTERNS: Array<{
   // VMware ESXi - check body or headers
   { pattern: /VMware ESXi|vSphere|hostd/i, deviceType: 'vmware_esxi', confidence: 'high' },
   // Proxmox VE - runs on port 8006
-  { pattern: /Proxmox|pve-manager|PVE/i, deviceType: 'proxmox_ve', confidence: 'high' },
+  { pattern: /Proxmox|pve-manager|PVE/i, deviceType: 'proxmox', confidence: 'high' },
   // MikroTik webfig
   { pattern: /webfig|RouterOS|mikrotik/i, deviceType: 'mikrotik_router', confidence: 'high' },
   // Synology DSM
@@ -2187,6 +2285,12 @@ interface CredentialProfile {
     prometheusPort?: number;
     prometheusPath?: string;
     prometheusScheme?: 'http' | 'https';
+    // Proxmox credentials
+    proxmoxPort?: number;
+    proxmoxApiTokenId?: string;
+    proxmoxApiTokenSecret?: string;
+    proxmoxVerifySsl?: boolean;
+    proxmoxRealm?: string;
   };
 }
 
@@ -2381,6 +2485,58 @@ export async function discoverDevice(
     } catch (promErr: any) {
       log(`Prometheus probe failed: ${promErr.message}`);
     }
+  }
+  
+  // Step 3.6: Try Proxmox VE detection (port 8006)
+  log('Probing Proxmox VE (port 8006)...');
+  const proxmoxAvailable = await checkProxmoxAvailable(ipAddress, 8006, 2000);
+  if (proxmoxAvailable) {
+    log('Proxmox VE detected on port 8006');
+    
+    // Try to get cluster info with Proxmox credentials
+    const proxmoxProfiles = credentialProfiles.filter(p => p.type === 'proxmox');
+    let clusterName: string | undefined;
+    let workingProfileId: string | undefined;
+    
+    for (const profile of proxmoxProfiles) {
+      const creds = profile.credentials || {};
+      if (creds.proxmoxApiTokenId && creds.proxmoxApiTokenSecret) {
+        try {
+          const api = new ProxmoxApi({
+            host: ipAddress,
+            port: creds.proxmoxPort || 8006,
+            apiTokenId: creds.proxmoxApiTokenId,
+            apiTokenSecret: creds.proxmoxApiTokenSecret,
+            verifySsl: creds.proxmoxVerifySsl !== false,
+          });
+          
+          const hostInfo = await api.getHostInfo();
+          clusterName = hostInfo?.clusterName;
+          workingProfileId = profile.id;
+          log(`Proxmox authenticated with profile ${profile.id}, cluster: ${clusterName || 'standalone'}`);
+          break;
+        } catch (proxErr: any) {
+          log(`Proxmox auth failed with profile ${profile.id}: ${proxErr.message}`);
+        }
+      }
+    }
+    
+    return {
+      reachable: true,
+      fingerprint: {
+        deviceType: 'proxmox',
+        confidence: 'high',
+        detectedVia: 'proxmox_api',
+        detectedModel: 'Proxmox VE',
+        additionalInfo: { 
+          clusterName,
+          needsCredentials: !workingProfileId,
+        },
+      },
+      pingRtt: pingResult.rtt,
+      sysName: clusterName || `Proxmox-${ipAddress}`,
+      workingCredentialProfileId: workingProfileId,
+    };
   }
   
   // Step 4: Try SSH banner grab

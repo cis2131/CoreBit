@@ -2605,6 +2605,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!updated && timedOut) {
           return { device, success: false, timeout: true };
         }
+        
+        // Persist Proxmox VMs if this is a Proxmox device probe
+        // Note: We process even when proxmoxVms is empty to clean up removed VMs
+        if (device.type === 'proxmox' && probeResult.proxmoxVms) {
+          try {
+            for (const vmInfo of probeResult.proxmoxVms) {
+              // Check if VM already exists by vmid
+              const existingVm = await storage.getProxmoxVmByVmid(device.id, vmInfo.vmid);
+              
+              const vmData = {
+                hostDeviceId: device.id,
+                vmid: vmInfo.vmid,
+                name: vmInfo.name,
+                status: vmInfo.status,
+                vmType: vmInfo.type,
+                nodeName: vmInfo.node,
+                cpuUsage: vmInfo.cpus?.toString() || null,
+                memoryBytes: vmInfo.mem?.toString() || null,
+                diskBytes: vmInfo.disk?.toString() || null,
+                uptime: vmInfo.uptime?.toString() || null,
+                ipAddresses: [], // Will be populated by guest agent if available
+                macAddresses: [],
+              };
+              
+              if (existingVm) {
+                await storage.updateProxmoxVm(existingVm.id, vmData);
+              } else {
+                await storage.createProxmoxVm(vmData);
+              }
+            }
+            // Clean up VMs that no longer exist on the host
+            const existingVms = await storage.getProxmoxVmsByHost(device.id);
+            const currentVmids = new Set(probeResult.proxmoxVms.map(vm => vm.vmid));
+            for (const existingVm of existingVms) {
+              if (!currentVmids.has(existingVm.vmid)) {
+                await storage.deleteProxmoxVm(existingVm.id);
+              }
+            }
+          } catch (vmError: any) {
+            console.error(`[Probing] Error persisting Proxmox VMs for ${device.name}:`, vmError.message);
+          }
+        }
       }
       
       // Trigger notifications and logging on status change
@@ -3359,6 +3401,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
     setInterval(runTrafficCycle, TRAFFIC_POLLING_INTERVAL);
   }
   
+  // ============ PROXMOX VMS ROUTES ============
+
+  // Get all VMs for a specific Proxmox host device
+  app.get("/api/devices/:id/proxmox-vms", async (req, res) => {
+    try {
+      const device = await storage.getDevice(req.params.id);
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+      if (device.type !== 'proxmox') {
+        return res.status(400).json({ error: 'Device is not a Proxmox host' });
+      }
+      const vms = await storage.getProxmoxVmsByHost(device.id);
+      res.json(vms);
+    } catch (error) {
+      console.error('Error fetching Proxmox VMs:', error);
+      res.status(500).json({ error: 'Failed to fetch Proxmox VMs' });
+    }
+  });
+
+  // Get all Proxmox VMs across all hosts
+  app.get("/api/proxmox-vms", async (req, res) => {
+    try {
+      const vms = await storage.getAllProxmoxVms();
+      res.json(vms);
+    } catch (error) {
+      console.error('Error fetching all Proxmox VMs:', error);
+      res.status(500).json({ error: 'Failed to fetch Proxmox VMs' });
+    }
+  });
+
+  // Match a VM to an existing device by ID
+  const matchVmSchema = z.object({
+    matchedDeviceId: z.string().uuid().nullable().optional()
+  });
+  
+  app.post("/api/proxmox-vms/:vmId/match", canModify as any, async (req, res) => {
+    try {
+      const parsed = matchVmSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid request body', details: parsed.error.errors });
+      }
+      const { matchedDeviceId } = parsed.data;
+      const vm = await storage.matchProxmoxVmToDevice(req.params.vmId, matchedDeviceId || null);
+      if (!vm) {
+        return res.status(404).json({ error: 'VM not found' });
+      }
+      res.json(vm);
+    } catch (error) {
+      console.error('Error matching Proxmox VM:', error);
+      res.status(500).json({ error: 'Failed to match VM to device' });
+    }
+  });
+
   // ============ BACKUP/RESTORE ROUTES ============
   
   // Create a backup of all data

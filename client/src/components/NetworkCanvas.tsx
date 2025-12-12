@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { Device, Connection } from '@shared/schema';
+import { Device, Connection, ProxmoxVm } from '@shared/schema';
 import { DeviceNode } from './DeviceNode';
+import { ProxmoxHostNode } from './ProxmoxHostNode';
 import { ConnectionLine } from './ConnectionLine';
 import { Plus, Minus, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -545,25 +546,39 @@ export function NetworkCanvas({
               ? mapHealthSummary.find(m => m.mapId === placementLinkedMapId)
               : undefined;
             
+            const commonProps = {
+              device: displayDevice,
+              isSelected: selectedDeviceId === device.id,
+              isHighlighted: matchesSearch(device),
+              isOffline: device.status === 'offline',
+              linkedMapId: placementLinkedMapId,
+              linkedMapHasOffline: linkedMapHealth?.hasOffline,
+              hasGlobalNotifications: deviceNotificationMap[device.id] || false,
+              isMuted: device.mutedUntil ? new Date(device.mutedUntil) > new Date() : false,
+              onClick: () => {
+                if (!deviceWasDragged) {
+                  onDeviceClick(device.id);
+                }
+                setDeviceWasDragged(false);
+              },
+              onDragStart: (e: React.MouseEvent) => handleDeviceDragStart(device.id, e),
+              onMapLinkClick,
+            };
+            
+            // Use ProxmoxHostNode for Proxmox devices
+            if (device.type === 'proxmox') {
+              return (
+                <ProxmoxHostNode
+                  key={device.id}
+                  {...commonProps}
+                />
+              );
+            }
+            
             return (
               <DeviceNode
                 key={device.id}
-                device={displayDevice}
-                isSelected={selectedDeviceId === device.id}
-                isHighlighted={matchesSearch(device)}
-                isOffline={device.status === 'offline'}
-                linkedMapId={placementLinkedMapId}
-                linkedMapHasOffline={linkedMapHealth?.hasOffline}
-                hasGlobalNotifications={deviceNotificationMap[device.id] || false}
-                isMuted={device.mutedUntil ? new Date(device.mutedUntil) > new Date() : false}
-                onClick={() => {
-                  if (!deviceWasDragged) {
-                    onDeviceClick(device.id);
-                  }
-                  setDeviceWasDragged(false);
-                }}
-                onDragStart={(e) => handleDeviceDragStart(device.id, e)}
-                onMapLinkClick={onMapLinkClick}
+                {...commonProps}
               />
             );
           })}
