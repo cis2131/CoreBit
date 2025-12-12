@@ -106,6 +106,11 @@ export function TopToolbar({
     queryKey: ['/api/placements/all'],
   });
   
+  // Fetch all Proxmox VMs for search
+  const { data: allVMs = [] } = useQuery<any[]>({
+    queryKey: ['/api/proxmox-vms'],
+  });
+  
   // Close search results when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -119,7 +124,7 @@ export function TopToolbar({
   
   // Categorize search results
   const getSearchResults = () => {
-    if (!searchQuery.trim()) return { onCurrentMap: [], onOtherMaps: [], unplaced: [] };
+    if (!searchQuery.trim()) return { onCurrentMap: [], onOtherMaps: [], unplaced: [], vms: [] };
     
     const query = searchQuery.toLowerCase();
     const matchingDevices = devices.filter(device => 
@@ -154,13 +159,24 @@ export function TopToolbar({
       }
     }
     
-    return { onCurrentMap, onOtherMaps, unplaced };
+    // Search VMs by name or IP
+    const matchingVMs = allVMs.filter(vm => 
+      vm.name?.toLowerCase().includes(query) ||
+      vm.ipAddresses?.some((ip: string) => ip.toLowerCase().includes(query))
+    ).map(vm => {
+      const hostDevice = devices.find(d => d.id === vm.hostDeviceId);
+      const hostPlacements = allPlacements.filter(p => p.deviceId === vm.hostDeviceId);
+      return { vm, hostDevice, hostPlacements };
+    });
+    
+    return { onCurrentMap, onOtherMaps, unplaced, vms: matchingVMs };
   };
   
   const searchResults = getSearchResults();
   const hasResults = searchResults.onCurrentMap.length > 0 || 
                      searchResults.onOtherMaps.length > 0 || 
-                     searchResults.unplaced.length > 0;
+                     searchResults.unplaced.length > 0 ||
+                     searchResults.vms.length > 0;
   
   const getRoleIcon = (role: string) => {
     switch (role) {
@@ -462,6 +478,59 @@ export function TopToolbar({
                                 <div className="text-xs text-muted-foreground truncate">{device.ipAddress || 'No IP'}</div>
                               </div>
                               <span className="text-xs text-orange-500 flex-shrink-0">Sidebar</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {searchResults.vms.length > 0 && (
+                      <div>
+                        <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50">
+                          Virtual Machines ({searchResults.vms.length})
+                        </div>
+                        {searchResults.vms.map(({ vm, hostDevice, hostPlacements }) => {
+                          const hostPlacement = hostPlacements.find((p: any) => p.mapId === currentMapId);
+                          const otherPlacement = hostPlacements[0];
+                          const isHostOnCurrentMap = !!hostPlacement;
+                          const targetMapId = hostPlacement?.mapId || otherPlacement?.mapId;
+                          const targetMap = maps.find(m => m.id === targetMapId);
+                          
+                          return (
+                            <button
+                              key={`vm-${vm.id}`}
+                              className="w-full px-3 py-2 flex items-center gap-2 hover-elevate text-left"
+                              onClick={() => {
+                                if (hostDevice && targetMapId) {
+                                  if (isHostOnCurrentMap) {
+                                    onDeviceStatusSelect?.(hostDevice.id);
+                                  } else {
+                                    onNavigateToDevice?.(hostDevice.id, targetMapId);
+                                  }
+                                }
+                                setShowSearchResults(false);
+                                onSearchChange('');
+                              }}
+                              data-testid={`search-result-vm-${vm.id}`}
+                            >
+                              <div className={`h-2 w-2 rounded-full flex-shrink-0 ${vm.status === 'running' ? 'bg-green-500' : vm.status === 'stopped' ? 'bg-gray-400' : 'bg-yellow-500'}`} />
+                              <Server className="h-4 w-4 text-purple-500 flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium truncate">{vm.name}</div>
+                                <div className="text-xs text-muted-foreground truncate">
+                                  {vm.ipAddresses?.[0] || `vmid ${vm.vmid}`} 
+                                  {hostDevice && <span className="text-purple-500"> on {hostDevice.name}</span>}
+                                </div>
+                              </div>
+                              {isHostOnCurrentMap ? (
+                                <span className="text-xs text-green-600 flex-shrink-0">This map</span>
+                              ) : targetMap ? (
+                                <span className="text-xs text-blue-500 flex-shrink-0 flex items-center gap-1">
+                                  <ExternalLink className="h-3 w-3" />
+                                  {targetMap.name}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-gray-400 flex-shrink-0">Not placed</span>
+                              )}
                             </button>
                           );
                         })}

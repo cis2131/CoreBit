@@ -2614,6 +2614,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // Check if VM already exists by vmid
               const existingVm = await storage.getProxmoxVmByVmid(device.id, vmInfo.vmid);
               
+              // Use IP/MAC addresses from VM info (fetched from guest agent or config)
+              const ipAddresses = vmInfo.ipAddresses || [];
+              const macAddresses = vmInfo.macAddresses || [];
+              
               const vmData = {
                 hostDeviceId: device.id,
                 vmid: vmInfo.vmid,
@@ -2625,14 +2629,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 memoryBytes: vmInfo.mem?.toString() || null,
                 diskBytes: vmInfo.disk?.toString() || null,
                 uptime: vmInfo.uptime?.toString() || null,
-                ipAddresses: [], // Will be populated by guest agent if available
-                macAddresses: [],
+                ipAddresses,
+                macAddresses,
               };
               
+              let vmRecord: any;
               if (existingVm) {
-                await storage.updateProxmoxVm(existingVm.id, vmData);
+                // Detect cluster migration - VM moved to a different node
+                // Only log if nodeName actually changed (deduplication via stored nodeName comparison)
+                if (existingVm.nodeName && existingVm.nodeName !== vmInfo.node) {
+                  const timestamp = new Date().toISOString();
+                  console.log(`[${timestamp}] [Proxmox] VM ${vmInfo.name} (vmid ${vmInfo.vmid}) migrated: ${existingVm.nodeName} → ${vmInfo.node}`);
+                  
+                  // Log the migration event - only once per actual node change
+                  // The nodeName update below ensures subsequent probes won't re-log
+                  try {
+                    await storage.createLog({
+                      deviceId: device.id,
+                      eventType: 'vm_migration',
+                      severity: 'info',
+                      message: `VM "${vmInfo.name}" (vmid ${vmInfo.vmid}) migrated from node "${existingVm.nodeName}" to node "${vmInfo.node}"`,
+                      metadata: { 
+                        vmId: existingVm.id,
+                        vmid: vmInfo.vmid,
+                        vmName: vmInfo.name,
+                        previousNode: existingVm.nodeName,
+                        newNode: vmInfo.node,
+                        hostDeviceId: device.id 
+                      },
+                    });
+                  } catch (logError: any) {
+                    // Non-critical
+                  }
+                }
+                vmRecord = await storage.updateProxmoxVm(existingVm.id, vmData);
               } else {
-                await storage.createProxmoxVm(vmData);
+                vmRecord = await storage.createProxmoxVm(vmData);
+              }
+              
+              // Auto-match VM to device by IP address
+              if (vmRecord && ipAddresses.length > 0) {
+                try {
+                  await storage.autoMatchVmToDevices(vmRecord.id, ipAddresses, macAddresses);
+                } catch (matchError: any) {
+                  // Non-critical - just log and continue
+                }
               }
             }
             // Clean up VMs that no longer exist on the host

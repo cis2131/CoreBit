@@ -1475,6 +1475,34 @@ export async function probeProxmoxDevice(
 
   // Get all VMs for storage update
   const allVMs = await api.getAllVMs();
+  
+  // Fetch network info (IP/MAC) for each running VM in parallel
+  // Only probe running VMs to avoid unnecessary API calls
+  const vmNetworkInfoPromises = allVMs
+    .filter(vm => vm.status === 'running')
+    .map(async (vm) => {
+      try {
+        const networkInfo = await api.getVMNetworkInfo(vm.node, vm.vmid, vm.type);
+        return { vmid: vm.vmid, ...networkInfo };
+      } catch {
+        return { vmid: vm.vmid, ipAddresses: [], macAddresses: [] };
+      }
+    });
+  
+  const vmNetworkInfoResults = await Promise.all(vmNetworkInfoPromises);
+  const vmNetworkMap = new Map(vmNetworkInfoResults.map(r => [r.vmid, r]));
+  
+  // Attach network info to VMs
+  for (const vm of allVMs) {
+    const networkInfo = vmNetworkMap.get(vm.vmid);
+    if (networkInfo) {
+      vm.ipAddresses = networkInfo.ipAddresses;
+      vm.macAddresses = networkInfo.macAddresses;
+    } else {
+      vm.ipAddresses = [];
+      vm.macAddresses = [];
+    }
+  }
 
   const hostData: DeviceProbeData = {
     model: `Proxmox VE ${hostInfo.version || ''}`.trim(),

@@ -40,6 +40,8 @@ export interface ProxmoxVMInfo {
   netin?: number;
   netout?: number;
   template?: boolean;
+  ipAddresses?: string[];
+  macAddresses?: string[];
 }
 
 export interface ProxmoxVMConfig {
