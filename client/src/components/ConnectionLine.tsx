@@ -73,18 +73,27 @@ export function ConnectionLine({
   const isCurved = effectiveOffset !== 0;
 
   // Calculate intersection points with device rectangle boundaries
-  // Device nodes are 320px wide and approximately 130px tall, centered at their position
-  const DEVICE_WIDTH = 320;
-  const DEVICE_HEIGHT = 130;
-  const HALF_WIDTH = DEVICE_WIDTH / 2;
-  const HALF_HEIGHT = DEVICE_HEIGHT / 2;
+  // Standard device nodes are 320px wide and approximately 130px tall, centered at their position
+  // Proxmox device nodes are 380px wide and approximately 200px tall (due to VM list)
+  const getDeviceDimensions = (device: Device | undefined) => {
+    if (device?.type === 'proxmox') {
+      return { width: 380, height: 200 };
+    }
+    return { width: 320, height: 130 };
+  };
+  
+  const sourceDimensions = getDeviceDimensions(sourceDevice);
+  const targetDimensions = getDeviceDimensions(targetDevice);
 
   const calculateRectangleIntersection = (
     centerX: number,
     centerY: number,
     targetX: number,
-    targetY: number
+    targetY: number,
+    dimensions: { width: number; height: number }
   ): { x: number; y: number } => {
+    const halfWidth = dimensions.width / 2;
+    const halfHeight = dimensions.height / 2;
     const dx = targetX - centerX;
     const dy = targetY - centerY;
 
@@ -98,38 +107,38 @@ export function ConnectionLine({
     // Calculate intersections with all four edges
     const candidates: Array<{ x: number; y: number }> = [];
 
-    // Right edge (x = centerX + HALF_WIDTH)
+    // Right edge (x = centerX + halfWidth)
     if (dx > 0) {
-      const x = centerX + HALF_WIDTH;
+      const x = centerX + halfWidth;
       const y = centerY + slope * (x - centerX);
-      if (Math.abs(y - centerY) <= HALF_HEIGHT) {
+      if (Math.abs(y - centerY) <= halfHeight) {
         candidates.push({ x, y });
       }
     }
 
-    // Left edge (x = centerX - HALF_WIDTH)
+    // Left edge (x = centerX - halfWidth)
     if (dx < 0) {
-      const x = centerX - HALF_WIDTH;
+      const x = centerX - halfWidth;
       const y = centerY + slope * (x - centerX);
-      if (Math.abs(y - centerY) <= HALF_HEIGHT) {
+      if (Math.abs(y - centerY) <= halfHeight) {
         candidates.push({ x, y });
       }
     }
 
-    // Bottom edge (y = centerY + HALF_HEIGHT)
+    // Bottom edge (y = centerY + halfHeight)
     if (dy > 0) {
-      const y = centerY + HALF_HEIGHT;
+      const y = centerY + halfHeight;
       const x = dx !== 0 ? centerX + (y - centerY) / slope : centerX;
-      if (Math.abs(x - centerX) <= HALF_WIDTH) {
+      if (Math.abs(x - centerX) <= halfWidth) {
         candidates.push({ x, y });
       }
     }
 
-    // Top edge (y = centerY - HALF_HEIGHT)
+    // Top edge (y = centerY - halfHeight)
     if (dy < 0) {
-      const y = centerY - HALF_HEIGHT;
+      const y = centerY - halfHeight;
       const x = dx !== 0 ? centerX + (y - centerY) / slope : centerX;
-      if (Math.abs(x - centerX) <= HALF_WIDTH) {
+      if (Math.abs(x - centerX) <= halfWidth) {
         candidates.push({ x, y });
       }
     }
@@ -161,16 +170,23 @@ export function ConnectionLine({
   const curveApex = isCurved ? getPointOnQuadraticBezier(0.5) : { x: (sourcePosition.x + targetPosition.x) / 2, y: (sourcePosition.y + targetPosition.y) / 2 };
 
   // Check if a point is inside a device rectangle
-  const isInsideDevice = (point: { x: number; y: number }, devicePos: { x: number; y: number }) => {
+  const isInsideDevice = (
+    point: { x: number; y: number }, 
+    devicePos: { x: number; y: number },
+    dimensions: { width: number; height: number }
+  ) => {
+    const halfWidth = dimensions.width / 2;
+    const halfHeight = dimensions.height / 2;
     return (
-      Math.abs(point.x - devicePos.x) <= HALF_WIDTH &&
-      Math.abs(point.y - devicePos.y) <= HALF_HEIGHT
+      Math.abs(point.x - devicePos.x) <= halfWidth &&
+      Math.abs(point.y - devicePos.y) <= halfHeight
     );
   };
 
   // Find where the curve exits a device rectangle by sampling + binary search
   const findCurveExitPoint = (
     devicePos: { x: number; y: number },
+    dimensions: { width: number; height: number },
     startT: number,
     endT: number,
     step: number
@@ -183,7 +199,7 @@ export function ConnectionLine({
     const direction = startT < endT ? 1 : -1;
     for (let t = startT; direction > 0 ? t <= endT : t >= endT; t += step * direction) {
       const point = getPointOnQuadraticBezier(t);
-      if (isInsideDevice(point, devicePos)) {
+      if (isInsideDevice(point, devicePos, dimensions)) {
         lastInsideT = t;
       } else {
         firstOutsideT = t;
@@ -201,7 +217,7 @@ export function ConnectionLine({
     for (let i = 0; i < 10; i++) {
       const midT = (lastInsideT + firstOutsideT) / 2;
       const point = getPointOnQuadraticBezier(midT);
-      if (isInsideDevice(point, devicePos)) {
+      if (isInsideDevice(point, devicePos, dimensions)) {
         lastInsideT = midT;
       } else {
         firstOutsideT = midT;
@@ -218,8 +234,8 @@ export function ConnectionLine({
 
   if (isCurved) {
     // For curved lines, find where curve exits each device
-    const sourceExit = findCurveExitPoint(sourcePosition, 0, 0.5, 0.02);
-    const targetExit = findCurveExitPoint(targetPosition, 1, 0.5, 0.02);
+    const sourceExit = findCurveExitPoint(sourcePosition, sourceDimensions, 0, 0.5, 0.02);
+    const targetExit = findCurveExitPoint(targetPosition, targetDimensions, 1, 0.5, 0.02);
     
     sourceIndicatorX = sourceExit.x;
     sourceIndicatorY = sourceExit.y;
@@ -231,14 +247,16 @@ export function ConnectionLine({
       sourcePosition.x,
       sourcePosition.y,
       targetPosition.x,
-      targetPosition.y
+      targetPosition.y,
+      sourceDimensions
     );
 
     const targetIntersection = calculateRectangleIntersection(
       targetPosition.x,
       targetPosition.y,
       sourcePosition.x,
-      sourcePosition.y
+      sourcePosition.y,
+      targetDimensions
     );
 
     sourceIndicatorX = sourceIntersection.x;
