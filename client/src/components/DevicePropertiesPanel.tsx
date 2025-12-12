@@ -697,7 +697,7 @@ export function DevicePropertiesPanel({
                       ) : (
                         <Server className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                       )}
-                      <div className="min-w-0 flex-1" style={{ maxWidth: 'calc(100% - 90px)' }}>
+                      <div className="min-w-0 flex-1 max-w-[140px]">
                         <p className="font-medium text-foreground truncate" title={vm.name} data-testid={`text-vm-name-${vm.vmid}`}>
                           {vm.name}
                         </p>
