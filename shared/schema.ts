@@ -473,6 +473,18 @@ export const alarmMutes = pgTable("alarm_mutes", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Device status events - tracks every status change for history/analytics
+export const deviceStatusEvents = pgTable("device_status_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  deviceId: varchar("device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
+  previousStatus: text("previous_status"), // null for initial status
+  newStatus: text("new_status").notNull(), // online, warning, stale, offline, unknown
+  message: text("message"), // Optional description of why status changed
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_device_status_events_device_created").on(table.deviceId, table.createdAt),
+]);
+
 export const insertUserNotificationChannelSchema = createInsertSchema(userNotificationChannels).omit({
   id: true,
   createdAt: true,
@@ -518,6 +530,11 @@ export const insertAlarmMuteSchema = createInsertSchema(alarmMutes).omit({
   createdAt: true,
 });
 
+export const insertDeviceStatusEventSchema = createInsertSchema(deviceStatusEvents).omit({
+  id: true,
+  createdAt: true,
+});
+
 export type Map = typeof maps.$inferSelect;
 export type InsertMap = z.infer<typeof insertMapSchema>;
 export type Device = typeof devices.$inferSelect;
@@ -550,3 +567,5 @@ export type DutyShiftConfig = typeof dutyShiftConfig.$inferSelect;
 export type InsertDutyShiftConfig = z.infer<typeof insertDutyShiftConfigSchema>;
 export type AlarmMute = typeof alarmMutes.$inferSelect;
 export type InsertAlarmMute = z.infer<typeof insertAlarmMuteSchema>;
+export type DeviceStatusEvent = typeof deviceStatusEvents.$inferSelect;
+export type InsertDeviceStatusEvent = z.infer<typeof insertDeviceStatusEventSchema>;

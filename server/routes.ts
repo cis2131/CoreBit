@@ -932,6 +932,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Device status history endpoints
+  app.get("/api/devices/:id/status-events", async (req, res) => {
+    try {
+      const device = await storage.getDevice(req.params.id);
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+
+      const { range, includeWarnings } = req.query;
+      
+      // Calculate time range
+      let since = new Date();
+      switch (range) {
+        case '24h':
+          since.setHours(since.getHours() - 24);
+          break;
+        case '7d':
+          since.setDate(since.getDate() - 7);
+          break;
+        case '30d':
+          since.setDate(since.getDate() - 30);
+          break;
+        case '90d':
+          since.setDate(since.getDate() - 90);
+          break;
+        default:
+          since.setHours(since.getHours() - 24);
+      }
+
+      const events = await storage.getDeviceStatusEvents(req.params.id, {
+        since,
+        includeWarnings: includeWarnings !== 'false',
+        limit: 500
+      });
+
+      res.json(events);
+    } catch (error) {
+      console.error('Error fetching status events:', error);
+      res.status(500).json({ error: 'Failed to fetch status events' });
+    }
+  });
+
+  app.get("/api/devices/:id/status-summary", async (req, res) => {
+    try {
+      const device = await storage.getDevice(req.params.id);
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+
+      const { range } = req.query;
+      
+      // Calculate time range
+      let since = new Date();
+      switch (range) {
+        case '24h':
+          since.setHours(since.getHours() - 24);
+          break;
+        case '7d':
+          since.setDate(since.getDate() - 7);
+          break;
+        case '30d':
+          since.setDate(since.getDate() - 30);
+          break;
+        case '90d':
+          since.setDate(since.getDate() - 90);
+          break;
+        default:
+          since.setHours(since.getHours() - 24);
+      }
+
+      const summary = await storage.getDeviceStatusSummary(req.params.id, since);
+      
+      // Calculate percentages
+      const totalMs = summary.reduce((acc, s) => acc + s.durationMs, 0);
+      const summaryWithPercentages = summary.map(s => ({
+        ...s,
+        percentage: totalMs > 0 ? Math.round((s.durationMs / totalMs) * 1000) / 10 : 0
+      }));
+
+      res.json({
+        since: since.toISOString(),
+        totalMs,
+        summary: summaryWithPercentages
+      });
+    } catch (error) {
+      console.error('Error fetching status summary:', error);
+      res.status(500).json({ error: 'Failed to fetch status summary' });
+    }
+  });
+
   // Connection routes
   app.get("/api/connections/:mapId", async (req, res) => {
     try {
@@ -2386,6 +2476,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 newStatus: status,
                 metadata: { ipAddress: device.ipAddress },
               });
+              // Record status event for history tracking
+              await storage.createDeviceStatusEvent({
+                deviceId: device.id,
+                previousStatus: oldStatus,
+                newStatus: status,
+                message: `Status changed from ${oldStatus} to ${status}`,
+              });
             } catch (error: any) {
               console.error(`[Logging] Error creating log for ${device.name}:`, error.message);
             }
@@ -2534,6 +2631,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
             newStatus: status,
             metadata: { ipAddress: device.ipAddress },
           });
+          // Record status event for history tracking
+          await storage.createDeviceStatusEvent({
+            deviceId: device.id,
+            previousStatus: oldStatus,
+            newStatus: status,
+            message: status === 'stale' 
+              ? `${getProbeTypeDescription()} unreachable but responds to ping`
+              : `Status changed from ${oldStatus} to ${status}`,
+          });
         } catch (error: any) {
           console.error(`[Logging] Error creating log for ${device.name}:`, error.message);
         }
@@ -2640,6 +2746,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   oldStatus,
                   newStatus: targetStatus,
                   metadata: { ipAddress: device.ipAddress },
+                });
+                // Record status event for history tracking
+                await storage.createDeviceStatusEvent({
+                  deviceId: device.id,
+                  previousStatus: oldStatus,
+                  newStatus: targetStatus,
+                  message: useStaleStatus 
+                    ? `${probeTypeLabel} unreachable but responds to ping`
+                    : `Probe timeout after ${currentFailureCount} failed cycles`,
                 });
               } catch (logError: any) {
                 console.error(`[Logging] Error creating timeout log for ${device.name}:`, logError.message);
@@ -2802,6 +2917,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   oldStatus,
                   newStatus: 'offline',
                   metadata: { ipAddress: device.ipAddress },
+                });
+                // Record status event for history tracking
+                await storage.createDeviceStatusEvent({
+                  deviceId: device.id,
+                  previousStatus: oldStatus,
+                  newStatus: 'offline',
+                  message: `Stale ${Math.round(timeSinceLastSeen / 1000)}s and ping failed`,
                 });
               } catch (error: any) {
                 console.error(`[Logging] Error creating stale log for ${device.name}:`, error.message);

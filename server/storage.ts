@@ -17,6 +17,7 @@ import {
   dutyUserSchedules,
   dutyShiftConfig,
   alarmMutes,
+  deviceStatusEvents,
   type Map, 
   type InsertMap,
   type Device,
@@ -48,7 +49,9 @@ import {
   type DutyShiftConfig,
   type InsertDutyShiftConfig,
   type AlarmMute,
-  type InsertAlarmMute
+  type InsertAlarmMute,
+  type DeviceStatusEvent,
+  type InsertDeviceStatusEvent
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNotNull, isNull, or, gt } from "drizzle-orm";
@@ -168,6 +171,12 @@ export interface IStorage {
   createAlarmMute(mute: InsertAlarmMute): Promise<AlarmMute>;
   deleteAlarmMute(id: string): Promise<void>;
   clearExpiredAlarmMutes(): Promise<void>;
+
+  // Device Status Events
+  createDeviceStatusEvent(event: InsertDeviceStatusEvent): Promise<DeviceStatusEvent>;
+  getDeviceStatusEvents(deviceId: string, options?: { since?: Date; until?: Date; includeWarnings?: boolean; limit?: number }): Promise<DeviceStatusEvent[]>;
+  getDeviceStatusSummary(deviceId: string, since: Date): Promise<{ status: string; durationMs: number }[]>;
+  deleteOldDeviceStatusEvents(olderThan: Date): Promise<number>;
 
   // Map Health Summary
   getMapHealthSummary(): Promise<{ mapId: string; hasOffline: boolean }[]>;
@@ -728,6 +737,136 @@ export class DatabaseStorage implements IStorage {
         lt(alarmMutes.muteUntil, now)
       )
     );
+  }
+
+  // Device Status Events
+  async createDeviceStatusEvent(event: InsertDeviceStatusEvent): Promise<DeviceStatusEvent> {
+    const [statusEvent] = await db
+      .insert(deviceStatusEvents)
+      .values(event)
+      .returning();
+    return statusEvent;
+  }
+
+  async getDeviceStatusEvents(
+    deviceId: string, 
+    options?: { since?: Date; until?: Date; includeWarnings?: boolean; limit?: number }
+  ): Promise<DeviceStatusEvent[]> {
+    const { gte, lte, ne } = await import('drizzle-orm');
+    
+    let query = db.select().from(deviceStatusEvents)
+      .where(eq(deviceStatusEvents.deviceId, deviceId))
+      .orderBy(desc(deviceStatusEvents.createdAt));
+
+    // Build conditions array for additional filters
+    const conditions = [eq(deviceStatusEvents.deviceId, deviceId)];
+    
+    if (options?.since) {
+      conditions.push(gte(deviceStatusEvents.createdAt, options.since));
+    }
+    
+    if (options?.until) {
+      conditions.push(lte(deviceStatusEvents.createdAt, options.until));
+    }
+    
+    // Filter out warning status if requested
+    if (options?.includeWarnings === false) {
+      conditions.push(ne(deviceStatusEvents.newStatus, 'warning'));
+      conditions.push(or(
+        isNull(deviceStatusEvents.previousStatus),
+        ne(deviceStatusEvents.previousStatus, 'warning')
+      )!);
+    }
+
+    const results = await db.select().from(deviceStatusEvents)
+      .where(and(...conditions))
+      .orderBy(desc(deviceStatusEvents.createdAt))
+      .limit(options?.limit ?? 1000);
+    
+    return results;
+  }
+
+  async getDeviceStatusSummary(deviceId: string, since: Date): Promise<{ status: string; durationMs: number }[]> {
+    const { gte, lt } = await import('drizzle-orm');
+    
+    const now = new Date();
+    const statusDurations: Record<string, number> = {};
+    
+    // Get the last event before the "since" date to determine starting status
+    const [lastEventBeforeSince] = await db.select().from(deviceStatusEvents)
+      .where(and(
+        eq(deviceStatusEvents.deviceId, deviceId),
+        lt(deviceStatusEvents.createdAt, since)
+      ))
+      .orderBy(desc(deviceStatusEvents.createdAt))
+      .limit(1);
+    
+    // Get all status events since the start time, ordered by creation date
+    const eventsInRange = await db.select().from(deviceStatusEvents)
+      .where(and(
+        eq(deviceStatusEvents.deviceId, deviceId),
+        gte(deviceStatusEvents.createdAt, since)
+      ))
+      .orderBy(deviceStatusEvents.createdAt);
+    
+    // If no events at all, fall back to device's current status for the entire window
+    if (!lastEventBeforeSince && eventsInRange.length === 0) {
+      const device = await this.getDevice(deviceId);
+      if (device) {
+        const durationMs = now.getTime() - since.getTime();
+        return [{ status: device.status, durationMs }];
+      }
+      return [];
+    }
+    
+    // Track current status and time as we walk through the timeline
+    // Use pre-window event status, or fall back to first in-range event's previousStatus
+    let currentStatus: string | undefined = lastEventBeforeSince?.newStatus;
+    
+    // If no pre-window event but we have in-range events, use the first event's previousStatus as baseline
+    if (!currentStatus && eventsInRange.length > 0) {
+      currentStatus = eventsInRange[0].previousStatus || undefined;
+    }
+    
+    let lastTime = since;
+    
+    // Process each event in range
+    for (const event of eventsInRange) {
+      const eventTime = new Date(event.createdAt);
+      
+      // If we have a current status, add duration from lastTime to this event
+      if (currentStatus) {
+        const durationMs = eventTime.getTime() - lastTime.getTime();
+        if (durationMs > 0) {
+          statusDurations[currentStatus] = (statusDurations[currentStatus] || 0) + durationMs;
+        }
+      }
+      
+      // Update current status and lastTime for next iteration
+      currentStatus = event.newStatus;
+      lastTime = eventTime;
+    }
+    
+    // Add the tail interval from the last event to now
+    if (currentStatus) {
+      const durationMs = now.getTime() - lastTime.getTime();
+      if (durationMs > 0) {
+        statusDurations[currentStatus] = (statusDurations[currentStatus] || 0) + durationMs;
+      }
+    }
+    
+    return Object.entries(statusDurations).map(([status, durationMs]) => ({
+      status,
+      durationMs
+    }));
+  }
+
+  async deleteOldDeviceStatusEvents(olderThan: Date): Promise<number> {
+    const { lt } = await import('drizzle-orm');
+    const result = await db.delete(deviceStatusEvents)
+      .where(lt(deviceStatusEvents.createdAt, olderThan))
+      .returning();
+    return result.length;
   }
 
   // Map Health Summary - aggregate device statuses per map

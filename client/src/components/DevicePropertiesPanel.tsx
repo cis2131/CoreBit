@@ -41,6 +41,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { StatusHistoryBar, StatusHistoryModal } from "@/components/StatusHistory";
 
 interface DevicePropertiesPanelProps {
   device: Device & {
@@ -131,6 +132,7 @@ export function DevicePropertiesPanel({
 }: DevicePropertiesPanelProps) {
   const { toast } = useToast();
   const [probing, setProbing] = useState(false);
+  const [statusHistoryOpen, setStatusHistoryOpen] = useState(false);
   const [timeoutValue, setTimeoutValue] = useState<string>(
     device.probeTimeout?.toString() ?? "",
   );
@@ -546,6 +548,13 @@ export function DevicePropertiesPanel({
                   })()}
                 </div>
               )}
+              <div>
+                <p className="text-muted-foreground text-xs mb-1.5">Status History (24h)</p>
+                <StatusHistoryBar 
+                  deviceId={device.id} 
+                  onClick={() => setStatusHistoryOpen(true)}
+                />
+              </div>
             </CardContent>
           </Card>
 
@@ -1169,6 +1178,13 @@ export function DevicePropertiesPanel({
           </>
         )}
       </div>
+
+      <StatusHistoryModal
+        deviceId={device.id}
+        deviceName={device.name}
+        open={statusHistoryOpen}
+        onOpenChange={setStatusHistoryOpen}
+      />
     </div>
   );
 }
