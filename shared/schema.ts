@@ -593,6 +593,59 @@ export const insertProxmoxVmSchema = createInsertSchema(proxmoxVms).omit({
   macAddresses: z.array(z.string()).optional(),
 });
 
+// IPAM Pools - defines IP address ranges/blocks to track
+export const ipamPools = pgTable("ipam_pools", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  entryType: text("entry_type").notNull().$type<'cidr' | 'range' | 'single'>(),
+  cidr: text("cidr"), // For CIDR notation (e.g., 192.168.1.0/24)
+  rangeStart: text("range_start"), // For range notation start IP
+  rangeEnd: text("range_end"), // For range notation end IP
+  vlan: integer("vlan"), // Optional VLAN tag
+  gateway: text("gateway"), // Optional gateway IP
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// IPAM Addresses - individual IP addresses tracked within pools
+export const ipamAddresses = pgTable("ipam_addresses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ipAddress: text("ip_address").notNull(),
+  poolId: varchar("pool_id").references(() => ipamPools.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("available").$type<'available' | 'assigned' | 'reserved' | 'offline'>(),
+  assignedDeviceId: varchar("assigned_device_id").references(() => devices.id, { onDelete: "set null" }),
+  assignedInterfaceIndex: integer("assigned_interface_index"), // Index into device's ports array
+  assignmentSource: text("assignment_source").$type<'manual' | 'auto'>(), // How was this assignment made
+  hostname: text("hostname"), // Optional hostname for this IP
+  notes: text("notes"),
+  lastSeenAt: timestamp("last_seen_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_ipam_addresses_pool").on(table.poolId),
+  index("idx_ipam_addresses_device").on(table.assignedDeviceId),
+  index("idx_ipam_addresses_ip").on(table.ipAddress),
+]);
+
+export const insertIpamPoolSchema = createInsertSchema(ipamPools).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  entryType: z.enum(['cidr', 'range', 'single']),
+  vlan: z.number().int().min(1).max(4094).optional().nullable(),
+});
+
+export const insertIpamAddressSchema = createInsertSchema(ipamAddresses).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  status: z.enum(['available', 'assigned', 'reserved', 'offline']).optional(),
+  assignmentSource: z.enum(['manual', 'auto']).optional().nullable(),
+});
+
 export type Map = typeof maps.$inferSelect;
 export type InsertMap = z.infer<typeof insertMapSchema>;
 export type Device = typeof devices.$inferSelect;
@@ -629,3 +682,7 @@ export type DeviceStatusEvent = typeof deviceStatusEvents.$inferSelect;
 export type InsertDeviceStatusEvent = z.infer<typeof insertDeviceStatusEventSchema>;
 export type ProxmoxVm = typeof proxmoxVms.$inferSelect;
 export type InsertProxmoxVm = z.infer<typeof insertProxmoxVmSchema>;
+export type IpamPool = typeof ipamPools.$inferSelect;
+export type InsertIpamPool = z.infer<typeof insertIpamPoolSchema>;
+export type IpamAddress = typeof ipamAddresses.$inferSelect;
+export type InsertIpamAddress = z.infer<typeof insertIpamAddressSchema>;

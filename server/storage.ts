@@ -19,6 +19,8 @@ import {
   alarmMutes,
   deviceStatusEvents,
   proxmoxVms,
+  ipamPools,
+  ipamAddresses,
   type Map, 
   type InsertMap,
   type Device,
@@ -54,7 +56,11 @@ import {
   type DeviceStatusEvent,
   type InsertDeviceStatusEvent,
   type ProxmoxVm,
-  type InsertProxmoxVm
+  type InsertProxmoxVm,
+  type IpamPool,
+  type InsertIpamPool,
+  type IpamAddress,
+  type InsertIpamAddress
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNotNull, isNull, or, gt } from "drizzle-orm";
@@ -200,6 +206,25 @@ export interface IStorage {
 
   // Bulk Delete Operations
   deleteAllNetworkData(): Promise<{ devicesDeleted: number; mapsDeleted: number; logsDeleted: number }>;
+
+  // IPAM Pools
+  getAllIpamPools(): Promise<IpamPool[]>;
+  getIpamPool(id: string): Promise<IpamPool | undefined>;
+  createIpamPool(pool: InsertIpamPool): Promise<IpamPool>;
+  updateIpamPool(id: string, pool: Partial<InsertIpamPool>): Promise<IpamPool | undefined>;
+  deleteIpamPool(id: string): Promise<void>;
+
+  // IPAM Addresses
+  getAllIpamAddresses(): Promise<IpamAddress[]>;
+  getIpamAddressesByPool(poolId: string): Promise<IpamAddress[]>;
+  getIpamAddress(id: string): Promise<IpamAddress | undefined>;
+  getIpamAddressByIp(ipAddress: string): Promise<IpamAddress | undefined>;
+  getIpamAddressesByDevice(deviceId: string): Promise<IpamAddress[]>;
+  createIpamAddress(address: InsertIpamAddress): Promise<IpamAddress>;
+  createIpamAddressesBulk(addresses: InsertIpamAddress[]): Promise<IpamAddress[]>;
+  updateIpamAddress(id: string, address: Partial<InsertIpamAddress>): Promise<IpamAddress | undefined>;
+  deleteIpamAddress(id: string): Promise<void>;
+  deleteIpamAddressesByPool(poolId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1056,6 +1081,76 @@ export class DatabaseStorage implements IStorage {
     await db.delete(maps);
     
     return { devicesDeleted, mapsDeleted, logsDeleted };
+  }
+
+  // IPAM Pools
+  async getAllIpamPools(): Promise<IpamPool[]> {
+    return await db.select().from(ipamPools).orderBy(ipamPools.name);
+  }
+
+  async getIpamPool(id: string): Promise<IpamPool | undefined> {
+    const [pool] = await db.select().from(ipamPools).where(eq(ipamPools.id, id));
+    return pool || undefined;
+  }
+
+  async createIpamPool(insertPool: InsertIpamPool): Promise<IpamPool> {
+    const [pool] = await db.insert(ipamPools).values(insertPool).returning();
+    return pool;
+  }
+
+  async updateIpamPool(id: string, updateData: Partial<InsertIpamPool>): Promise<IpamPool | undefined> {
+    const [pool] = await db.update(ipamPools).set({ ...updateData, updatedAt: new Date() }).where(eq(ipamPools.id, id)).returning();
+    return pool || undefined;
+  }
+
+  async deleteIpamPool(id: string): Promise<void> {
+    await db.delete(ipamPools).where(eq(ipamPools.id, id));
+  }
+
+  // IPAM Addresses
+  async getAllIpamAddresses(): Promise<IpamAddress[]> {
+    return await db.select().from(ipamAddresses).orderBy(ipamAddresses.ipAddress);
+  }
+
+  async getIpamAddressesByPool(poolId: string): Promise<IpamAddress[]> {
+    return await db.select().from(ipamAddresses).where(eq(ipamAddresses.poolId, poolId));
+  }
+
+  async getIpamAddress(id: string): Promise<IpamAddress | undefined> {
+    const [addr] = await db.select().from(ipamAddresses).where(eq(ipamAddresses.id, id));
+    return addr || undefined;
+  }
+
+  async getIpamAddressByIp(ipAddress: string): Promise<IpamAddress | undefined> {
+    const [addr] = await db.select().from(ipamAddresses).where(eq(ipamAddresses.ipAddress, ipAddress));
+    return addr || undefined;
+  }
+
+  async getIpamAddressesByDevice(deviceId: string): Promise<IpamAddress[]> {
+    return await db.select().from(ipamAddresses).where(eq(ipamAddresses.assignedDeviceId, deviceId));
+  }
+
+  async createIpamAddress(insertAddr: InsertIpamAddress): Promise<IpamAddress> {
+    const [addr] = await db.insert(ipamAddresses).values(insertAddr).returning();
+    return addr;
+  }
+
+  async createIpamAddressesBulk(addresses: InsertIpamAddress[]): Promise<IpamAddress[]> {
+    if (addresses.length === 0) return [];
+    return await db.insert(ipamAddresses).values(addresses).returning();
+  }
+
+  async updateIpamAddress(id: string, updateData: Partial<InsertIpamAddress>): Promise<IpamAddress | undefined> {
+    const [addr] = await db.update(ipamAddresses).set({ ...updateData, updatedAt: new Date() }).where(eq(ipamAddresses.id, id)).returning();
+    return addr || undefined;
+  }
+
+  async deleteIpamAddress(id: string): Promise<void> {
+    await db.delete(ipamAddresses).where(eq(ipamAddresses.id, id));
+  }
+
+  async deleteIpamAddressesByPool(poolId: string): Promise<void> {
+    await db.delete(ipamAddresses).where(eq(ipamAddresses.poolId, poolId));
   }
 }
 
