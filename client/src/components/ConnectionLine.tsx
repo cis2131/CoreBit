@@ -77,7 +77,7 @@ export function ConnectionLine({
   // Proxmox device nodes are 380px wide and approximately 200px tall (due to VM list)
   const getDeviceDimensions = (device: Device | undefined) => {
     if (device?.type === 'proxmox') {
-      return { width: 380, height: 240 };
+      return { width: 380, height: 220 };
     }
     return { width: 320, height: 130 };
   };
