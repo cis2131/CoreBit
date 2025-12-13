@@ -4355,12 +4355,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // If no poolId provided, try to find a matching pool based on the IP address
       let poolId = data.poolId;
       if (!poolId) {
+        // Strip CIDR suffix if present (e.g., "10.0.0.5/24" -> "10.0.0.5")
+        const ipForMatching = data.ipAddress.split('/')[0];
         const pools = await storage.getAllIpamPools();
         for (const pool of pools) {
           if (pool.entryType === 'cidr' && pool.cidr) {
             const [baseIp, prefixStr] = pool.cidr.split('/');
             const prefix = parseInt(prefixStr, 10);
-            const ipNum = ipToLong(data.ipAddress);
+            const ipNum = ipToLong(ipForMatching);
             const baseNum = ipToLong(baseIp);
             const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
             const network = baseNum & mask;
@@ -4371,7 +4373,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               break;
             }
           } else if (pool.entryType === 'range' && pool.rangeStart && pool.rangeEnd) {
-            const ipNum = ipToLong(data.ipAddress);
+            const ipNum = ipToLong(ipForMatching);
             const startNum = ipToLong(pool.rangeStart);
             const endNum = ipToLong(pool.rangeEnd);
             if (ipNum >= startNum && ipNum <= endNum) {
@@ -4380,7 +4382,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           } else if (pool.entryType === 'single') {
             // Single-entry pools may store IP in rangeStart or cidr
-            if (pool.rangeStart === data.ipAddress || pool.cidr === data.ipAddress) {
+            const bareIp = ipForMatching;
+            if (pool.rangeStart === bareIp || pool.cidr === bareIp) {
               poolId = pool.id;
               break;
             }
