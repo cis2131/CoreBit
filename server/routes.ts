@@ -635,28 +635,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create or update IPAM address for the device's IP and set as polling address
       if (device.ipAddress) {
         try {
-          // Check if IP already exists to avoid duplicates
-          const existingIpam = await storage.getIpamAddressByIp(device.ipAddress);
-          let ipamAddress;
-          if (existingIpam) {
-            // Update existing address with device assignment
-            ipamAddress = await storage.updateIpamAddress(existingIpam.id, {
-              assignedDeviceId: device.id,
-              status: 'assigned',
-              role: existingIpam.role || 'primary',
-              lastSeenAt: new Date(),
-            });
-          } else {
-            // Create new address
-            ipamAddress = await storage.createIpamAddress({
-              ipAddress: device.ipAddress,
-              assignedDeviceId: device.id,
-              source: 'manual',
-              status: 'assigned',
-              role: 'primary',
-              lastSeenAt: new Date(),
-            });
-          }
+          // Atomic upsert - prevents race conditions and duplicates
+          const ipamAddress = await storage.upsertIpamAddress({
+            ipAddress: device.ipAddress,
+            assignedDeviceId: device.id,
+            source: 'manual',
+            status: 'assigned',
+            role: 'primary',
+            lastSeenAt: new Date(),
+          });
           // Set this as the polling address
           if (ipamAddress) {
             await storage.updateDevice(device.id, {
@@ -2324,28 +2311,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Create or update IPAM address for the device's IP and set as polling address
           if (device.ipAddress) {
             try {
-              // Check if IP already exists to avoid duplicates
-              const existingIpam = await storage.getIpamAddressByIp(device.ipAddress);
-              let ipamAddress;
-              if (existingIpam) {
-                // Update existing address with device assignment
-                ipamAddress = await storage.updateIpamAddress(existingIpam.id, {
-                  assignedDeviceId: device.id,
-                  status: 'assigned',
-                  role: existingIpam.role || 'primary',
-                  lastSeenAt: new Date(),
-                });
-              } else {
-                // Create new address
-                ipamAddress = await storage.createIpamAddress({
-                  ipAddress: device.ipAddress,
-                  assignedDeviceId: device.id,
-                  source: 'manual',
-                  status: 'assigned',
-                  role: 'primary',
-                  lastSeenAt: new Date(),
-                });
-              }
+              // Atomic upsert - prevents race conditions and duplicates
+              const ipamAddress = await storage.upsertIpamAddress({
+                ipAddress: device.ipAddress,
+                assignedDeviceId: device.id,
+                source: 'manual',
+                status: 'assigned',
+                role: 'primary',
+                lastSeenAt: new Date(),
+              });
               if (ipamAddress) {
                 await storage.updateDevice(device.id, {
                   pollingAddressId: ipamAddress.id,
@@ -4506,20 +4480,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Check if IP already exists using bare IP
-      const existing = await storage.getIpamAddressByIp(bareIp);
-      if (existing) {
-        // Update existing record instead of creating duplicate
-        const updatedAddress = await storage.updateIpamAddress(existing.id, {
-          ...data,
-          ipAddress: bareIp,  // Always store bare IP
-          poolId: poolId || existing.poolId,  // Use found pool or keep existing
-        });
-        return res.json(updatedAddress);
-      }
-
-      // Create new address with bare IP
-      const address = await storage.createIpamAddress({ ...data, ipAddress: bareIp, poolId });
+      // Atomic upsert - prevents race conditions and duplicates
+      const address = await storage.upsertIpamAddress({ ...data, ipAddress: bareIp, poolId });
       res.status(201).json(address);
     } catch (error) {
       if (error instanceof z.ZodError) {

@@ -277,6 +277,7 @@ export interface IStorage {
   getIpamAddressesByDevice(deviceId: string): Promise<IpamAddress[]>;
   createIpamAddress(address: InsertIpamAddress): Promise<IpamAddress>;
   createIpamAddressesBulk(addresses: InsertIpamAddress[]): Promise<IpamAddress[]>;
+  upsertIpamAddress(address: InsertIpamAddress): Promise<IpamAddress>;
   updateIpamAddress(id: string, address: Partial<InsertIpamAddress>): Promise<IpamAddress | undefined>;
   deleteIpamAddress(id: string): Promise<void>;
   deleteIpamAddressesByPool(poolId: string): Promise<void>;
@@ -1238,6 +1239,31 @@ export class DatabaseStorage implements IStorage {
     return await db.insert(ipamAddresses).values(addresses).returning();
   }
 
+  async upsertIpamAddress(insertAddr: InsertIpamAddress): Promise<IpamAddress> {
+    // Atomic upsert using ON CONFLICT - preserves existing values for undefined fields
+    // Build update set dynamically to only overwrite explicitly provided fields
+    const updateSet: Record<string, any> = { updatedAt: new Date() };
+    
+    if (insertAddr.poolId !== undefined) updateSet.poolId = insertAddr.poolId;
+    if (insertAddr.networkAddress !== undefined) updateSet.networkAddress = insertAddr.networkAddress;
+    if (insertAddr.status !== undefined) updateSet.status = insertAddr.status;
+    if (insertAddr.source !== undefined) updateSet.source = insertAddr.source;
+    if (insertAddr.notes !== undefined) updateSet.notes = insertAddr.notes;
+    if (insertAddr.lastSeenAt !== undefined) updateSet.lastSeenAt = insertAddr.lastSeenAt;
+    if (insertAddr.assignedDeviceId !== undefined) updateSet.assignedDeviceId = insertAddr.assignedDeviceId;
+    if (insertAddr.role !== undefined) updateSet.role = insertAddr.role;
+
+    const [addr] = await db
+      .insert(ipamAddresses)
+      .values(insertAddr)
+      .onConflictDoUpdate({
+        target: ipamAddresses.ipAddress,
+        set: updateSet,
+      })
+      .returning();
+    return addr;
+  }
+
   async updateIpamAddress(id: string, updateData: Partial<InsertIpamAddress>): Promise<IpamAddress | undefined> {
     const [addr] = await db.update(ipamAddresses).set({ ...updateData, updatedAt: new Date() }).where(eq(ipamAddresses.id, id)).returning();
     return addr || undefined;
@@ -1360,36 +1386,21 @@ export class DatabaseStorage implements IStorage {
       // Find matching IPAM pool for this IP
       const matchingPool = findPoolForIp(ipOnly, allPools);
       
-      // Check if ANY IPAM address exists for this IP (avoid duplicates)
-      const anyExisting = await this.getIpamAddressByIp(ipOnly);
+      // Atomic upsert - only include fields with actual values to preserve existing data
+      const upsertData: any = {
+        ipAddress: ipOnly,
+        status: discovered.disabled ? 'offline' : 'assigned',
+        lastSeenAt: now,
+      };
+      // Only include fields when they have values to avoid overwriting existing data
+      if (networkAddr) upsertData.networkAddress = networkAddr;
+      if (matchingPool?.id) upsertData.poolId = matchingPool.id;
+      if (discovered.comment) upsertData.notes = discovered.comment;
+      // Don't override source if IP already exists (preserve 'manual' source)
       
-      let addressId: string;
-      if (anyExisting) {
-        // Update existing address (set status to assigned)
-        const updated = await this.updateIpamAddress(anyExisting.id, {
-          networkAddress: networkAddr || anyExisting.networkAddress,
-          notes: discovered.comment || anyExisting.notes,
-          status: discovered.disabled ? 'offline' : 'assigned',
-          source: anyExisting.source || 'discovered',
-          poolId: anyExisting.poolId || matchingPool?.id || null,
-          lastSeenAt: now,
-        });
-        if (updated) result.push(updated);
-        addressId = anyExisting.id;
-      } else {
-        // Create new discovered address
-        const created = await this.createIpamAddress({
-          ipAddress: ipOnly,
-          networkAddress: networkAddr,
-          poolId: matchingPool?.id || null,
-          source: 'discovered',
-          status: discovered.disabled ? 'offline' : 'assigned',
-          notes: discovered.comment || null,
-          lastSeenAt: now,
-        });
-        result.push(created);
-        addressId = created.id;
-      }
+      const upserted = await this.upsertIpamAddress(upsertData);
+      result.push(upserted);
+      const addressId = upserted.id;
       
       // Create/update assignment in junction table (allows multiple devices per IP)
       await this.upsertAssignment(addressId, deviceId, iface?.id || null, 'discovered');

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, jsonb, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, jsonb, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -653,8 +653,8 @@ export const ipamAddresses = pgTable("ipam_addresses", {
 }, (table) => [
   index("idx_ipam_addresses_pool").on(table.poolId),
   index("idx_ipam_addresses_device").on(table.assignedDeviceId),
-  index("idx_ipam_addresses_ip").on(table.ipAddress),
   index("idx_ipam_addresses_interface").on(table.assignedInterfaceId),
+  uniqueIndex("idx_ipam_addresses_ip_unique").on(table.ipAddress),
 ]);
 
 // IPAM Address Assignments - junction table for many-to-many IP-to-interface relationships
