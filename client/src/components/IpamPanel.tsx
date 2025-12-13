@@ -105,7 +105,7 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
   });
 
   const { data: placements = [] } = useQuery<DevicePlacement[]>({
-    queryKey: ['/api/placements'],
+    queryKey: ['/api/placements/all'],
   });
 
   const { data: maps = [] } = useQuery<Map[]>({
