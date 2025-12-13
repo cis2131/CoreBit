@@ -1332,19 +1332,37 @@ export class DatabaseStorage implements IStorage {
         });
         if (updated) result.push(updated);
       } else {
-        // Create new discovered address with CIDR metadata and pool linkage
-        const created = await this.createIpamAddress({
-          ipAddress: ipOnly,
-          networkAddress: networkAddr,
-          poolId: matchingPool?.id || null,
-          assignedDeviceId: deviceId,
-          assignedInterfaceId: iface?.id || null,
-          source: 'discovered',
-          status: discovered.disabled ? 'offline' : 'assigned',
-          notes: discovered.comment || null,
-          lastSeenAt: now,
-        });
-        result.push(created);
+        // Check if ANY IPAM address exists for this IP (e.g., from pool expansion)
+        // If so, update it rather than creating a duplicate
+        const anyExisting = await this.getIpamAddressByIp(ipOnly);
+        if (anyExisting) {
+          // Update existing address to assign it to this device
+          const updated = await this.updateIpamAddress(anyExisting.id, {
+            assignedDeviceId: deviceId,
+            assignedInterfaceId: iface?.id || null,
+            networkAddress: networkAddr || anyExisting.networkAddress,
+            notes: discovered.comment || anyExisting.notes,
+            status: discovered.disabled ? 'offline' : 'assigned',
+            source: 'discovered',
+            poolId: anyExisting.poolId || matchingPool?.id || null,
+            lastSeenAt: now,
+          });
+          if (updated) result.push(updated);
+        } else {
+          // Create new discovered address with CIDR metadata and pool linkage
+          const created = await this.createIpamAddress({
+            ipAddress: ipOnly,
+            networkAddress: networkAddr,
+            poolId: matchingPool?.id || null,
+            assignedDeviceId: deviceId,
+            assignedInterfaceId: iface?.id || null,
+            source: 'discovered',
+            status: discovered.disabled ? 'offline' : 'assigned',
+            notes: discovered.comment || null,
+            lastSeenAt: now,
+          });
+          result.push(created);
+        }
       }
     }
     
