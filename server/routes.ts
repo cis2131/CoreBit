@@ -632,21 +632,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         deviceData: probeResult.success ? probeResult.data : undefined,
       });
       
-      // Create IPAM address for the device's IP and set as polling address
+      // Create or update IPAM address for the device's IP and set as polling address
       if (device.ipAddress) {
         try {
-          const ipamAddress = await storage.createIpamAddress({
-            ipAddress: device.ipAddress,
-            assignedDeviceId: device.id,
-            source: 'manual',
-            status: 'assigned',
-            role: 'primary',
-            lastSeenAt: new Date(),
-          });
+          // Check if IP already exists to avoid duplicates
+          const existingIpam = await storage.getIpamAddressByIp(device.ipAddress);
+          let ipamAddress;
+          if (existingIpam) {
+            // Update existing address with device assignment
+            ipamAddress = await storage.updateIpamAddress(existingIpam.id, {
+              assignedDeviceId: device.id,
+              status: 'assigned',
+              role: existingIpam.role || 'primary',
+              lastSeenAt: new Date(),
+            });
+          } else {
+            // Create new address
+            ipamAddress = await storage.createIpamAddress({
+              ipAddress: device.ipAddress,
+              assignedDeviceId: device.id,
+              source: 'manual',
+              status: 'assigned',
+              role: 'primary',
+              lastSeenAt: new Date(),
+            });
+          }
           // Set this as the polling address
-          await storage.updateDevice(device.id, {
-            pollingAddressId: ipamAddress.id,
-          } as any);
+          if (ipamAddress) {
+            await storage.updateDevice(device.id, {
+              pollingAddressId: ipamAddress.id,
+            } as any);
+          }
           // Return device with updated pollingAddressId
           const updatedDevice = await storage.getDevice(device.id);
           return res.status(201).json(updatedDevice || device);
@@ -2305,20 +2321,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
             deviceData: deviceData.deviceData || undefined,
           });
           
-          // Create IPAM address for the device's IP and set as polling address
+          // Create or update IPAM address for the device's IP and set as polling address
           if (device.ipAddress) {
             try {
-              const ipamAddress = await storage.createIpamAddress({
-                ipAddress: device.ipAddress,
-                assignedDeviceId: device.id,
-                source: 'manual',
-                status: 'assigned',
-                role: 'primary',
-                lastSeenAt: new Date(),
-              });
-              await storage.updateDevice(device.id, {
-                pollingAddressId: ipamAddress.id,
-              } as any);
+              // Check if IP already exists to avoid duplicates
+              const existingIpam = await storage.getIpamAddressByIp(device.ipAddress);
+              let ipamAddress;
+              if (existingIpam) {
+                // Update existing address with device assignment
+                ipamAddress = await storage.updateIpamAddress(existingIpam.id, {
+                  assignedDeviceId: device.id,
+                  status: 'assigned',
+                  role: existingIpam.role || 'primary',
+                  lastSeenAt: new Date(),
+                });
+              } else {
+                // Create new address
+                ipamAddress = await storage.createIpamAddress({
+                  ipAddress: device.ipAddress,
+                  assignedDeviceId: device.id,
+                  source: 'manual',
+                  status: 'assigned',
+                  role: 'primary',
+                  lastSeenAt: new Date(),
+                });
+              }
+              if (ipamAddress) {
+                await storage.updateDevice(device.id, {
+                  pollingAddressId: ipamAddress.id,
+                } as any);
+              }
               const updatedDevice = await storage.getDevice(device.id);
               createdDevices.push(updatedDevice || device);
             } catch (ipamError: any) {
@@ -4323,27 +4355,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ips = [pool.cidr];
       }
 
-      // Get existing addresses in this pool to avoid duplicates
-      const existingAddresses = await storage.getIpamAddressesByPool(pool.id);
-      const existingIps = new Set(existingAddresses.map(a => a.ipAddress));
+      // Get ALL existing addresses (not just in this pool) to avoid duplicates
+      const allExistingAddresses = await storage.getAllIpamAddresses();
+      const existingByIp = new Map(allExistingAddresses.map(a => [a.ipAddress, a]));
 
-      // Filter out already existing IPs
-      const newIps = ips.filter(ip => !existingIps.has(ip));
+      // Separate IPs into: need to create vs need to update (assign to this pool)
+      const toCreate: string[] = [];
+      const toUpdate: { id: string; ip: string }[] = [];
 
-      if (newIps.length === 0) {
-        return res.json({ created: 0, message: 'All addresses already exist' });
+      for (const ip of ips) {
+        const existing = existingByIp.get(ip);
+        if (existing) {
+          // IP already exists - if not in this pool, update it; otherwise skip
+          if (existing.poolId !== pool.id) {
+            toUpdate.push({ id: existing.id, ip });
+          }
+          // If already in this pool, skip entirely
+        } else {
+          // IP doesn't exist anywhere - create it
+          toCreate.push(ip);
+        }
       }
 
-      // Create new addresses
-      const addresses = await storage.createIpamAddressesBulk(
-        newIps.map(ip => ({
-          ipAddress: ip,
-          poolId: pool.id,
-          status: 'available' as const,
-        }))
-      );
+      // Update existing addresses to belong to this pool
+      for (const { id } of toUpdate) {
+        await storage.updateIpamAddress(id, { poolId: pool.id });
+      }
 
-      res.json({ created: addresses.length, addresses });
+      // Create truly new addresses
+      let created: any[] = [];
+      if (toCreate.length > 0) {
+        created = await storage.createIpamAddressesBulk(
+          toCreate.map(ip => ({
+            ipAddress: ip,
+            poolId: pool.id,
+            status: 'available' as const,
+          }))
+        );
+      }
+
+      res.json({ 
+        created: created.length, 
+        updated: toUpdate.length,
+        message: toCreate.length === 0 && toUpdate.length === 0 
+          ? 'All addresses already exist in this pool' 
+          : undefined,
+        addresses: created 
+      });
     } catch (error) {
       console.error('Error expanding IPAM pool:', error);
       res.status(500).json({ error: 'Failed to expand IPAM pool' });
