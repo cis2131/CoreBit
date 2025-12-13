@@ -152,6 +152,8 @@ export const devices = pgTable("devices", {
   mutedUntil: timestamp("muted_until"), // Device notifications muted until this time (null = not muted)
   statusChangedAt: timestamp("status_changed_at"), // Timestamp when status last changed (for offline duration display)
   lastProbeError: text("last_probe_error"), // Last error message from failed probe (for diagnostics)
+  pollingInterfaceId: varchar("polling_interface_id"), // FK to deviceInterfaces - which interface to use for polling (added later via ALTER)
+  pollingAddressId: varchar("polling_address_id"), // FK to ipamAddresses - which IP address to use for polling (added later via ALTER)
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -164,6 +166,23 @@ export const devicePlacements = pgTable("device_placements", {
   linkedMapId: varchar("linked_map_id").references(() => maps.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Device interfaces - stores network interfaces discovered from devices
+export const deviceInterfaces = pgTable("device_interfaces", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  deviceId: varchar("device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  type: text("type").$type<'ethernet' | 'vlan' | 'bridge' | 'loopback' | 'wireless' | 'tunnel' | 'bonding' | 'other'>(),
+  parentInterfaceId: varchar("parent_interface_id"), // For VLANs - references self
+  snmpIndex: integer("snmp_index"),
+  macAddress: text("mac_address"),
+  isVirtual: boolean("is_virtual").default(false),
+  discoverySource: text("discovery_source").$type<'probe' | 'manual' | 'sync'>(),
+  lastSeenAt: timestamp("last_seen_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_device_interfaces_device").on(table.deviceId),
+]);
 
 export const connections = pgTable("connections", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -615,8 +634,11 @@ export const ipamAddresses = pgTable("ipam_addresses", {
   poolId: varchar("pool_id").references(() => ipamPools.id, { onDelete: "cascade" }),
   status: text("status").notNull().default("available").$type<'available' | 'assigned' | 'reserved' | 'offline'>(),
   assignedDeviceId: varchar("assigned_device_id").references(() => devices.id, { onDelete: "set null" }),
-  assignedInterfaceIndex: integer("assigned_interface_index"), // Index into device's ports array
-  assignmentSource: text("assignment_source").$type<'manual' | 'auto'>(), // How was this assignment made
+  assignedInterfaceId: varchar("assigned_interface_id").references(() => deviceInterfaces.id, { onDelete: "set null" }), // FK to specific interface
+  assignedInterfaceIndex: integer("assigned_interface_index"), // Legacy: Index into device's ports array (deprecated)
+  role: text("role").$type<'primary' | 'secondary' | 'management' | 'unused'>(), // Role of this IP on the device
+  source: text("source").$type<'manual' | 'discovered' | 'sync'>(), // How this address was added
+  assignmentSource: text("assignment_source").$type<'manual' | 'auto'>(), // Legacy: How was this assignment made
   hostname: text("hostname"), // Optional hostname for this IP
   notes: text("notes"),
   lastSeenAt: timestamp("last_seen_at"),
@@ -626,6 +648,7 @@ export const ipamAddresses = pgTable("ipam_addresses", {
   index("idx_ipam_addresses_pool").on(table.poolId),
   index("idx_ipam_addresses_device").on(table.assignedDeviceId),
   index("idx_ipam_addresses_ip").on(table.ipAddress),
+  index("idx_ipam_addresses_interface").on(table.assignedInterfaceId),
 ]);
 
 export const insertIpamPoolSchema = createInsertSchema(ipamPools).omit({
@@ -643,7 +666,17 @@ export const insertIpamAddressSchema = createInsertSchema(ipamAddresses).omit({
   updatedAt: true,
 }).extend({
   status: z.enum(['available', 'assigned', 'reserved', 'offline']).optional(),
+  role: z.enum(['primary', 'secondary', 'management', 'unused']).optional().nullable(),
+  source: z.enum(['manual', 'discovered', 'sync']).optional().nullable(),
   assignmentSource: z.enum(['manual', 'auto']).optional().nullable(),
+});
+
+export const insertDeviceInterfaceSchema = createInsertSchema(deviceInterfaces).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  type: z.enum(['ethernet', 'vlan', 'bridge', 'loopback', 'wireless', 'tunnel', 'bonding', 'other']).optional().nullable(),
+  discoverySource: z.enum(['probe', 'manual', 'sync']).optional().nullable(),
 });
 
 export type Map = typeof maps.$inferSelect;
@@ -686,3 +719,5 @@ export type IpamPool = typeof ipamPools.$inferSelect;
 export type InsertIpamPool = z.infer<typeof insertIpamPoolSchema>;
 export type IpamAddress = typeof ipamAddresses.$inferSelect;
 export type InsertIpamAddress = z.infer<typeof insertIpamAddressSchema>;
+export type DeviceInterface = typeof deviceInterfaces.$inferSelect;
+export type InsertDeviceInterface = z.infer<typeof insertDeviceInterfaceSchema>;

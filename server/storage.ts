@@ -21,6 +21,7 @@ import {
   proxmoxVms,
   ipamPools,
   ipamAddresses,
+  deviceInterfaces,
   type Map, 
   type InsertMap,
   type Device,
@@ -60,7 +61,9 @@ import {
   type IpamPool,
   type InsertIpamPool,
   type IpamAddress,
-  type InsertIpamAddress
+  type InsertIpamAddress,
+  type DeviceInterface,
+  type InsertDeviceInterface
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNotNull, isNull, or, gt } from "drizzle-orm";
@@ -225,6 +228,16 @@ export interface IStorage {
   updateIpamAddress(id: string, address: Partial<InsertIpamAddress>): Promise<IpamAddress | undefined>;
   deleteIpamAddress(id: string): Promise<void>;
   deleteIpamAddressesByPool(poolId: string): Promise<void>;
+
+  // Device Interfaces
+  getDeviceInterfaces(deviceId: string): Promise<DeviceInterface[]>;
+  getDeviceInterface(id: string): Promise<DeviceInterface | undefined>;
+  createDeviceInterface(iface: InsertDeviceInterface): Promise<DeviceInterface>;
+  createDeviceInterfacesBulk(interfaces: InsertDeviceInterface[]): Promise<DeviceInterface[]>;
+  updateDeviceInterface(id: string, iface: Partial<InsertDeviceInterface>): Promise<DeviceInterface | undefined>;
+  deleteDeviceInterface(id: string): Promise<void>;
+  deleteDeviceInterfacesByDevice(deviceId: string): Promise<void>;
+  syncDeviceInterfaces(deviceId: string, interfaces: InsertDeviceInterface[]): Promise<DeviceInterface[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1151,6 +1164,74 @@ export class DatabaseStorage implements IStorage {
 
   async deleteIpamAddressesByPool(poolId: string): Promise<void> {
     await db.delete(ipamAddresses).where(eq(ipamAddresses.poolId, poolId));
+  }
+
+  // Device Interfaces
+  async getDeviceInterfaces(deviceId: string): Promise<DeviceInterface[]> {
+    return await db.select().from(deviceInterfaces).where(eq(deviceInterfaces.deviceId, deviceId)).orderBy(deviceInterfaces.name);
+  }
+
+  async getDeviceInterface(id: string): Promise<DeviceInterface | undefined> {
+    const [iface] = await db.select().from(deviceInterfaces).where(eq(deviceInterfaces.id, id));
+    return iface || undefined;
+  }
+
+  async createDeviceInterface(insertIface: InsertDeviceInterface): Promise<DeviceInterface> {
+    const [iface] = await db.insert(deviceInterfaces).values(insertIface).returning();
+    return iface;
+  }
+
+  async createDeviceInterfacesBulk(interfaces: InsertDeviceInterface[]): Promise<DeviceInterface[]> {
+    if (interfaces.length === 0) return [];
+    return await db.insert(deviceInterfaces).values(interfaces).returning();
+  }
+
+  async updateDeviceInterface(id: string, updateData: Partial<InsertDeviceInterface>): Promise<DeviceInterface | undefined> {
+    const [iface] = await db.update(deviceInterfaces).set(updateData).where(eq(deviceInterfaces.id, id)).returning();
+    return iface || undefined;
+  }
+
+  async deleteDeviceInterface(id: string): Promise<void> {
+    await db.delete(deviceInterfaces).where(eq(deviceInterfaces.id, id));
+  }
+
+  async deleteDeviceInterfacesByDevice(deviceId: string): Promise<void> {
+    await db.delete(deviceInterfaces).where(eq(deviceInterfaces.deviceId, deviceId));
+  }
+
+  async syncDeviceInterfaces(deviceId: string, interfaces: InsertDeviceInterface[]): Promise<DeviceInterface[]> {
+    // Get existing interfaces for this device
+    const existing = await this.getDeviceInterfaces(deviceId);
+    const existingByName = new Map(existing.map(i => [i.name, i]));
+    
+    const result: DeviceInterface[] = [];
+    const now = new Date();
+    
+    for (const iface of interfaces) {
+      const existingIface = existingByName.get(iface.name);
+      if (existingIface) {
+        // Update existing interface
+        const updated = await this.updateDeviceInterface(existingIface.id, {
+          ...iface,
+          lastSeenAt: now,
+        });
+        if (updated) result.push(updated);
+        existingByName.delete(iface.name);
+      } else {
+        // Create new interface
+        const created = await this.createDeviceInterface({
+          ...iface,
+          deviceId,
+          lastSeenAt: now,
+        });
+        result.push(created);
+      }
+    }
+    
+    // Mark interfaces that weren't seen as stale (don't delete - they may have IP assignments)
+    // We don't delete them because IPAM addresses may reference them
+    
+    return result;
   }
 }
 

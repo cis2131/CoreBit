@@ -9,6 +9,7 @@ import {
   type DeviceNotification,
   type ProxmoxVm,
   type IpamAddress,
+  type DeviceInterface,
 } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,7 @@ import {
   Server,
   Container,
   Network,
+  Star,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -288,6 +290,15 @@ export function DevicePropertiesPanel({
     },
   });
 
+  const { data: deviceInterfaces = [] } = useQuery<DeviceInterface[]>({
+    queryKey: ["/api/devices", device.id, "interfaces"],
+    queryFn: async () => {
+      const response = await fetch(`/api/devices/${device.id}/interfaces`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+  });
+
   const addNotificationMutation = useMutation({
     mutationFn: async (notificationId: string) =>
       apiRequest("POST", `/api/devices/${device.id}/notifications`, {
@@ -456,6 +467,23 @@ export function DevicePropertiesPanel({
     },
   });
 
+  // Set polling address mutation
+  const setPollingAddressMutation = useMutation({
+    mutationFn: async (addressId: string | null) =>
+      apiRequest("PATCH", `/api/devices/${device.id}/polling-address`, { addressId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ipam/addresses", { deviceId: device.id }] });
+      toast({ description: "Polling address updated" });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        description: "Failed to update polling address",
+      });
+    },
+  });
+
   const handleProbeNow = async () => {
     setProbing(true);
     try {
@@ -536,18 +564,55 @@ export function DevicePropertiesPanel({
                     <Network className="h-3 w-3" />
                     IPAM Addresses
                   </p>
-                  <div className="space-y-1 mt-1" data-testid="ipam-addresses-list">
-                    {deviceIpamAddresses.map((addr) => (
-                      <div key={addr.id} className="flex items-center gap-2">
-                        <Badge variant="secondary" className="font-mono text-xs" data-testid={`badge-ipam-${addr.id}`}>
-                          {addr.ipAddress}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground capitalize">
-                          {addr.status}
-                        </span>
-                      </div>
-                    ))}
+                  <div className="space-y-1.5 mt-1" data-testid="ipam-addresses-list">
+                    {deviceIpamAddresses.map((addr) => {
+                      const isPollingAddress = device.pollingAddressId === addr.id;
+                      const assignedInterface = deviceInterfaces.find(
+                        (iface) => iface.id === addr.assignedInterfaceId
+                      );
+                      return (
+                        <div
+                          key={addr.id}
+                          className={`flex items-center gap-2 p-1.5 rounded-md cursor-pointer hover-elevate ${
+                            isPollingAddress ? "bg-primary/10 border border-primary/30" : ""
+                          }`}
+                          onClick={() => {
+                            if (canModify) {
+                              setPollingAddressMutation.mutate(isPollingAddress ? null : addr.id);
+                            }
+                          }}
+                          data-testid={`ipam-address-row-${addr.id}`}
+                          title={canModify ? (isPollingAddress ? "Click to unset as polling address" : "Click to set as polling address") : ""}
+                        >
+                          {isPollingAddress && (
+                            <Star className="h-3 w-3 text-primary fill-primary shrink-0" data-testid={`star-polling-${addr.id}`} />
+                          )}
+                          <Badge variant="secondary" className="font-mono text-xs" data-testid={`badge-ipam-${addr.id}`}>
+                            {addr.ipAddress}
+                          </Badge>
+                          {addr.role && addr.role !== "primary" && (
+                            <Badge variant="outline" className="text-xs capitalize" data-testid={`badge-role-${addr.id}`}>
+                              {addr.role}
+                            </Badge>
+                          )}
+                          {assignedInterface && (
+                            <span className="text-xs text-muted-foreground truncate" data-testid={`text-interface-${addr.id}`}>
+                              {assignedInterface.name}
+                            </span>
+                          )}
+                          <span className="text-xs text-muted-foreground capitalize ml-auto">
+                            {addr.status}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
+                  {device.pollingAddressId && (
+                    <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                      <Star className="h-3 w-3" />
+                      = polling address
+                    </p>
+                  )}
                 </div>
               )}
               <div>

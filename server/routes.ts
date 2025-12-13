@@ -4318,6 +4318,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Device Interfaces API
+  app.get("/api/devices/:id/interfaces", requireAuth as any, async (req, res) => {
+    try {
+      const interfaces = await storage.getDeviceInterfaces(req.params.id);
+      res.json(interfaces);
+    } catch (error) {
+      console.error('Error fetching device interfaces:', error);
+      res.status(500).json({ error: 'Failed to fetch interfaces' });
+    }
+  });
+
+  app.post("/api/devices/:id/interfaces", canModify as any, async (req, res) => {
+    try {
+      const { insertDeviceInterfaceSchema } = await import("@shared/schema");
+      const data = insertDeviceInterfaceSchema.parse({
+        ...req.body,
+        deviceId: req.params.id,
+      });
+      const iface = await storage.createDeviceInterface(data);
+      res.status(201).json(iface);
+    } catch (error) {
+      console.error('Error creating device interface:', error);
+      res.status(500).json({ error: 'Failed to create interface' });
+    }
+  });
+
+  app.patch("/api/device-interfaces/:id", canModify as any, async (req, res) => {
+    try {
+      const { insertDeviceInterfaceSchema } = await import("@shared/schema");
+      const data = insertDeviceInterfaceSchema.partial().parse(req.body);
+      const iface = await storage.updateDeviceInterface(req.params.id, data);
+      if (!iface) {
+        return res.status(404).json({ error: 'Interface not found' });
+      }
+      res.json(iface);
+    } catch (error) {
+      console.error('Error updating device interface:', error);
+      res.status(500).json({ error: 'Failed to update interface' });
+    }
+  });
+
+  app.delete("/api/device-interfaces/:id", canModify as any, async (req, res) => {
+    try {
+      await storage.deleteDeviceInterface(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('Error deleting device interface:', error);
+      res.status(500).json({ error: 'Failed to delete interface' });
+    }
+  });
+
+  // Set device polling address
+  app.patch("/api/devices/:id/polling-address", canModify as any, async (req, res) => {
+    try {
+      const { addressId } = req.body;
+      
+      let pollingAddressId: string | null = null;
+      let pollingInterfaceId: string | null = null;
+      
+      if (addressId) {
+        // Look up the IPAM address to get the associated interface
+        const address = await storage.getIpamAddress(addressId);
+        if (address) {
+          pollingAddressId = address.id;
+          pollingInterfaceId = address.assignedInterfaceId || null;
+        }
+      }
+      
+      const device = await storage.updateDevice(req.params.id, {
+        pollingAddressId,
+        pollingInterfaceId,
+      } as any);
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+      res.json(device);
+    } catch (error) {
+      console.error('Error setting polling address:', error);
+      res.status(500).json({ error: 'Failed to set polling address' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

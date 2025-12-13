@@ -612,6 +612,14 @@ async function fetchSnmpInterfaceIndexes(
   });
 }
 
+export interface DiscoveredIpAddress {
+  ipAddress: string;
+  networkAddress?: string; // CIDR notation e.g., 192.168.1.0/24
+  interfaceName: string;
+  disabled?: boolean;
+  comment?: string;
+}
+
 export interface DeviceProbeData {
   uptime?: string;
   model?: string;
@@ -628,6 +636,7 @@ export interface DeviceProbeData {
   cpuUsagePct?: number;
   memoryUsagePct?: number;
   diskUsagePct?: number;
+  discoveredIpAddresses?: DiscoveredIpAddress[]; // IP addresses discovered via /ip/address/print
 }
 
 async function probeMikrotikDevice(
@@ -659,11 +668,12 @@ async function probeMikrotikDevice(
   try {
     await conn.connect();
 
-    // Fetch basic info and interfaces in parallel
-    const [identity, resources, interfaces] = await Promise.all([
+    // Fetch basic info, interfaces, and IP addresses in parallel
+    const [identity, resources, interfaces, ipAddresses] = await Promise.all([
       conn.write('/system/identity/print').catch(() => []),
       conn.write('/system/resource/print').catch(() => []),
       conn.write('/interface/print').catch(() => []),
+      conn.write('/ip/address/print').catch(() => []),
     ]);
 
     const identityName = identity[0]?.name || 'Unknown';
@@ -680,6 +690,20 @@ async function probeMikrotikDevice(
         idToName[iface['.id']] = iface.name;
       }
     }
+    
+    // Process discovered IP addresses
+    const discoveredIpAddresses: DiscoveredIpAddress[] = (ipAddresses as any[])
+      .filter((addr: any) => addr.address && addr.interface)
+      .map((addr: any) => {
+        const addrParts = addr.address.split('/');
+        return {
+          ipAddress: addrParts[0], // IP without prefix
+          networkAddress: addr.network ? `${addr.network}/${addrParts[1] || '24'}` : addr.address,
+          interfaceName: addr.interface,
+          disabled: addr.disabled === 'true' || addr.disabled === true,
+          comment: addr.comment || undefined,
+        };
+      });
     
     // Fetch SNMP ifIndex for each interface via SNMP walk (only if device needs SNMP indexing)
     // This allows traffic monitoring to use direct SNMP GET instead of slow walks
@@ -807,6 +831,7 @@ async function probeMikrotikDevice(
       ports,
       cpuUsagePct,
       memoryUsagePct,
+      discoveredIpAddresses,
     };
   } catch (error: any) {
     console.error(`[Mikrotik] Failed to connect to ${ipAddress}:`, error.message);
@@ -864,11 +889,12 @@ export async function probeMikrotikWithPool(
     conn = poolResult.conn;
     fromPool = poolResult.fromPool;
     
-    // Fetch basic info and interfaces in parallel
-    const [identity, resources, interfaces] = await Promise.all([
+    // Fetch basic info, interfaces, and IP addresses in parallel
+    const [identity, resources, interfaces, ipAddresses] = await Promise.all([
       conn.write('/system/identity/print').catch(() => []),
       conn.write('/system/resource/print').catch(() => []),
       conn.write('/interface/print').catch(() => []),
+      conn.write('/ip/address/print').catch(() => []),
     ]);
 
     const identityName = identity[0]?.name || 'Unknown';
@@ -885,6 +911,20 @@ export async function probeMikrotikWithPool(
         idToName[iface['.id']] = iface.name;
       }
     }
+    
+    // Process discovered IP addresses
+    const discoveredIpAddresses: DiscoveredIpAddress[] = (ipAddresses as any[])
+      .filter((addr: any) => addr.address && addr.interface)
+      .map((addr: any) => {
+        const addrParts = addr.address.split('/');
+        return {
+          ipAddress: addrParts[0],
+          networkAddress: addr.network ? `${addr.network}/${addrParts[1] || '24'}` : addr.address,
+          interfaceName: addr.interface,
+          disabled: addr.disabled === 'true' || addr.disabled === true,
+          comment: addr.comment || undefined,
+        };
+      });
     
     // Fetch SNMP ifIndex for each interface via SNMP walk (only if device needs SNMP indexing)
     interface SnmpIndexMap {
@@ -993,6 +1033,7 @@ export async function probeMikrotikWithPool(
       ports,
       cpuUsagePct,
       memoryUsagePct,
+      discoveredIpAddresses,
     };
     wasSuccessful = true;
     return result;
