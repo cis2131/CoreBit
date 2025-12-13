@@ -4352,7 +4352,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'IP address already exists' });
       }
 
-      const address = await storage.createIpamAddress(data);
+      // If no poolId provided, try to find a matching pool based on the IP address
+      let poolId = data.poolId;
+      if (!poolId) {
+        const pools = await storage.getAllIpamPools();
+        for (const pool of pools) {
+          if (pool.entryType === 'cidr' && pool.cidr) {
+            const [baseIp, prefixStr] = pool.cidr.split('/');
+            const prefix = parseInt(prefixStr, 10);
+            const ipNum = ipToLong(data.ipAddress);
+            const baseNum = ipToLong(baseIp);
+            const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+            const network = baseNum & mask;
+            const broadcast = network | (~mask >>> 0);
+            // Check if IP is in the network range
+            if ((ipNum & mask) === network && (prefix >= 31 || (ipNum !== network && ipNum !== broadcast))) {
+              poolId = pool.id;
+              break;
+            }
+          } else if (pool.entryType === 'range' && pool.rangeStart && pool.rangeEnd) {
+            const ipNum = ipToLong(data.ipAddress);
+            const startNum = ipToLong(pool.rangeStart);
+            const endNum = ipToLong(pool.rangeEnd);
+            if (ipNum >= startNum && ipNum <= endNum) {
+              poolId = pool.id;
+              break;
+            }
+          } else if (pool.entryType === 'single') {
+            // Single-entry pools may store IP in rangeStart or cidr
+            if (pool.rangeStart === data.ipAddress || pool.cidr === data.ipAddress) {
+              poolId = pool.id;
+              break;
+            }
+          }
+        }
+      }
+
+      const address = await storage.createIpamAddress({ ...data, poolId });
       res.status(201).json(address);
     } catch (error) {
       if (error instanceof z.ZodError) {

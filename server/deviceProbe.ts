@@ -698,7 +698,7 @@ async function probeMikrotikDevice(
         const addrParts = addr.address.split('/');
         return {
           ipAddress: addrParts[0], // IP without prefix
-          networkAddress: addr.network ? `${addr.network}/${addrParts[1] || '24'}` : addr.address,
+          networkAddress: addr.address, // Full IP with CIDR prefix (e.g., 192.168.1.1/24)
           interfaceName: addr.interface,
           disabled: addr.disabled === 'true' || addr.disabled === true,
           comment: addr.comment || undefined,
@@ -919,7 +919,7 @@ export async function probeMikrotikWithPool(
         const addrParts = addr.address.split('/');
         return {
           ipAddress: addrParts[0],
-          networkAddress: addr.network ? `${addr.network}/${addrParts[1] || '24'}` : addr.address,
+          networkAddress: addr.address, // Full IP with CIDR prefix (e.g., 192.168.1.1/24)
           interfaceName: addr.interface,
           disabled: addr.disabled === 'true' || addr.disabled === true,
           comment: addr.comment || undefined,
