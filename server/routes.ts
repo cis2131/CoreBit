@@ -2692,6 +2692,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
             console.error(`[Probing] Error persisting Proxmox VMs for ${device.name}:`, vmError.message);
           }
         }
+        
+        // Persist Mikrotik interfaces and discovered IP addresses
+        if (device.type.startsWith('mikrotik_') && probeResult.data) {
+          try {
+            const ports = probeResult.data.ports || [];
+            const discoveredIpAddresses = probeResult.data.discoveredIpAddresses || [];
+            
+            // Only sync if we have interfaces to sync
+            if (ports.length > 0) {
+              // Convert ports to device interfaces format (without deviceId - syncDeviceInterfaces adds it)
+              const interfacesToSync = ports.map((port: any) => {
+                // Infer interface type from name if not provided
+                let ifaceType: 'ethernet' | 'vlan' | 'bridge' | 'loopback' | 'wireless' | 'tunnel' | 'bonding' | 'other' = 'ethernet';
+                const nameLower = (port.name || '').toLowerCase();
+                if (nameLower.includes('vlan') || nameLower.match(/\.\d+$/)) ifaceType = 'vlan';
+                else if (nameLower.includes('bridge') || nameLower.startsWith('br')) ifaceType = 'bridge';
+                else if (nameLower.includes('wlan') || nameLower.includes('wifi')) ifaceType = 'wireless';
+                else if (nameLower.includes('gre') || nameLower.includes('vpn') || nameLower.includes('tunnel') || nameLower.includes('eoip')) ifaceType = 'tunnel';
+                else if (nameLower.includes('bond')) ifaceType = 'bonding';
+                else if (nameLower.includes('loop') || nameLower === 'lo') ifaceType = 'loopback';
+                
+                return {
+                  name: port.name,
+                  type: ifaceType,
+                  snmpIndex: port.snmpIndex ?? null,
+                  discoverySource: 'probe' as const,
+                };
+              });
+              
+              // Sync interfaces first
+              const syncedInterfaces = await storage.syncDeviceInterfaces(device.id, interfacesToSync);
+              
+              // Then sync IP addresses (linking to interfaces) - with validation
+              if (discoveredIpAddresses.length > 0 && Array.isArray(discoveredIpAddresses)) {
+                const validAddresses = discoveredIpAddresses.filter((addr: any) => 
+                  addr && typeof addr.ipAddress === 'string' && typeof addr.interfaceName === 'string'
+                );
+                if (validAddresses.length > 0) {
+                  await storage.syncDeviceIpAddresses(device.id, validAddresses, syncedInterfaces);
+                }
+              }
+            }
+          } catch (ipamError: any) {
+            console.error(`[Probing] Error persisting Mikrotik interfaces/IPs for ${device.name}:`, ipamError.message);
+          }
+        }
       }
       
       // Trigger notifications and logging on status change

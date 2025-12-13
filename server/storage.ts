@@ -237,7 +237,8 @@ export interface IStorage {
   updateDeviceInterface(id: string, iface: Partial<InsertDeviceInterface>): Promise<DeviceInterface | undefined>;
   deleteDeviceInterface(id: string): Promise<void>;
   deleteDeviceInterfacesByDevice(deviceId: string): Promise<void>;
-  syncDeviceInterfaces(deviceId: string, interfaces: InsertDeviceInterface[]): Promise<DeviceInterface[]>;
+  syncDeviceInterfaces(deviceId: string, interfaces: Omit<InsertDeviceInterface, 'deviceId'>[]): Promise<DeviceInterface[]>;
+  syncDeviceIpAddresses(deviceId: string, discoveredAddresses: { ipAddress: string; networkAddress?: string; interfaceName: string; disabled?: boolean; comment?: string }[], interfaces: DeviceInterface[]): Promise<IpamAddress[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1199,7 +1200,7 @@ export class DatabaseStorage implements IStorage {
     await db.delete(deviceInterfaces).where(eq(deviceInterfaces.deviceId, deviceId));
   }
 
-  async syncDeviceInterfaces(deviceId: string, interfaces: InsertDeviceInterface[]): Promise<DeviceInterface[]> {
+  async syncDeviceInterfaces(deviceId: string, interfaces: Omit<InsertDeviceInterface, 'deviceId'>[]): Promise<DeviceInterface[]> {
     // Get existing interfaces for this device
     const existing = await this.getDeviceInterfaces(deviceId);
     const existingByName = new Map(existing.map(i => [i.name, i]));
@@ -1230,6 +1231,76 @@ export class DatabaseStorage implements IStorage {
     
     // Mark interfaces that weren't seen as stale (don't delete - they may have IP assignments)
     // We don't delete them because IPAM addresses may reference them
+    
+    return result;
+  }
+
+  async syncDeviceIpAddresses(
+    deviceId: string, 
+    discoveredAddresses: { ipAddress: string; networkAddress?: string; interfaceName: string; disabled?: boolean; comment?: string }[],
+    interfaces: DeviceInterface[]
+  ): Promise<IpamAddress[]> {
+    // Build map of interface name -> interface id for linking
+    const interfaceByName = new Map(interfaces.map(i => [i.name, i]));
+    
+    // Get existing discovered addresses for this device (only source='discovered')
+    const existingAddresses = await this.getIpamAddressesByDevice(deviceId);
+    const discoveredExisting = existingAddresses.filter(a => a.source === 'discovered');
+    const existingByIp = new Map(discoveredExisting.map(a => [a.ipAddress, a]));
+    
+    const result: IpamAddress[] = [];
+    const now = new Date();
+    const seenIps = new Set<string>();
+    
+    for (const discovered of discoveredAddresses) {
+      // Extract IP and CIDR prefix if present (e.g., "192.168.1.1/24" -> ip="192.168.1.1", prefix=24)
+      const parts = discovered.ipAddress.split('/');
+      const ipOnly = parts[0];
+      const cidrPrefix = parts[1] ? parseInt(parts[1], 10) : null;
+      
+      // Use provided networkAddress or construct from CIDR if available
+      const networkAddr = discovered.networkAddress || (cidrPrefix ? `${ipOnly}/${cidrPrefix}` : null);
+      
+      seenIps.add(ipOnly);
+      
+      // Find matching interface
+      const iface = interfaceByName.get(discovered.interfaceName);
+      
+      const existing = existingByIp.get(ipOnly);
+      if (existing) {
+        // Update existing discovered address - preserve CIDR metadata
+        const updated = await this.updateIpamAddress(existing.id, {
+          assignedInterfaceId: iface?.id || null,
+          networkAddress: networkAddr || existing.networkAddress,
+          notes: discovered.comment || existing.notes,
+          status: discovered.disabled ? 'offline' : 'assigned',
+          lastSeenAt: now,
+        });
+        if (updated) result.push(updated);
+      } else {
+        // Create new discovered address with CIDR metadata
+        const created = await this.createIpamAddress({
+          ipAddress: ipOnly,
+          networkAddress: networkAddr,
+          assignedDeviceId: deviceId,
+          assignedInterfaceId: iface?.id || null,
+          source: 'discovered',
+          status: discovered.disabled ? 'offline' : 'assigned',
+          notes: discovered.comment || null,
+          lastSeenAt: now,
+        });
+        result.push(created);
+      }
+    }
+    
+    // Mark discovered addresses that weren't seen as offline
+    // Only affects source='discovered' addresses - manual entries are never touched
+    for (const existing of discoveredExisting) {
+      if (!seenIps.has(existing.ipAddress) && existing.status !== 'offline') {
+        const updated = await this.updateIpamAddress(existing.id, { status: 'offline', lastSeenAt: now });
+        if (updated) result.push(updated);
+      }
+    }
     
     return result;
   }
