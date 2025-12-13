@@ -632,6 +632,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         deviceData: probeResult.success ? probeResult.data : undefined,
       });
       
+      // Create IPAM address for the device's IP and set as polling address
+      if (device.ipAddress) {
+        try {
+          const ipamAddress = await storage.createIpamAddress({
+            ipAddress: device.ipAddress,
+            assignedDeviceId: device.id,
+            source: 'manual',
+            status: 'assigned',
+            role: 'primary',
+            lastSeenAt: new Date(),
+          });
+          // Set this as the polling address
+          await storage.updateDevice(device.id, {
+            pollingAddressId: ipamAddress.id,
+          } as any);
+          // Return device with updated pollingAddressId
+          const updatedDevice = await storage.getDevice(device.id);
+          return res.status(201).json(updatedDevice || device);
+        } catch (ipamError: any) {
+          console.error(`[Device] Error creating IPAM address for ${device.name}:`, ipamError.message);
+          // Device was created, just IPAM failed - still return the device
+        }
+      }
+      
       res.status(201).json(device);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -2280,7 +2304,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
             credentialProfileId: deviceData.credentialProfileId || null,
             deviceData: deviceData.deviceData || undefined,
           });
-          createdDevices.push(device);
+          
+          // Create IPAM address for the device's IP and set as polling address
+          if (device.ipAddress) {
+            try {
+              const ipamAddress = await storage.createIpamAddress({
+                ipAddress: device.ipAddress,
+                assignedDeviceId: device.id,
+                source: 'manual',
+                status: 'assigned',
+                role: 'primary',
+                lastSeenAt: new Date(),
+              });
+              await storage.updateDevice(device.id, {
+                pollingAddressId: ipamAddress.id,
+              } as any);
+              const updatedDevice = await storage.getDevice(device.id);
+              createdDevices.push(updatedDevice || device);
+            } catch (ipamError: any) {
+              console.error(`[Device] Error creating IPAM address for ${device.name}:`, ipamError.message);
+              createdDevices.push(device);
+            }
+          } else {
+            createdDevices.push(device);
+          }
         } catch (error: any) {
           errors.push({ ip: deviceData.ipAddress, error: error.message });
         }
