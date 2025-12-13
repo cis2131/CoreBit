@@ -4346,23 +4346,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const data = insertIpamAddressSchema.parse(req.body);
       
-      // Check if IP already exists
-      const existing = await storage.getIpamAddressByIp(data.ipAddress);
-      if (existing) {
-        return res.status(400).json({ error: 'IP address already exists' });
-      }
-
-      // If no poolId provided, try to find a matching pool based on the IP address
+      // Strip CIDR suffix immediately (e.g., "10.0.0.5/24" -> "10.0.0.5")
+      const bareIp = data.ipAddress.split('/')[0].trim();
+      
+      // Find matching pool for the bare IP
       let poolId = data.poolId;
       if (!poolId) {
-        // Strip CIDR suffix if present (e.g., "10.0.0.5/24" -> "10.0.0.5")
-        const ipForMatching = data.ipAddress.split('/')[0];
         const pools = await storage.getAllIpamPools();
         for (const pool of pools) {
           if (pool.entryType === 'cidr' && pool.cidr) {
             const [baseIp, prefixStr] = pool.cidr.split('/');
             const prefix = parseInt(prefixStr, 10);
-            const ipNum = ipToLong(ipForMatching);
+            const ipNum = ipToLong(bareIp);
             const baseNum = ipToLong(baseIp);
             const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
             const network = baseNum & mask;
@@ -4373,7 +4368,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               break;
             }
           } else if (pool.entryType === 'range' && pool.rangeStart && pool.rangeEnd) {
-            const ipNum = ipToLong(ipForMatching);
+            const ipNum = ipToLong(bareIp);
             const startNum = ipToLong(pool.rangeStart);
             const endNum = ipToLong(pool.rangeEnd);
             if (ipNum >= startNum && ipNum <= endNum) {
@@ -4382,7 +4377,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           } else if (pool.entryType === 'single') {
             // Single-entry pools may store IP in rangeStart or cidr
-            const bareIp = ipForMatching;
             if (pool.rangeStart === bareIp || pool.cidr === bareIp) {
               poolId = pool.id;
               break;
@@ -4391,7 +4385,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      const address = await storage.createIpamAddress({ ...data, poolId });
+      // Check if IP already exists using bare IP
+      const existing = await storage.getIpamAddressByIp(bareIp);
+      if (existing) {
+        // Update existing record instead of creating duplicate
+        const updatedAddress = await storage.updateIpamAddress(existing.id, {
+          ...data,
+          ipAddress: bareIp,  // Always store bare IP
+          poolId: poolId || existing.poolId,  // Use found pool or keep existing
+        });
+        return res.json(updatedAddress);
+      }
+
+      // Create new address with bare IP
+      const address = await storage.createIpamAddress({ ...data, ipAddress: bareIp, poolId });
       res.status(201).json(address);
     } catch (error) {
       if (error instanceof z.ZodError) {
