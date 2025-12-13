@@ -68,6 +68,52 @@ import {
 import { db } from "./db";
 import { eq, and, desc, isNotNull, isNull, or, gt } from "drizzle-orm";
 
+// IP utility functions for IPAM pool matching
+function ipToLong(ip: string): number {
+  const parts = ip.split('.').map(Number);
+  return ((parts[0] << 24) + (parts[1] << 16) + (parts[2] << 8) + parts[3]) >>> 0;
+}
+
+function isIpInCidr(ip: string, cidr: string): boolean {
+  const [baseIp, prefixStr] = cidr.split('/');
+  const prefix = parseInt(prefixStr, 10);
+  const ipNum = ipToLong(ip);
+  const baseNum = ipToLong(baseIp);
+  const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+  const network = baseNum & mask;
+  const broadcast = network | (~mask >>> 0);
+  
+  // Check if IP is in the network range
+  if ((ipNum & mask) !== network) return false;
+  
+  // For /31 and /32, all addresses are valid hosts
+  if (prefix >= 31) return true;
+  
+  // Exclude network and broadcast addresses for standard subnets
+  return ipNum !== network && ipNum !== broadcast;
+}
+
+function isIpInRange(ip: string, rangeStart: string, rangeEnd: string): boolean {
+  const ipNum = ipToLong(ip);
+  const startNum = ipToLong(rangeStart);
+  const endNum = ipToLong(rangeEnd);
+  return ipNum >= startNum && ipNum <= endNum;
+}
+
+function findPoolForIp(ip: string, pools: IpamPool[]): IpamPool | null {
+  for (const pool of pools) {
+    if (pool.entryType === 'cidr' && pool.cidr) {
+      if (isIpInCidr(ip, pool.cidr)) return pool;
+    } else if (pool.entryType === 'range' && pool.rangeStart && pool.rangeEnd) {
+      if (isIpInRange(ip, pool.rangeStart, pool.rangeEnd)) return pool;
+    } else if (pool.entryType === 'single') {
+      // Single-entry pools may store IP in rangeStart or cidr
+      if (pool.rangeStart === ip || pool.cidr === ip) return pool;
+    }
+  }
+  return null;
+}
+
 export interface IStorage {
   // Maps
   getAllMaps(): Promise<Map[]>;
@@ -1243,6 +1289,9 @@ export class DatabaseStorage implements IStorage {
     // Build map of interface name -> interface id for linking
     const interfaceByName = new Map(interfaces.map(i => [i.name, i]));
     
+    // Get all IPAM pools for matching discovered IPs to pools
+    const allPools = await this.getAllIpamPools();
+    
     // Get existing discovered addresses for this device (only source='discovered')
     const existingAddresses = await this.getIpamAddressesByDevice(deviceId);
     const discoveredExisting = existingAddresses.filter(a => a.source === 'discovered');
@@ -1266,22 +1315,28 @@ export class DatabaseStorage implements IStorage {
       // Find matching interface
       const iface = interfaceByName.get(discovered.interfaceName);
       
+      // Find matching IPAM pool for this IP
+      const matchingPool = findPoolForIp(ipOnly, allPools);
+      
       const existing = existingByIp.get(ipOnly);
       if (existing) {
         // Update existing discovered address - preserve CIDR metadata
+        // Only set poolId if existing has no pool assigned (preserve manual assignments)
         const updated = await this.updateIpamAddress(existing.id, {
           assignedInterfaceId: iface?.id || null,
           networkAddress: networkAddr || existing.networkAddress,
           notes: discovered.comment || existing.notes,
           status: discovered.disabled ? 'offline' : 'assigned',
+          poolId: existing.poolId || matchingPool?.id || null,
           lastSeenAt: now,
         });
         if (updated) result.push(updated);
       } else {
-        // Create new discovered address with CIDR metadata
+        // Create new discovered address with CIDR metadata and pool linkage
         const created = await this.createIpamAddress({
           ipAddress: ipOnly,
           networkAddress: networkAddr,
+          poolId: matchingPool?.id || null,
           assignedDeviceId: deviceId,
           assignedInterfaceId: iface?.id || null,
           source: 'discovered',
