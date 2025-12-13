@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { IpamPool, IpamAddress, Device } from '@shared/schema';
+import { IpamPool, IpamAddress, Device, DeviceInterface } from '@shared/schema';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -51,6 +51,12 @@ const statusLabels: Record<string, string> = {
   offline: 'Offline',
 };
 
+function ipToNumber(ip: string): number {
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4 || parts.some(isNaN)) return 0;
+  return (parts[0] << 24) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+}
+
 export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
   const { toast } = useToast();
   const { canModify } = useAuth();
@@ -78,6 +84,10 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
 
   const { data: devices = [] } = useQuery<Device[]>({
     queryKey: ['/api/devices'],
+  });
+
+  const { data: interfaces = [] } = useQuery<DeviceInterface[]>({
+    queryKey: ['/api/interfaces'],
   });
 
   const { data: addresses = [], isLoading: addressesLoading } = useQuery<IpamAddress[]>({
@@ -240,15 +250,25 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
     setEditPoolOpen(true);
   };
 
-  const getDeviceName = (deviceId: string | null) => {
-    if (!deviceId) return '-';
+  const getDeviceInfo = (deviceId: string | null, interfaceId: string | null) => {
+    if (!deviceId) return { name: '-', interfaceInfo: null };
     const device = devices.find(d => d.id === deviceId);
-    return device?.name || 'Unknown Device';
+    const deviceName = device?.name || 'Unknown Device';
+    
+    if (!interfaceId) return { name: deviceName, interfaceInfo: null };
+    
+    const iface = interfaces.find(i => i.id === interfaceId);
+    if (!iface) return { name: deviceName, interfaceInfo: null };
+    
+    return { name: deviceName, interfaceInfo: iface.name };
   };
 
-  const filteredAddresses = addresses.filter(addr => 
-    addressStatusFilter === 'all' || addr.status === addressStatusFilter
-  );
+  const filteredAddresses = useMemo(() => {
+    const filtered = addresses.filter(addr => 
+      addressStatusFilter === 'all' || addr.status === addressStatusFilter
+    );
+    return filtered.sort((a, b) => ipToNumber(a.ipAddress) - ipToNumber(b.ipAddress));
+  }, [addresses, addressStatusFilter]);
 
   const getPoolTypeLabel = (pool: IpamPool) => {
     if (pool.entryType === 'cidr') return pool.cidr || 'CIDR';
@@ -682,7 +702,17 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm">
-                          {getDeviceName(addr.assignedDeviceId)}
+                          {(() => {
+                            const info = getDeviceInfo(addr.assignedDeviceId, addr.assignedInterfaceId);
+                            return (
+                              <div>
+                                <div>{info.name}</div>
+                                {info.interfaceInfo && (
+                                  <div className="text-xs text-muted-foreground">{info.interfaceInfo}</div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {addr.hostname || '-'}

@@ -4412,6 +4412,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Device Interfaces API
+  app.get("/api/interfaces", requireAuth as any, async (req, res) => {
+    try {
+      const interfaces = await storage.getAllDeviceInterfaces();
+      res.json(interfaces);
+    } catch (error) {
+      console.error('Error fetching all interfaces:', error);
+      res.status(500).json({ error: 'Failed to fetch interfaces' });
+    }
+  });
+
   app.get("/api/devices/:id/interfaces", requireAuth as any, async (req, res) => {
     try {
       const interfaces = await storage.getDeviceInterfaces(req.params.id);

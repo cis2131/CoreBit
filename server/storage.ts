@@ -276,6 +276,7 @@ export interface IStorage {
   deleteIpamAddressesByPool(poolId: string): Promise<void>;
 
   // Device Interfaces
+  getAllDeviceInterfaces(): Promise<DeviceInterface[]>;
   getDeviceInterfaces(deviceId: string): Promise<DeviceInterface[]>;
   getDeviceInterface(id: string): Promise<DeviceInterface | undefined>;
   createDeviceInterface(iface: InsertDeviceInterface): Promise<DeviceInterface>;
@@ -1214,6 +1215,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Device Interfaces
+  async getAllDeviceInterfaces(): Promise<DeviceInterface[]> {
+    return await db.select().from(deviceInterfaces).orderBy(deviceInterfaces.deviceId, deviceInterfaces.name);
+  }
+
   async getDeviceInterfaces(deviceId: string): Promise<DeviceInterface[]> {
     return await db.select().from(deviceInterfaces).where(eq(deviceInterfaces.deviceId, deviceId)).orderBy(deviceInterfaces.name);
   }
