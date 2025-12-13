@@ -963,6 +963,74 @@ export function DevicePropertiesPanel({
             </Card>
           )}
 
+          {deviceInterfaces.length > 0 && (
+            <Card data-testid="card-device-interfaces">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Network className="h-4 w-4 text-muted-foreground" />
+                    Device Interfaces
+                  </CardTitle>
+                  <Badge variant="secondary" className="text-xs" data-testid="badge-interface-count">
+                    {deviceInterfaces.length}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {deviceInterfaces.map((iface) => {
+                    const interfaceIps = deviceIpamAddresses.filter(
+                      (addr) => addr.assignedInterfaceId === iface.id
+                    );
+                    
+                    return (
+                      <div key={iface.id} className="text-sm" data-testid={`interface-row-${iface.id}`}>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="font-mono text-xs" data-testid={`badge-interface-name-${iface.id}`}>
+                            {iface.name}
+                          </Badge>
+                          <Badge variant="secondary" className="text-xs capitalize" data-testid={`badge-interface-type-${iface.id}`}>
+                            {iface.type}
+                          </Badge>
+                        </div>
+                        {interfaceIps.length > 0 && (
+                          <div className="mt-1.5 ml-2 space-y-1" data-testid={`interface-ips-${iface.id}`}>
+                            {interfaceIps.map((addr) => {
+                              const isPollingAddress = device.pollingAddressId === addr.id;
+                              return (
+                                <div
+                                  key={addr.id}
+                                  className={`flex items-center gap-2 p-1 rounded text-xs ${
+                                    isPollingAddress ? "bg-primary/10 border border-primary/20" : "bg-muted/50"
+                                  }`}
+                                  data-testid={`interface-ip-${addr.id}`}
+                                >
+                                  {isPollingAddress && (
+                                    <Star className="h-3 w-3 text-primary fill-primary shrink-0" />
+                                  )}
+                                  <span className="font-mono" data-testid={`text-ip-${addr.id}`}>
+                                    {addr.networkAddress || addr.ipAddress}
+                                  </span>
+                                  <span className={`text-xs capitalize ml-auto ${
+                                    addr.status === 'assigned' ? 'text-green-600 dark:text-green-400' :
+                                    addr.status === 'offline' ? 'text-red-500' :
+                                    'text-muted-foreground'
+                                  }`}>
+                                    {addr.status}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">

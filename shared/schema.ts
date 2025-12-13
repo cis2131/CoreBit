@@ -631,6 +631,7 @@ export const ipamPools = pgTable("ipam_pools", {
 export const ipamAddresses = pgTable("ipam_addresses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   ipAddress: text("ip_address").notNull(),
+  networkAddress: text("network_address"), // CIDR notation with prefix (e.g., "192.168.1.1/24")
   poolId: varchar("pool_id").references(() => ipamPools.id, { onDelete: "cascade" }),
   status: text("status").notNull().default("available").$type<'available' | 'assigned' | 'reserved' | 'offline'>(),
   assignedDeviceId: varchar("assigned_device_id").references(() => devices.id, { onDelete: "set null" }),
