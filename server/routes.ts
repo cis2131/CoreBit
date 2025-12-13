@@ -2760,11 +2760,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 else if (nameLower.includes('bond')) ifaceType = 'bonding';
                 else if (nameLower.includes('loop') || nameLower === 'lo') ifaceType = 'loopback';
                 
+                // Map port status to operStatus/adminStatus
+                const operStatus = port.status === 'up' ? 'up' : port.status === 'down' ? 'down' : 'unknown';
+                
                 return {
                   name: port.name,
+                  description: port.description || port.comment || null,
                   type: ifaceType,
                   snmpIndex: port.snmpIndex ?? null,
+                  operStatus: operStatus as 'up' | 'down' | 'unknown',
+                  adminStatus: port.disabled ? 'disabled' : 'enabled' as 'enabled' | 'disabled' | 'unknown',
+                  speed: port.speed || null,
                   discoverySource: 'probe' as const,
+                  lastSeenAt: new Date(),
                 };
               });
               
@@ -2783,6 +2791,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           } catch (ipamError: any) {
             console.error(`[Probing] Error persisting Mikrotik interfaces/IPs for ${device.name}:`, ipamError.message);
+          }
+        }
+        
+        // Persist interfaces for non-Mikrotik devices (SNMP, Prometheus, Server, etc.)
+        if (!device.type.startsWith('mikrotik_') && device.type !== 'generic_ping' && probeResult.data) {
+          try {
+            const ports = probeResult.data.ports || [];
+            
+            if (ports.length > 0) {
+              // Convert ports to device interfaces format
+              const interfacesToSync = ports.map((port: any) => {
+                // Infer interface type from name
+                let ifaceType: 'ethernet' | 'vlan' | 'bridge' | 'loopback' | 'wireless' | 'tunnel' | 'bonding' | 'other' = 'ethernet';
+                const nameLower = (port.name || '').toLowerCase();
+                if (nameLower.includes('vlan') || nameLower.match(/\.\d+$/)) ifaceType = 'vlan';
+                else if (nameLower.includes('bridge') || nameLower.startsWith('br')) ifaceType = 'bridge';
+                else if (nameLower.includes('wlan') || nameLower.includes('wifi')) ifaceType = 'wireless';
+                else if (nameLower.includes('gre') || nameLower.includes('vpn') || nameLower.includes('tunnel')) ifaceType = 'tunnel';
+                else if (nameLower.includes('bond')) ifaceType = 'bonding';
+                else if (nameLower.includes('loop') || nameLower === 'lo') ifaceType = 'loopback';
+                
+                // Map port status to operStatus
+                const operStatus = port.status === 'up' ? 'up' : port.status === 'down' ? 'down' : 'unknown';
+                
+                return {
+                  name: port.name,
+                  description: port.description || port.defaultName || null,
+                  type: ifaceType,
+                  snmpIndex: port.snmpIndex ?? null,
+                  operStatus: operStatus as 'up' | 'down' | 'unknown',
+                  adminStatus: 'unknown' as 'enabled' | 'disabled' | 'unknown',
+                  speed: port.speed || null,
+                  discoverySource: 'probe' as const,
+                  lastSeenAt: new Date(),
+                };
+              });
+              
+              await storage.syncDeviceInterfaces(device.id, interfacesToSync);
+            }
+          } catch (ifaceError: any) {
+            console.error(`[Probing] Error persisting interfaces for ${device.name}:`, ifaceError.message);
           }
         }
       }

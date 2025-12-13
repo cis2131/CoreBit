@@ -172,11 +172,16 @@ export const deviceInterfaces = pgTable("device_interfaces", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   deviceId: varchar("device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  description: text("description"), // Interface description/comment from device
   type: text("type").$type<'ethernet' | 'vlan' | 'bridge' | 'loopback' | 'wireless' | 'tunnel' | 'bonding' | 'other'>(),
   parentInterfaceId: varchar("parent_interface_id"), // For VLANs - references self
   snmpIndex: integer("snmp_index"),
   macAddress: text("mac_address"),
   isVirtual: boolean("is_virtual").default(false),
+  operStatus: text("oper_status").$type<'up' | 'down' | 'unknown'>(), // Operational status
+  adminStatus: text("admin_status").$type<'enabled' | 'disabled' | 'unknown'>(), // Administrative status
+  speed: text("speed"), // Link speed (e.g. "1G", "10G", "100M")
+  duplex: text("duplex").$type<'full' | 'half' | 'unknown'>(), // Duplex mode
   discoverySource: text("discovery_source").$type<'probe' | 'manual' | 'sync'>(),
   lastSeenAt: timestamp("last_seen_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -694,6 +699,9 @@ export const insertDeviceInterfaceSchema = createInsertSchema(deviceInterfaces).
 }).extend({
   type: z.enum(['ethernet', 'vlan', 'bridge', 'loopback', 'wireless', 'tunnel', 'bonding', 'other']).optional().nullable(),
   discoverySource: z.enum(['probe', 'manual', 'sync']).optional().nullable(),
+  operStatus: z.enum(['up', 'down', 'unknown']).optional().nullable(),
+  adminStatus: z.enum(['enabled', 'disabled', 'unknown']).optional().nullable(),
+  duplex: z.enum(['full', 'half', 'unknown']).optional().nullable(),
 });
 
 export const insertIpamAddressAssignmentSchema = createInsertSchema(ipamAddressAssignments).omit({

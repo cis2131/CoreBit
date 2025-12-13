@@ -898,162 +898,13 @@ export function DevicePropertiesPanel({
             </Card>
           )}
 
-          {device.deviceData?.ports && device.deviceData.ports.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Network Ports</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {device.deviceData.ports.map((port, idx) => {
-                    // Use defaultName (or name as fallback) for new connections
-                    const portIdentifier = port.defaultName || port.name;
-
-                    // Find connection for this port with backward compatibility
-                    // Match against BOTH defaultName and name to handle:
-                    // 1. New connections (use defaultName)
-                    // 2. Legacy connections (use old name that might have been renamed)
-                    // 3. Mikrotik renames (connection stored with defaultName still works)
-                    const connection = connections.find((conn) => {
-                      // Check if this port is the source
-                      if (conn.sourceDeviceId === device.id) {
-                        // Match if connection identifier matches either defaultName OR current name
-                        return (
-                          conn.sourcePort === port.defaultName ||
-                          conn.sourcePort === port.name
-                        );
-                      }
-                      // Check if this port is the target
-                      if (conn.targetDeviceId === device.id) {
-                        // Match if connection identifier matches either defaultName OR current name
-                        return (
-                          conn.targetPort === port.defaultName ||
-                          conn.targetPort === port.name
-                        );
-                      }
-                      return false;
-                    });
-
-                    // Find connected device and port
-                    let connectedDevice: Device | undefined;
-                    let connectedPortIdentifier: string | undefined;
-                    let connectedPortName: string | undefined;
-                    if (connection) {
-                      const isSourcePort =
-                        connection.sourceDeviceId === device.id;
-                      const connectedDeviceId = isSourcePort
-                        ? connection.targetDeviceId
-                        : connection.sourceDeviceId;
-                      connectedDevice = allDevices.find(
-                        (d) => d.id === connectedDeviceId,
-                      );
-                      connectedPortIdentifier =
-                        (isSourcePort
-                          ? connection.targetPort
-                          : connection.sourcePort) || undefined;
-
-                      // Find the user-friendly name of the connected port with backward compatibility
-                      if (connectedDevice && connectedPortIdentifier) {
-                        // Try to find port by defaultName first, then fall back to name
-                        const connectedPort =
-                          connectedDevice.deviceData?.ports?.find(
-                            (p) =>
-                              (p.defaultName || p.name) ===
-                                connectedPortIdentifier ||
-                              p.name === connectedPortIdentifier,
-                          );
-                        connectedPortName =
-                          connectedPort?.name || connectedPortIdentifier;
-                      }
-                    }
-
-                    return (
-                      <div key={idx} className="flex flex-col gap-1 text-sm">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <div
-                              className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                                device.status === "online" &&
-                                port.status === "up"
-                                  ? "bg-green-500"
-                                  : "bg-gray-400"
-                              }`}
-                            />
-                            <span className="font-medium text-foreground">
-                              {port.name}
-                            </span>
-                            {connection &&
-                            connectedDevice &&
-                            onNavigateToDevice ? (
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-5 w-5 flex-shrink-0"
-                                onClick={() =>
-                                  onNavigateToDevice(connectedDevice.id)
-                                }
-                                title={`Connected to ${connectedDevice.name}`}
-                                data-testid={`button-navigate-connection-${port.name}`}
-                              >
-                                <LinkIcon className="h-3 w-3 text-primary" />
-                              </Button>
-                            ) : (
-                              onStartConnectionFromPort && (
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-5 w-5 flex-shrink-0"
-                                  onClick={() =>
-                                    onStartConnectionFromPort(
-                                      device.id,
-                                      portIdentifier,
-                                    )
-                                  }
-                                  title="Create connection from this port"
-                                  data-testid={`button-start-connection-${port.name}`}
-                                >
-                                  <LinkIcon className="h-3 w-3 text-muted-foreground" />
-                                </Button>
-                              )
-                            )}
-                          </div>
-                          {port.speed && (
-                            <Badge
-                              variant="outline"
-                              className="text-xs flex-shrink-0"
-                            >
-                              {port.speed}
-                            </Badge>
-                          )}
-                        </div>
-                        {port.description && (
-                          <p className="text-xs text-muted-foreground ml-5">
-                            {port.description}
-                          </p>
-                        )}
-                        {connection && connectedDevice && connectedPortName && (
-                          <p
-                            className="text-xs text-primary ml-5"
-                            data-testid={`text-connected-to-${port.name}`}
-                          >
-                            → {connectedDevice.name} ({connectedPortName})
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
           {deviceInterfaces.length > 0 && (
             <Card data-testid="card-device-interfaces">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <Network className="h-4 w-4 text-muted-foreground" />
-                    Device Interfaces
+                    Interfaces
                   </CardTitle>
                   <Badge variant="secondary" className="text-xs" data-testid="badge-interface-count">
                     {deviceInterfaces.length}
@@ -1067,21 +918,103 @@ export function DevicePropertiesPanel({
                       (addr) => addr.assignedInterfaceId === iface.id
                     );
                     const isAddingIp = addIpInterfaceId === iface.id;
+
+                    // Find connection for this interface with backward compatibility
+                    // Match against interface name and legacy port identifiers (defaultName)
+                    // This handles:
+                    // 1. New connections using interface name
+                    // 2. Legacy connections stored with defaultName
+                    // 3. Mikrotik renames where connection was stored with defaultName
+                    const legacyPort = device.deviceData?.ports?.find(
+                      (p) => p.name === iface.name || p.defaultName === iface.name
+                    );
+                    const portIdentifier = legacyPort?.defaultName || iface.name;
+
+                    const connection = connections.find((conn) => {
+                      if (conn.sourceDeviceId === device.id) {
+                        return (
+                          conn.sourcePort === iface.name ||
+                          conn.sourcePort === portIdentifier ||
+                          (legacyPort && conn.sourcePort === legacyPort.name)
+                        );
+                      }
+                      if (conn.targetDeviceId === device.id) {
+                        return (
+                          conn.targetPort === iface.name ||
+                          conn.targetPort === portIdentifier ||
+                          (legacyPort && conn.targetPort === legacyPort.name)
+                        );
+                      }
+                      return false;
+                    });
+
+                    // Find connected device and interface
+                    let connectedDevice: Device | undefined;
+                    let connectedInterfaceName: string | undefined;
+                    if (connection) {
+                      const isSource = connection.sourceDeviceId === device.id;
+                      const connectedDeviceId = isSource
+                        ? connection.targetDeviceId
+                        : connection.sourceDeviceId;
+                      connectedDevice = allDevices.find((d) => d.id === connectedDeviceId);
+                      connectedInterfaceName = (isSource
+                        ? connection.targetPort
+                        : connection.sourcePort) || undefined;
+                    }
+
+                    // Determine status color
+                    const getStatusColor = () => {
+                      if (device.status !== "online") return "bg-gray-400";
+                      if (iface.operStatus === "up") return "bg-green-500";
+                      if (iface.operStatus === "down") return "bg-red-500";
+                      return "bg-gray-400";
+                    };
                     
                     return (
                       <div key={iface.id} className="text-sm" data-testid={`interface-row-${iface.id}`}>
                         <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="font-mono text-xs" data-testid={`badge-interface-name-${iface.id}`}>
+                          <div
+                            className={`w-2 h-2 rounded-full flex-shrink-0 ${getStatusColor()}`}
+                            title={`Status: ${iface.operStatus || 'unknown'}`}
+                          />
+                          <span className="font-medium text-foreground font-mono text-xs" data-testid={`text-interface-name-${iface.id}`}>
                             {iface.name}
-                          </Badge>
-                          <Badge variant="secondary" className="text-xs capitalize" data-testid={`badge-interface-type-${iface.id}`}>
-                            {iface.type}
-                          </Badge>
+                          </span>
+                          {connection && connectedDevice && onNavigateToDevice ? (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-5 w-5 flex-shrink-0"
+                              onClick={() => onNavigateToDevice(connectedDevice.id)}
+                              title={`Connected to ${connectedDevice.name}`}
+                              data-testid={`button-navigate-connection-${iface.name}`}
+                            >
+                              <LinkIcon className="h-3 w-3 text-primary" />
+                            </Button>
+                          ) : (
+                            onStartConnectionFromPort && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-5 w-5 flex-shrink-0"
+                                onClick={() => onStartConnectionFromPort(device.id, iface.name)}
+                                title="Create connection from this interface"
+                                data-testid={`button-start-connection-${iface.name}`}
+                              >
+                                <LinkIcon className="h-3 w-3 text-muted-foreground" />
+                              </Button>
+                            )
+                          )}
+                          {iface.speed && (
+                            <Badge variant="outline" className="text-xs flex-shrink-0 ml-auto">
+                              {iface.speed}
+                            </Badge>
+                          )}
                           {canModify && (
                             <Button
                               size="icon"
                               variant="ghost"
-                              className="h-5 w-5 ml-auto"
+                              className={`h-5 w-5 ${iface.speed ? '' : 'ml-auto'}`}
                               onClick={() => {
                                 setAddIpInterfaceId(isAddingIp ? null : iface.id);
                                 setNewIpAddress("");
@@ -1093,6 +1026,19 @@ export function DevicePropertiesPanel({
                             </Button>
                           )}
                         </div>
+                        {iface.description && (
+                          <p className="text-xs text-muted-foreground ml-4 mt-0.5">
+                            {iface.description}
+                          </p>
+                        )}
+                        {connection && connectedDevice && connectedInterfaceName && (
+                          <p
+                            className="text-xs text-primary ml-4 mt-0.5"
+                            data-testid={`text-connected-to-${iface.name}`}
+                          >
+                            → {connectedDevice.name} ({connectedInterfaceName})
+                          </p>
+                        )}
                         {isAddingIp && (
                           <div className="mt-1.5 ml-2 flex items-center gap-1" data-testid={`add-ip-form-${iface.id}`}>
                             <Input
