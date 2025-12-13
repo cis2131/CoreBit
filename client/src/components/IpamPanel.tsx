@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { IpamPool, IpamAddress, Device, DeviceInterface, DevicePlacement, Map } from '@shared/schema';
+import { IpamPool, IpamAddress, IpamAddressWithAssignments, IpamAddressAssignment, Device, DeviceInterface, DevicePlacement, Map } from '@shared/schema';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -114,12 +114,12 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
 
   const viewAddressesPoolId = viewAddressesPool === 'unassigned' ? 'unassigned' : viewAddressesPool?.id;
 
-  const { data: addresses = [], isLoading: addressesLoading } = useQuery<IpamAddress[]>({
-    queryKey: ['/api/ipam/addresses', viewAddressesPoolId],
+  const { data: addresses = [], isLoading: addressesLoading } = useQuery<IpamAddressWithAssignments[]>({
+    queryKey: ['/api/ipam/addresses', viewAddressesPoolId, 'withAssignments'],
     queryFn: async () => {
       if (!viewAddressesPool) return [];
       const poolId = viewAddressesPool === 'unassigned' ? 'unassigned' : viewAddressesPool.id;
-      const res = await fetch(`/api/ipam/addresses?poolId=${poolId}`);
+      const res = await fetch(`/api/ipam/addresses?poolId=${poolId}&withAssignments=true`);
       if (!res.ok) throw new Error('Failed to fetch addresses');
       return res.json();
     },
@@ -292,6 +292,24 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
     if (!iface) return { name: deviceName, interfaceInfo: null, deviceId, mapId };
     
     return { name: deviceName, interfaceInfo: iface.name, deviceId, mapId };
+  };
+
+  // Get device info for an assignment from the junction table
+  const getAssignmentDeviceInfo = (assignment: IpamAddressAssignment) => {
+    const device = devices.find(d => d.id === assignment.deviceId);
+    const deviceName = device?.name || 'Unknown Device';
+    
+    const placement = placements.find(p => p.deviceId === assignment.deviceId);
+    const mapId = placement?.mapId || null;
+    
+    const iface = assignment.interfaceId ? interfaces.find(i => i.id === assignment.interfaceId) : null;
+    
+    return { 
+      name: deviceName, 
+      interfaceInfo: iface?.name || null, 
+      deviceId: assignment.deviceId, 
+      mapId 
+    };
   };
 
   const filteredAddresses = useMemo(() => {
@@ -795,28 +813,43 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
                         </TableCell>
                         <TableCell className="text-sm">
                           {(() => {
-                            const info = getDeviceInfo(addr.assignedDeviceId, addr.assignedInterfaceId);
-                            const canNavigate = info.deviceId && info.mapId && onNavigateToDevice;
+                            // Use assignments from junction table if available, fallback to legacy fields
+                            const assignmentsList = addr.assignments && addr.assignments.length > 0 
+                              ? addr.assignments 
+                              : (addr.assignedDeviceId ? [{ deviceId: addr.assignedDeviceId, interfaceId: addr.assignedInterfaceId }] : []);
+                            
+                            if (assignmentsList.length === 0) {
+                              return <div className="text-muted-foreground">-</div>;
+                            }
+                            
                             return (
-                              <div>
-                                {canNavigate ? (
-                                  <button
-                                    className="text-left text-primary hover:underline flex items-center gap-1"
-                                    onClick={() => {
-                                      onNavigateToDevice(info.deviceId!, info.mapId!);
-                                      setViewAddressesPool(null);
-                                    }}
-                                    data-testid={`link-device-${info.deviceId}`}
-                                  >
-                                    <MapPin className="h-3 w-3" />
-                                    {info.name}
-                                  </button>
-                                ) : (
-                                  <div>{info.name}</div>
-                                )}
-                                {info.interfaceInfo && (
-                                  <div className="text-xs text-muted-foreground">{info.interfaceInfo}</div>
-                                )}
+                              <div className="space-y-1">
+                                {assignmentsList.map((assignment, idx) => {
+                                  const info = getAssignmentDeviceInfo(assignment as IpamAddressAssignment);
+                                  const canNavigate = info.deviceId && info.mapId && onNavigateToDevice;
+                                  return (
+                                    <div key={`${assignment.deviceId}-${idx}`}>
+                                      {canNavigate ? (
+                                        <button
+                                          className="text-left text-primary hover:underline flex items-center gap-1"
+                                          onClick={() => {
+                                            onNavigateToDevice(info.deviceId!, info.mapId!);
+                                            setViewAddressesPool(null);
+                                          }}
+                                          data-testid={`link-device-${info.deviceId}`}
+                                        >
+                                          <MapPin className="h-3 w-3" />
+                                          {info.name}
+                                        </button>
+                                      ) : (
+                                        <div>{info.name}</div>
+                                      )}
+                                      {info.interfaceInfo && (
+                                        <div className="text-xs text-muted-foreground ml-4">{info.interfaceInfo}</div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             );
                           })()}

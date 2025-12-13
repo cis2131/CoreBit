@@ -652,6 +652,22 @@ export const ipamAddresses = pgTable("ipam_addresses", {
   index("idx_ipam_addresses_interface").on(table.assignedInterfaceId),
 ]);
 
+// IPAM Address Assignments - junction table for many-to-many IP-to-interface relationships
+// Allows multiple devices/interfaces to share the same IP address (e.g., VRRP, failover)
+export const ipamAddressAssignments = pgTable("ipam_address_assignments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  addressId: varchar("address_id").notNull().references(() => ipamAddresses.id, { onDelete: "cascade" }),
+  deviceId: varchar("device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
+  interfaceId: varchar("interface_id").references(() => deviceInterfaces.id, { onDelete: "set null" }),
+  role: text("role").$type<'primary' | 'secondary' | 'management' | 'unused'>(),
+  source: text("source").$type<'manual' | 'discovered' | 'sync'>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_ipam_assignments_address").on(table.addressId),
+  index("idx_ipam_assignments_device").on(table.deviceId),
+  index("idx_ipam_assignments_interface").on(table.interfaceId),
+]);
+
 export const insertIpamPoolSchema = createInsertSchema(ipamPools).omit({
   id: true,
   createdAt: true,
@@ -678,6 +694,14 @@ export const insertDeviceInterfaceSchema = createInsertSchema(deviceInterfaces).
 }).extend({
   type: z.enum(['ethernet', 'vlan', 'bridge', 'loopback', 'wireless', 'tunnel', 'bonding', 'other']).optional().nullable(),
   discoverySource: z.enum(['probe', 'manual', 'sync']).optional().nullable(),
+});
+
+export const insertIpamAddressAssignmentSchema = createInsertSchema(ipamAddressAssignments).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  role: z.enum(['primary', 'secondary', 'management', 'unused']).optional().nullable(),
+  source: z.enum(['manual', 'discovered', 'sync']).optional().nullable(),
 });
 
 export type Map = typeof maps.$inferSelect;
@@ -722,3 +746,10 @@ export type IpamAddress = typeof ipamAddresses.$inferSelect;
 export type InsertIpamAddress = z.infer<typeof insertIpamAddressSchema>;
 export type DeviceInterface = typeof deviceInterfaces.$inferSelect;
 export type InsertDeviceInterface = z.infer<typeof insertDeviceInterfaceSchema>;
+export type IpamAddressAssignment = typeof ipamAddressAssignments.$inferSelect;
+export type InsertIpamAddressAssignment = z.infer<typeof insertIpamAddressAssignmentSchema>;
+
+// Extended type for IPAM address with assignments
+export interface IpamAddressWithAssignments extends IpamAddress {
+  assignments: IpamAddressAssignment[];
+}

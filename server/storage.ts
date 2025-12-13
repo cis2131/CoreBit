@@ -21,6 +21,7 @@ import {
   proxmoxVms,
   ipamPools,
   ipamAddresses,
+  ipamAddressAssignments,
   deviceInterfaces,
   type Map, 
   type InsertMap,
@@ -63,7 +64,10 @@ import {
   type IpamAddress,
   type InsertIpamAddress,
   type DeviceInterface,
-  type InsertDeviceInterface
+  type InsertDeviceInterface,
+  type IpamAddressAssignment,
+  type InsertIpamAddressAssignment,
+  type IpamAddressWithAssignments
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNotNull, isNull, or, gt } from "drizzle-orm";
@@ -288,6 +292,16 @@ export interface IStorage {
   deleteDeviceInterfacesByDevice(deviceId: string): Promise<void>;
   syncDeviceInterfaces(deviceId: string, interfaces: Omit<InsertDeviceInterface, 'deviceId'>[]): Promise<DeviceInterface[]>;
   syncDeviceIpAddresses(deviceId: string, discoveredAddresses: { ipAddress: string; networkAddress?: string; interfaceName: string; disabled?: boolean; comment?: string }[], interfaces: DeviceInterface[]): Promise<IpamAddress[]>;
+  
+  // IPAM Address Assignments (junction table)
+  getAssignmentsByAddress(addressId: string): Promise<IpamAddressAssignment[]>;
+  getAssignmentsByDevice(deviceId: string): Promise<IpamAddressAssignment[]>;
+  createAssignment(assignment: InsertIpamAddressAssignment): Promise<IpamAddressAssignment>;
+  deleteAssignment(id: string): Promise<void>;
+  deleteAssignmentsByAddress(addressId: string): Promise<void>;
+  deleteAssignmentsByDevice(deviceId: string): Promise<void>;
+  upsertAssignment(addressId: string, deviceId: string, interfaceId: string | null, source: 'manual' | 'discovered' | 'sync'): Promise<IpamAddressAssignment>;
+  getIpamAddressesWithAssignments(poolId?: string | null): Promise<IpamAddressWithAssignments[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1346,52 +1360,39 @@ export class DatabaseStorage implements IStorage {
       // Find matching IPAM pool for this IP
       const matchingPool = findPoolForIp(ipOnly, allPools);
       
-      const existing = existingByIp.get(ipOnly);
-      if (existing) {
-        // Update existing discovered address - preserve CIDR metadata
-        // Only set poolId if existing has no pool assigned (preserve manual assignments)
-        const updated = await this.updateIpamAddress(existing.id, {
-          assignedInterfaceId: iface?.id || null,
-          networkAddress: networkAddr || existing.networkAddress,
-          notes: discovered.comment || existing.notes,
+      // Check if ANY IPAM address exists for this IP (avoid duplicates)
+      const anyExisting = await this.getIpamAddressByIp(ipOnly);
+      
+      let addressId: string;
+      if (anyExisting) {
+        // Update existing address (set status to assigned)
+        const updated = await this.updateIpamAddress(anyExisting.id, {
+          networkAddress: networkAddr || anyExisting.networkAddress,
+          notes: discovered.comment || anyExisting.notes,
           status: discovered.disabled ? 'offline' : 'assigned',
-          poolId: existing.poolId || matchingPool?.id || null,
+          source: anyExisting.source || 'discovered',
+          poolId: anyExisting.poolId || matchingPool?.id || null,
           lastSeenAt: now,
         });
         if (updated) result.push(updated);
+        addressId = anyExisting.id;
       } else {
-        // Check if ANY IPAM address exists for this IP (e.g., from pool expansion)
-        // If so, update it rather than creating a duplicate
-        const anyExisting = await this.getIpamAddressByIp(ipOnly);
-        if (anyExisting) {
-          // Update existing address to assign it to this device
-          const updated = await this.updateIpamAddress(anyExisting.id, {
-            assignedDeviceId: deviceId,
-            assignedInterfaceId: iface?.id || null,
-            networkAddress: networkAddr || anyExisting.networkAddress,
-            notes: discovered.comment || anyExisting.notes,
-            status: discovered.disabled ? 'offline' : 'assigned',
-            source: 'discovered',
-            poolId: anyExisting.poolId || matchingPool?.id || null,
-            lastSeenAt: now,
-          });
-          if (updated) result.push(updated);
-        } else {
-          // Create new discovered address with CIDR metadata and pool linkage
-          const created = await this.createIpamAddress({
-            ipAddress: ipOnly,
-            networkAddress: networkAddr,
-            poolId: matchingPool?.id || null,
-            assignedDeviceId: deviceId,
-            assignedInterfaceId: iface?.id || null,
-            source: 'discovered',
-            status: discovered.disabled ? 'offline' : 'assigned',
-            notes: discovered.comment || null,
-            lastSeenAt: now,
-          });
-          result.push(created);
-        }
+        // Create new discovered address
+        const created = await this.createIpamAddress({
+          ipAddress: ipOnly,
+          networkAddress: networkAddr,
+          poolId: matchingPool?.id || null,
+          source: 'discovered',
+          status: discovered.disabled ? 'offline' : 'assigned',
+          notes: discovered.comment || null,
+          lastSeenAt: now,
+        });
+        result.push(created);
+        addressId = created.id;
       }
+      
+      // Create/update assignment in junction table (allows multiple devices per IP)
+      await this.upsertAssignment(addressId, deviceId, iface?.id || null, 'discovered');
     }
     
     // Mark discovered addresses that weren't seen as offline
@@ -1404,6 +1405,93 @@ export class DatabaseStorage implements IStorage {
     }
     
     return result;
+  }
+
+  // IPAM Address Assignments (junction table) implementations
+  async getAssignmentsByAddress(addressId: string): Promise<IpamAddressAssignment[]> {
+    return await db.select().from(ipamAddressAssignments)
+      .where(eq(ipamAddressAssignments.addressId, addressId));
+  }
+
+  async getAssignmentsByDevice(deviceId: string): Promise<IpamAddressAssignment[]> {
+    return await db.select().from(ipamAddressAssignments)
+      .where(eq(ipamAddressAssignments.deviceId, deviceId));
+  }
+
+  async createAssignment(assignment: InsertIpamAddressAssignment): Promise<IpamAddressAssignment> {
+    const [created] = await db.insert(ipamAddressAssignments).values(assignment).returning();
+    return created;
+  }
+
+  async deleteAssignment(id: string): Promise<void> {
+    await db.delete(ipamAddressAssignments).where(eq(ipamAddressAssignments.id, id));
+  }
+
+  async deleteAssignmentsByAddress(addressId: string): Promise<void> {
+    await db.delete(ipamAddressAssignments).where(eq(ipamAddressAssignments.addressId, addressId));
+  }
+
+  async deleteAssignmentsByDevice(deviceId: string): Promise<void> {
+    await db.delete(ipamAddressAssignments).where(eq(ipamAddressAssignments.deviceId, deviceId));
+  }
+
+  async upsertAssignment(addressId: string, deviceId: string, interfaceId: string | null, source: 'manual' | 'discovered' | 'sync'): Promise<IpamAddressAssignment> {
+    // Check if assignment already exists
+    const existing = await db.select().from(ipamAddressAssignments)
+      .where(and(
+        eq(ipamAddressAssignments.addressId, addressId),
+        eq(ipamAddressAssignments.deviceId, deviceId),
+        interfaceId 
+          ? eq(ipamAddressAssignments.interfaceId, interfaceId)
+          : isNull(ipamAddressAssignments.interfaceId)
+      ));
+    
+    if (existing.length > 0) {
+      return existing[0];
+    }
+
+    // Create new assignment
+    const [created] = await db.insert(ipamAddressAssignments).values({
+      addressId,
+      deviceId,
+      interfaceId,
+      source,
+    }).returning();
+    return created;
+  }
+
+  async getIpamAddressesWithAssignments(poolId?: string | null): Promise<IpamAddressWithAssignments[]> {
+    // Get addresses
+    let addresses: IpamAddress[];
+    if (poolId === 'unassigned' || poolId === null) {
+      addresses = await db.select().from(ipamAddresses).where(isNull(ipamAddresses.poolId));
+    } else if (poolId) {
+      addresses = await db.select().from(ipamAddresses).where(eq(ipamAddresses.poolId, poolId));
+    } else {
+      addresses = await db.select().from(ipamAddresses);
+    }
+
+    // Get all assignments for these addresses
+    const addressIds = addresses.map(a => a.id);
+    if (addressIds.length === 0) {
+      return [];
+    }
+
+    const allAssignments = await db.select().from(ipamAddressAssignments);
+    const assignmentsByAddress = new Map<string, IpamAddressAssignment[]>();
+    for (const assignment of allAssignments) {
+      if (addressIds.includes(assignment.addressId)) {
+        const existing = assignmentsByAddress.get(assignment.addressId) || [];
+        existing.push(assignment);
+        assignmentsByAddress.set(assignment.addressId, existing);
+      }
+    }
+
+    // Combine addresses with their assignments
+    return addresses.map(addr => ({
+      ...addr,
+      assignments: assignmentsByAddress.get(addr.id) || [],
+    }));
   }
 }
 

@@ -4304,7 +4304,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // IPAM Addresses
   app.get("/api/ipam/addresses", requireAuth as any, async (req, res) => {
     try {
-      const { poolId, deviceId, status } = req.query;
+      const { poolId, deviceId, status, withAssignments } = req.query;
+      
+      // If withAssignments is requested, return addresses with their assignments from junction table
+      if (withAssignments === 'true') {
+        const poolIdParam = poolId === 'unassigned' ? null : (typeof poolId === 'string' ? poolId : undefined);
+        const addressesWithAssignments = await storage.getIpamAddressesWithAssignments(poolIdParam);
+        
+        // Filter by status if provided
+        let filtered = addressesWithAssignments;
+        if (status && typeof status === 'string') {
+          filtered = filtered.filter(a => a.status === status);
+        }
+        
+        return res.json(filtered);
+      }
       
       let addresses;
       if (poolId === 'unassigned') {
