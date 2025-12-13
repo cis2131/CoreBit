@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { IpamPool, IpamAddress, Device, DeviceInterface } from '@shared/schema';
+import { IpamPool, IpamAddress, Device, DeviceInterface, DevicePlacement, Map } from '@shared/schema';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -21,7 +21,8 @@ import {
   Globe,
   Loader2,
   Edit,
-  MoreVertical
+  MoreVertical,
+  MapPin
 } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
@@ -35,6 +36,7 @@ import {
 
 interface IpamPanelProps {
   isCollapsed?: boolean;
+  onNavigateToDevice?: (deviceId: string, mapId: string) => void;
 }
 
 interface PoolStats {
@@ -65,7 +67,7 @@ function ipToNumber(ip: string): number {
   return (parts[0] << 24) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
 }
 
-export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
+export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanelProps) {
   const { toast } = useToast();
   const { canModify } = useAuth();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -100,6 +102,14 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
 
   const { data: poolStats = [] } = useQuery<PoolStats[]>({
     queryKey: ['/api/ipam/pool-stats'],
+  });
+
+  const { data: placements = [] } = useQuery<DevicePlacement[]>({
+    queryKey: ['/api/placements'],
+  });
+
+  const { data: maps = [] } = useQuery<Map[]>({
+    queryKey: ['/api/maps'],
   });
 
   const viewAddressesPoolId = viewAddressesPool === 'unassigned' ? 'unassigned' : viewAddressesPool?.id;
@@ -268,16 +278,20 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
   };
 
   const getDeviceInfo = (deviceId: string | null, interfaceId: string | null) => {
-    if (!deviceId) return { name: '-', interfaceInfo: null };
+    if (!deviceId) return { name: '-', interfaceInfo: null, deviceId: null, mapId: null };
     const device = devices.find(d => d.id === deviceId);
     const deviceName = device?.name || 'Unknown Device';
     
-    if (!interfaceId) return { name: deviceName, interfaceInfo: null };
+    // Find the first map this device is placed on
+    const placement = placements.find(p => p.deviceId === deviceId);
+    const mapId = placement?.mapId || null;
+    
+    if (!interfaceId) return { name: deviceName, interfaceInfo: null, deviceId, mapId };
     
     const iface = interfaces.find(i => i.id === interfaceId);
-    if (!iface) return { name: deviceName, interfaceInfo: null };
+    if (!iface) return { name: deviceName, interfaceInfo: null, deviceId, mapId };
     
-    return { name: deviceName, interfaceInfo: iface.name };
+    return { name: deviceName, interfaceInfo: iface.name, deviceId, mapId };
   };
 
   const filteredAddresses = useMemo(() => {
@@ -782,9 +796,24 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
                         <TableCell className="text-sm">
                           {(() => {
                             const info = getDeviceInfo(addr.assignedDeviceId, addr.assignedInterfaceId);
+                            const canNavigate = info.deviceId && info.mapId && onNavigateToDevice;
                             return (
                               <div>
-                                <div>{info.name}</div>
+                                {canNavigate ? (
+                                  <button
+                                    className="text-left text-primary hover:underline flex items-center gap-1"
+                                    onClick={() => {
+                                      onNavigateToDevice(info.deviceId!, info.mapId!);
+                                      setViewAddressesPool(null);
+                                    }}
+                                    data-testid={`link-device-${info.deviceId}`}
+                                  >
+                                    <MapPin className="h-3 w-3" />
+                                    {info.name}
+                                  </button>
+                                ) : (
+                                  <div>{info.name}</div>
+                                )}
                                 {info.interfaceInfo && (
                                   <div className="text-xs text-muted-foreground">{info.interfaceInfo}</div>
                                 )}

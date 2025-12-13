@@ -619,6 +619,7 @@ export default function NetworkTopology() {
           }}
           canModify={canModify}
           highlightedDeviceId={highlightedSidebarDeviceId}
+          onNavigateToDevice={handleNavigateToDevice}
         />
 
         <div className="flex-1">

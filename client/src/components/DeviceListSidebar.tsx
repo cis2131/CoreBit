@@ -16,6 +16,7 @@ interface DeviceListSidebarProps {
   onDeviceClick?: (deviceId: string) => void;
   canModify?: boolean;
   highlightedDeviceId?: string | null;
+  onNavigateToDevice?: (deviceId: string, mapId: string) => void;
 }
 
 const deviceTypeIcons: Record<string, React.ElementType> = {
@@ -41,7 +42,7 @@ function getStatusColor(status: string): string {
   }
 }
 
-export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragStart, onDeviceDragEnd, onEditDevice, onDeviceClick, canModify = true, highlightedDeviceId }: DeviceListSidebarProps) {
+export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragStart, onDeviceDragEnd, onEditDevice, onDeviceClick, canModify = true, highlightedDeviceId, onNavigateToDevice }: DeviceListSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [hideUnplaced, setHideUnplaced] = useState(false);
@@ -91,7 +92,7 @@ export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragS
         <OnDutyPanel isCollapsed={isCollapsed} />
       </div>
       <div className="flex-shrink-0 max-h-64 overflow-y-auto">
-        <IpamPanel isCollapsed={isCollapsed} />
+        <IpamPanel isCollapsed={isCollapsed} onNavigateToDevice={onNavigateToDevice} />
       </div>
 
       {!isCollapsed && (
