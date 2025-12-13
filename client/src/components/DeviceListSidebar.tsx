@@ -87,8 +87,12 @@ export function DeviceListSidebar({ devices, placedDeviceIds = [], onDeviceDragS
         </Button>
       </div>
 
-      <OnDutyPanel isCollapsed={isCollapsed} />
-      <IpamPanel isCollapsed={isCollapsed} />
+      <div className="flex-shrink-0">
+        <OnDutyPanel isCollapsed={isCollapsed} />
+      </div>
+      <div className="flex-shrink-0 max-h-64 overflow-y-auto">
+        <IpamPanel isCollapsed={isCollapsed} />
+      </div>
 
       {!isCollapsed && (
         <>
