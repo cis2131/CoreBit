@@ -37,6 +37,14 @@ interface IpamPanelProps {
   isCollapsed?: boolean;
 }
 
+interface PoolStats {
+  poolId: string | null;
+  total: number;
+  assigned: number;
+  available: number;
+  reserved: number;
+}
+
 const statusColors: Record<string, string> = {
   available: 'bg-green-500',
   assigned: 'bg-blue-500',
@@ -64,7 +72,7 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
   const [addPoolOpen, setAddPoolOpen] = useState(false);
   const [editPoolOpen, setEditPoolOpen] = useState(false);
   const [selectedPool, setSelectedPool] = useState<IpamPool | null>(null);
-  const [viewAddressesPool, setViewAddressesPool] = useState<IpamPool | null>(null);
+  const [viewAddressesPool, setViewAddressesPool] = useState<IpamPool | 'unassigned' | null>(null);
   const [addressStatusFilter, setAddressStatusFilter] = useState<string>('all');
 
   // Form state for adding pool
@@ -90,11 +98,18 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
     queryKey: ['/api/interfaces'],
   });
 
+  const { data: poolStats = [] } = useQuery<PoolStats[]>({
+    queryKey: ['/api/ipam/pool-stats'],
+  });
+
+  const viewAddressesPoolId = viewAddressesPool === 'unassigned' ? 'unassigned' : viewAddressesPool?.id;
+
   const { data: addresses = [], isLoading: addressesLoading } = useQuery<IpamAddress[]>({
-    queryKey: ['/api/ipam/addresses', viewAddressesPool?.id],
+    queryKey: ['/api/ipam/addresses', viewAddressesPoolId],
     queryFn: async () => {
       if (!viewAddressesPool) return [];
-      const res = await fetch(`/api/ipam/addresses?poolId=${viewAddressesPool.id}`);
+      const poolId = viewAddressesPool === 'unassigned' ? 'unassigned' : viewAddressesPool.id;
+      const res = await fetch(`/api/ipam/addresses?poolId=${poolId}`);
       if (!res.ok) throw new Error('Failed to fetch addresses');
       return res.json();
     },
@@ -178,7 +193,8 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
     mutationFn: async ({ id, ...data }: { id: string; status?: string; hostname?: string; notes?: string }) =>
       apiRequest('PATCH', `/api/ipam/addresses/${id}`, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/ipam/addresses', viewAddressesPool?.id] });
+      queryClient.invalidateQueries({ queryKey: ['/api/ipam/addresses', viewAddressesPoolId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/ipam/pool-stats'] });
       toast({ description: 'Address updated' });
     },
     onError: (error: Error) => {
@@ -189,8 +205,9 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
   const deleteAddressMutation = useMutation({
     mutationFn: async (id: string) => apiRequest('DELETE', `/api/ipam/addresses/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/ipam/addresses', viewAddressesPool?.id] });
+      queryClient.invalidateQueries({ queryKey: ['/api/ipam/addresses', viewAddressesPoolId] });
       queryClient.invalidateQueries({ queryKey: ['/api/ipam/pools'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/ipam/pool-stats'] });
       toast({ description: 'Address deleted' });
     },
     onError: (error: Error) => {
@@ -276,6 +293,12 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
     return pool.cidr || 'Single';
   };
 
+  const getPoolStats = (poolId: string | null): PoolStats | undefined => {
+    return poolStats.find(s => s.poolId === poolId);
+  };
+
+  const unassignedStats = getPoolStats(null);
+
   if (isCollapsed) {
     return (
       <div className="flex items-center justify-center py-2 border-b border-border">
@@ -350,85 +373,138 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
               <div className="flex items-center justify-center py-4">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               </div>
-            ) : pools.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-3">
-                No IP pools defined
-              </p>
             ) : (
               <div className="space-y-1">
-                {pools.map((pool) => (
+                {/* Unassigned IPs entry */}
+                {unassignedStats && unassignedStats.total > 0 && (
                   <div
-                    key={pool.id}
-                    className="p-2 rounded-md border border-border hover-elevate cursor-pointer"
-                    onClick={() => setViewAddressesPool(pool)}
-                    data-testid={`pool-item-${pool.id}`}
+                    className="p-2 rounded-md border border-dashed border-border hover-elevate cursor-pointer"
+                    onClick={() => setViewAddressesPool('unassigned')}
+                    data-testid="pool-item-unassigned"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">
-                          {pool.name}
+                          Unassigned
                         </p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {getPoolTypeLabel(pool)}
+                        <p className="text-xs text-muted-foreground">
+                          IPs not in any pool
                         </p>
-                        {pool.vlan && (
-                          <Badge variant="secondary" className="text-[10px] mt-1 h-4">
-                            VLAN {pool.vlan}
+                        <div className="flex gap-2 mt-1">
+                          <Badge variant="secondary" className="text-[10px] h-4">
+                            {unassignedStats.total} total
                           </Badge>
-                        )}
+                          {unassignedStats.assigned > 0 && (
+                            <Badge variant="secondary" className="text-[10px] h-4 bg-blue-500/20">
+                              {unassignedStats.assigned} assigned
+                            </Badge>
+                          )}
+                        </div>
                       </div>
-                      {canModify && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-6 w-6"
-                              onClick={(e) => e.stopPropagation()}
-                              data-testid={`button-pool-menu-${pool.id}`}
-                            >
-                              <MoreVertical className="h-3 w-3" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openEditPool(pool);
-                              }}
-                              data-testid={`menu-edit-pool-${pool.id}`}
-                            >
-                              <Edit className="h-3 w-3 mr-2" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                expandPoolMutation.mutate(pool.id);
-                              }}
-                              disabled={expandPoolMutation.isPending}
-                              data-testid={`menu-expand-pool-${pool.id}`}
-                            >
-                              <Globe className="h-3 w-3 mr-2" />
-                              Expand to IPs
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deletePoolMutation.mutate(pool.id);
-                              }}
-                              className="text-destructive"
-                              data-testid={`menu-delete-pool-${pool.id}`}
-                            >
-                              <Trash2 className="h-3 w-3 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
                     </div>
                   </div>
-                ))}
+                )}
+                {pools.length === 0 && (!unassignedStats || unassignedStats.total === 0) ? (
+                  <p className="text-xs text-muted-foreground text-center py-3">
+                    No IP pools defined
+                  </p>
+                ) : (
+                  pools.map((pool) => {
+                    const stats = getPoolStats(pool.id);
+                    return (
+                      <div
+                        key={pool.id}
+                        className="p-2 rounded-md border border-border hover-elevate cursor-pointer"
+                        onClick={() => setViewAddressesPool(pool)}
+                        data-testid={`pool-item-${pool.id}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">
+                              {pool.name}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {getPoolTypeLabel(pool)}
+                            </p>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {pool.vlan && (
+                                <Badge variant="secondary" className="text-[10px] h-4">
+                                  VLAN {pool.vlan}
+                                </Badge>
+                              )}
+                              {stats && stats.total > 0 && (
+                                <>
+                                  <Badge variant="secondary" className="text-[10px] h-4">
+                                    {stats.total} IPs
+                                  </Badge>
+                                  {stats.assigned > 0 && (
+                                    <Badge variant="secondary" className="text-[10px] h-4 bg-blue-500/20">
+                                      {stats.assigned} used
+                                    </Badge>
+                                  )}
+                                  {stats.available > 0 && (
+                                    <Badge variant="secondary" className="text-[10px] h-4 bg-green-500/20">
+                                      {stats.available} free
+                                    </Badge>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          {canModify && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-6 w-6"
+                                  onClick={(e) => e.stopPropagation()}
+                                  data-testid={`button-pool-menu-${pool.id}`}
+                                >
+                                  <MoreVertical className="h-3 w-3" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openEditPool(pool);
+                                  }}
+                                  data-testid={`menu-edit-pool-${pool.id}`}
+                                >
+                                  <Edit className="h-3 w-3 mr-2" />
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    expandPoolMutation.mutate(pool.id);
+                                  }}
+                                  disabled={expandPoolMutation.isPending}
+                                  data-testid={`menu-expand-pool-${pool.id}`}
+                                >
+                                  <Globe className="h-3 w-3 mr-2" />
+                                  Expand to IPs
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deletePoolMutation.mutate(pool.id);
+                                  }}
+                                  className="text-destructive"
+                                  data-testid={`menu-delete-pool-${pool.id}`}
+                                >
+                                  <Trash2 className="h-3 w-3 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             )}
           </div>
@@ -624,11 +700,13 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Network className="h-5 w-5" />
-              {viewAddressesPool?.name} - IP Addresses
+              {viewAddressesPool === 'unassigned' ? 'Unassigned' : viewAddressesPool?.name} - IP Addresses
             </DialogTitle>
             <DialogDescription>
-              {viewAddressesPool && getPoolTypeLabel(viewAddressesPool)}
-              {viewAddressesPool?.gateway && ` • Gateway: ${viewAddressesPool.gateway}`}
+              {viewAddressesPool === 'unassigned' 
+                ? 'IP addresses not assigned to any pool'
+                : (viewAddressesPool && getPoolTypeLabel(viewAddressesPool))}
+              {viewAddressesPool !== 'unassigned' && viewAddressesPool?.gateway && ` • Gateway: ${viewAddressesPool.gateway}`}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -645,7 +723,7 @@ export function IpamPanel({ isCollapsed = false }: IpamPanelProps) {
                   <SelectItem value="offline">Offline</SelectItem>
                 </SelectContent>
               </Select>
-              {canModify && (
+              {canModify && viewAddressesPool !== 'unassigned' && (
                 <Button
                   size="sm"
                   variant="outline"

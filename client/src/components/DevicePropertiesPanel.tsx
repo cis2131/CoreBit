@@ -43,6 +43,8 @@ import {
   Container,
   Network,
   Star,
+  Plus,
+  Pencil,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -149,6 +151,12 @@ export function DevicePropertiesPanel({
   const status =
     statusLabels[device.status as keyof typeof statusLabels] ||
     statusLabels.unknown;
+
+  // Manual IP address entry state
+  const [addIpInterfaceId, setAddIpInterfaceId] = useState<string | null>(null);
+  const [newIpAddress, setNewIpAddress] = useState("");
+  const [editingIpId, setEditingIpId] = useState<string | null>(null);
+  const [editingIpValue, setEditingIpValue] = useState("");
 
   useEffect(() => {
     setTimeoutValue(device.probeTimeout?.toString() ?? "");
@@ -480,6 +488,82 @@ export function DevicePropertiesPanel({
       toast({
         variant: "destructive",
         description: "Failed to update polling address",
+      });
+    },
+  });
+
+  // IP address validation helper
+  const isValidIpAddress = (ip: string): boolean => {
+    const trimmed = ip.trim();
+    if (!trimmed) return false;
+    // Match IPv4 with optional CIDR notation (e.g., 192.168.1.1 or 192.168.1.0/24)
+    const ipv4Pattern = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\/(?:[12]?[0-9]|3[0-2]))?$/;
+    return ipv4Pattern.test(trimmed);
+  };
+
+  // Helper to invalidate all IPAM-related queries
+  const invalidateIpamQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/ipam/addresses"], exact: false });
+    queryClient.invalidateQueries({ queryKey: ["/api/devices", device.id, "interfaces"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/devices"], exact: false });
+    queryClient.invalidateQueries({ queryKey: ["/api/ipam/pool-stats"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/ipam/pools"] });
+  };
+
+  // Create manual IP address mutation
+  const createManualIpMutation = useMutation({
+    mutationFn: async ({ interfaceId, ipAddress }: { interfaceId: string; ipAddress: string }) =>
+      apiRequest("POST", "/api/ipam/addresses", {
+        ipAddress,
+        source: "manual",
+        status: "assigned",
+        assignedDeviceId: device.id,
+        assignedInterfaceId: interfaceId,
+      }),
+    onSuccess: () => {
+      invalidateIpamQueries();
+      setAddIpInterfaceId(null);
+      setNewIpAddress("");
+      toast({ description: "IP address added" });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        description: "Failed to add IP address. Please try again.",
+      });
+    },
+  });
+
+  // Update manual IP address mutation
+  const updateManualIpMutation = useMutation({
+    mutationFn: async ({ addressId, ipAddress }: { addressId: string; ipAddress: string }) =>
+      apiRequest("PATCH", `/api/ipam/addresses/${addressId}`, { ipAddress }),
+    onSuccess: () => {
+      invalidateIpamQueries();
+      setEditingIpId(null);
+      setEditingIpValue("");
+      toast({ description: "IP address updated" });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        description: "Failed to update IP address. Please try again.",
+      });
+    },
+  });
+
+  // Delete manual IP address mutation
+  const deleteManualIpMutation = useMutation({
+    mutationFn: async (addressId: string) =>
+      apiRequest("DELETE", `/api/ipam/addresses/${addressId}`),
+    onSuccess: () => {
+      invalidateIpamQueries();
+      toast({ description: "IP address deleted" });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        description: "Failed to delete IP address",
       });
     },
   });
@@ -982,6 +1066,7 @@ export function DevicePropertiesPanel({
                     const interfaceIps = deviceIpamAddresses.filter(
                       (addr) => addr.assignedInterfaceId === iface.id
                     );
+                    const isAddingIp = addIpInterfaceId === iface.id;
                     
                     return (
                       <div key={iface.id} className="text-sm" data-testid={`interface-row-${iface.id}`}>
@@ -992,15 +1077,139 @@ export function DevicePropertiesPanel({
                           <Badge variant="secondary" className="text-xs capitalize" data-testid={`badge-interface-type-${iface.id}`}>
                             {iface.type}
                           </Badge>
+                          {canModify && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-5 w-5 ml-auto"
+                              onClick={() => {
+                                setAddIpInterfaceId(isAddingIp ? null : iface.id);
+                                setNewIpAddress("");
+                              }}
+                              title="Add IP address"
+                              data-testid={`button-add-ip-${iface.id}`}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          )}
                         </div>
+                        {isAddingIp && (
+                          <div className="mt-1.5 ml-2 flex items-center gap-1" data-testid={`add-ip-form-${iface.id}`}>
+                            <Input
+                              type="text"
+                              placeholder="192.168.1.1"
+                              value={newIpAddress}
+                              onChange={(e) => setNewIpAddress(e.target.value)}
+                              className={`h-7 text-xs font-mono flex-1 ${newIpAddress && !isValidIpAddress(newIpAddress) ? "border-destructive" : ""}`}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && isValidIpAddress(newIpAddress)) {
+                                  createManualIpMutation.mutate({ interfaceId: iface.id, ipAddress: newIpAddress.trim() });
+                                } else if (e.key === "Enter" && newIpAddress.trim() && !isValidIpAddress(newIpAddress)) {
+                                  toast({ variant: "destructive", description: "Invalid IP address format" });
+                                } else if (e.key === "Escape") {
+                                  setAddIpInterfaceId(null);
+                                  setNewIpAddress("");
+                                }
+                              }}
+                              data-testid={`input-new-ip-${iface.id}`}
+                            />
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6"
+                              onClick={() => {
+                                if (isValidIpAddress(newIpAddress)) {
+                                  createManualIpMutation.mutate({ interfaceId: iface.id, ipAddress: newIpAddress.trim() });
+                                } else if (newIpAddress.trim()) {
+                                  toast({ variant: "destructive", description: "Invalid IP address format" });
+                                }
+                              }}
+                              disabled={!isValidIpAddress(newIpAddress) || createManualIpMutation.isPending}
+                              data-testid={`button-confirm-add-ip-${iface.id}`}
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6"
+                              onClick={() => {
+                                setAddIpInterfaceId(null);
+                                setNewIpAddress("");
+                              }}
+                              data-testid={`button-cancel-add-ip-${iface.id}`}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
                         {interfaceIps.length > 0 && (
                           <div className="mt-1.5 ml-2 space-y-1" data-testid={`interface-ips-${iface.id}`}>
                             {interfaceIps.map((addr) => {
                               const isPollingAddress = device.pollingAddressId === addr.id;
+                              const isManual = addr.source === "manual";
+                              const isEditing = editingIpId === addr.id;
+
+                              if (isEditing) {
+                                return (
+                                  <div
+                                    key={addr.id}
+                                    className="flex items-center gap-1 p-1 rounded bg-muted/50"
+                                    data-testid={`edit-ip-form-${addr.id}`}
+                                  >
+                                    <Input
+                                      type="text"
+                                      value={editingIpValue}
+                                      onChange={(e) => setEditingIpValue(e.target.value)}
+                                      className={`h-6 text-xs font-mono flex-1 ${editingIpValue && !isValidIpAddress(editingIpValue) ? "border-destructive" : ""}`}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter" && isValidIpAddress(editingIpValue)) {
+                                          updateManualIpMutation.mutate({ addressId: addr.id, ipAddress: editingIpValue.trim() });
+                                        } else if (e.key === "Enter" && editingIpValue.trim() && !isValidIpAddress(editingIpValue)) {
+                                          toast({ variant: "destructive", description: "Invalid IP address format" });
+                                        } else if (e.key === "Escape") {
+                                          setEditingIpId(null);
+                                          setEditingIpValue("");
+                                        }
+                                      }}
+                                      data-testid={`input-edit-ip-${addr.id}`}
+                                    />
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-5 w-5"
+                                      onClick={() => {
+                                        if (isValidIpAddress(editingIpValue)) {
+                                          updateManualIpMutation.mutate({ addressId: addr.id, ipAddress: editingIpValue.trim() });
+                                        } else if (editingIpValue.trim()) {
+                                          toast({ variant: "destructive", description: "Invalid IP address format" });
+                                        }
+                                      }}
+                                      disabled={!isValidIpAddress(editingIpValue) || updateManualIpMutation.isPending}
+                                      data-testid={`button-confirm-edit-ip-${addr.id}`}
+                                    >
+                                      <Plus className="h-3 w-3" />
+                                    </Button>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-5 w-5"
+                                      onClick={() => {
+                                        setEditingIpId(null);
+                                        setEditingIpValue("");
+                                      }}
+                                      data-testid={`button-cancel-edit-ip-${addr.id}`}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                );
+                              }
+
                               return (
                                 <div
                                   key={addr.id}
-                                  className={`flex items-center gap-2 p-1 rounded text-xs ${
+                                  className={`flex items-center gap-2 p-1 rounded text-xs group ${
                                     isPollingAddress ? "bg-primary/10 border border-primary/20" : "bg-muted/50"
                                   }`}
                                   data-testid={`interface-ip-${addr.id}`}
@@ -1011,13 +1220,46 @@ export function DevicePropertiesPanel({
                                   <span className="font-mono" data-testid={`text-ip-${addr.id}`}>
                                     {addr.networkAddress || addr.ipAddress}
                                   </span>
-                                  <span className={`text-xs capitalize ml-auto ${
+                                  {isManual && (
+                                    <Badge variant="outline" className="text-[10px] px-1 py-0" data-testid={`badge-manual-${addr.id}`}>
+                                      manual
+                                    </Badge>
+                                  )}
+                                  <span className={`text-xs capitalize ${
                                     addr.status === 'assigned' ? 'text-green-600 dark:text-green-400' :
                                     addr.status === 'offline' ? 'text-red-500' :
                                     'text-muted-foreground'
                                   }`}>
                                     {addr.status}
                                   </span>
+                                  {isManual && canModify && (
+                                    <div className="ml-auto flex items-center gap-0.5 invisible group-hover:visible">
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-5 w-5"
+                                        onClick={() => {
+                                          setEditingIpId(addr.id);
+                                          setEditingIpValue(addr.ipAddress);
+                                        }}
+                                        title="Edit IP"
+                                        data-testid={`button-edit-ip-${addr.id}`}
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </Button>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-5 w-5 text-destructive hover:text-destructive"
+                                        onClick={() => deleteManualIpMutation.mutate(addr.id)}
+                                        disabled={deleteManualIpMutation.isPending}
+                                        title="Delete IP"
+                                        data-testid={`button-delete-ip-${addr.id}`}
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </Button>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}

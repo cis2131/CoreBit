@@ -266,6 +266,8 @@ export interface IStorage {
   // IPAM Addresses
   getAllIpamAddresses(): Promise<IpamAddress[]>;
   getIpamAddressesByPool(poolId: string): Promise<IpamAddress[]>;
+  getUnassignedIpamAddresses(): Promise<IpamAddress[]>;
+  getIpamPoolStats(): Promise<{ poolId: string | null; total: number; assigned: number; available: number; reserved: number }[]>;
   getIpamAddress(id: string): Promise<IpamAddress | undefined>;
   getIpamAddressByIp(ipAddress: string): Promise<IpamAddress | undefined>;
   getIpamAddressesByDevice(deviceId: string): Promise<IpamAddress[]>;
@@ -1175,6 +1177,27 @@ export class DatabaseStorage implements IStorage {
 
   async getIpamAddressesByPool(poolId: string): Promise<IpamAddress[]> {
     return await db.select().from(ipamAddresses).where(eq(ipamAddresses.poolId, poolId));
+  }
+
+  async getUnassignedIpamAddresses(): Promise<IpamAddress[]> {
+    return await db.select().from(ipamAddresses).where(isNull(ipamAddresses.poolId));
+  }
+
+  async getIpamPoolStats(): Promise<{ poolId: string | null; total: number; assigned: number; available: number; reserved: number }[]> {
+    const allAddresses = await this.getAllIpamAddresses();
+    const statsMap = new Map<string | null, { total: number; assigned: number; available: number; reserved: number }>();
+    
+    for (const addr of allAddresses) {
+      const key = addr.poolId;
+      const stats = statsMap.get(key) || { total: 0, assigned: 0, available: 0, reserved: 0 };
+      stats.total++;
+      if (addr.status === 'assigned') stats.assigned++;
+      else if (addr.status === 'available') stats.available++;
+      else if (addr.status === 'reserved') stats.reserved++;
+      statsMap.set(key, stats);
+    }
+    
+    return Array.from(statsMap.entries()).map(([poolId, stats]) => ({ poolId, ...stats }));
   }
 
   async getIpamAddress(id: string): Promise<IpamAddress | undefined> {

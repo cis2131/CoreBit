@@ -4193,6 +4193,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/ipam/pool-stats", requireAuth as any, async (_req, res) => {
+    try {
+      const stats = await storage.getIpamPoolStats();
+      res.json(stats);
+    } catch (error) {
+      console.error('Error fetching IPAM pool stats:', error);
+      res.status(500).json({ error: 'Failed to fetch pool stats' });
+    }
+  });
+
   app.get("/api/ipam/pools/:id", requireAuth as any, async (req, res) => {
     try {
       const pool = await storage.getIpamPool(req.params.id);
@@ -4297,7 +4307,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { poolId, deviceId, status } = req.query;
       
       let addresses;
-      if (poolId && typeof poolId === 'string') {
+      if (poolId === 'unassigned') {
+        addresses = await storage.getUnassignedIpamAddresses();
+      } else if (poolId && typeof poolId === 'string') {
         addresses = await storage.getIpamAddressesByPool(poolId);
       } else if (deviceId && typeof deviceId === 'string') {
         addresses = await storage.getIpamAddressesByDevice(deviceId);
