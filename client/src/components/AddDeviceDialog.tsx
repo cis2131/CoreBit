@@ -93,13 +93,17 @@ export function AddDeviceDialog({
   });
 
   const deviceCategory = type.startsWith('mikrotik') ? 'mikrotik' : 
-                        (type === 'generic_snmp' || type === 'server' || type === 'access_point') ? 'snmp' : 
+                        (type === 'generic_snmp' || type === 'access_point') ? 'snmp' : 
+                        type === 'server' ? 'server' :
                         type === 'generic_ping' ? 'ping' :
                         type === 'proxmox' ? 'proxmox' :
                         'none';
 
+  // Server devices can use SNMP or Prometheus (node_exporter) profiles
   const availableProfiles = profiles.filter(p => 
-    p.type === deviceCategory || deviceCategory === 'none'
+    p.type === deviceCategory || 
+    deviceCategory === 'none' ||
+    (deviceCategory === 'server' && (p.type === 'snmp' || p.type === 'prometheus'))
   );
 
   useEffect(() => {

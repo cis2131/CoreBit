@@ -1235,6 +1235,10 @@ export function DevicePropertiesPanel({
                   <div className="text-xs text-muted-foreground">
                     {credentialProfile.type === "mikrotik"
                       ? "Mikrotik Device"
+                      : credentialProfile.type === "prometheus"
+                      ? "Prometheus (node_exporter)"
+                      : credentialProfile.type === "proxmox"
+                      ? "Proxmox VE"
                       : "SNMP Device"}
                   </div>
                   <Badge variant="outline" className="text-xs mt-2">
