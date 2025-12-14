@@ -2364,16 +2364,21 @@ interface CredentialProfile {
   };
 }
 
+// ProbeTypes controls which discovery methods are enabled
+export type ProbeType = 'mikrotik' | 'snmp' | 'server' | 'find_all';
+
 // Main discovery function - pings first, then fingerprints with priority:
-// 1. Mikrotik API with credentials (get identity)
-// 2. SNMP (get sysName for device naming)
-// 3. SSH/HTTP fingerprinting
-// 4. Ping-only fallback
+// 1. Mikrotik API with credentials (get identity) - if 'mikrotik' in probeTypes
+// 2. Prometheus node_exporter (prioritized over SNMP) - if 'server' in probeTypes
+// 3. SNMP (get sysName for device naming) - if 'snmp' in probeTypes
+// 4. SSH/HTTP fingerprinting - if 'find_all' in probeTypes
+// 5. Ping-only fallback
 export async function discoverDevice(
   ipAddress: string,
   credentialProfiles: CredentialProfile[] = [],
   timeoutMs: number = 5000,
-  enableLogging: boolean = false
+  enableLogging: boolean = false,
+  probeTypes: ProbeType[] = ['mikrotik', 'snmp', 'server', 'find_all'] // Default: probe everything
 ): Promise<{
   reachable: boolean;
   fingerprint: DeviceFingerprint | null;
@@ -2387,6 +2392,9 @@ export async function discoverDevice(
       console.log(`[Discovery] ${ipAddress}: ${msg}`);
     }
   };
+  
+  // Helper to check if a probe type is enabled
+  const shouldProbe = (type: ProbeType) => probeTypes.includes(type) || probeTypes.includes('find_all');
 
   // Step 1: Ping check
   log('Checking reachability...');
@@ -2398,6 +2406,10 @@ export async function discoverDevice(
   log(`Reachable (RTT: ${pingResult.rtt?.toFixed(1) || '?'}ms)`);
   
   // Step 2: Try Mikrotik API LOGIN with credentials (priority #1)
+  // Only if 'mikrotik' is in probeTypes
+  if (!shouldProbe('mikrotik')) {
+    log('Skipping Mikrotik probe (not selected)');
+  } else {
   // Check if port 8728 is open first
   log('Probing Mikrotik API port 8728...');
   const mikrotikPortOpen = await probeMikrotikApiPort(ipAddress, 8728, 2000);
@@ -2480,27 +2492,83 @@ export async function discoverDevice(
       pingRtt: pingResult.rtt,
     };
   }
+  } // End mikrotik probe block
   
-  // Step 3: Try SNMP (priority #2 - get sysName for device naming)
-  const snmpProfiles = credentialProfiles.filter(p => p.type === 'snmp');
-  const snmpCommunities = snmpProfiles.length > 0 
-    ? snmpProfiles.map(p => ({ id: p.id, community: p.credentials.snmpCommunity || 'public' }))
-    : [{ id: undefined, community: 'public' }];
-  
-  for (const { id: profileId, community } of snmpCommunities) {
-    log(`Probing SNMP (community: ${community})...`);
-    const snmpResult = await getSnmpSystemInfo(ipAddress, community);
-    
-    if (snmpResult.success && snmpResult.sysDescr) {
-      log(`SNMP responded: ${snmpResult.sysDescr.substring(0, 60)}... sysName: ${snmpResult.sysName || 'N/A'}`);
-      const fingerprint = fingerprintFromSysDescr(snmpResult.sysDescr);
-      
-      if (fingerprint) {
-        log(`Identified via SNMP as: ${fingerprint.deviceType}`);
-        return { 
-          reachable: true, 
+  // Step 2.5: Try Prometheus node_exporter FIRST (prioritized over SNMP for servers)
+  // Only if 'server' is in probeTypes
+  if (!shouldProbe('server')) {
+    log('Skipping Prometheus probe (not selected)');
+  } else {
+    log('Probing Prometheus node_exporter (port 9100)...');
+    const prometheusAvailable = await checkPrometheusAvailable(ipAddress, 9100, 2000);
+    if (prometheusAvailable) {
+      log('Prometheus node_exporter detected');
+      try {
+        const promData = await probePrometheusDevice(ipAddress, {}, 3000);
+        const hostname = promData.systemIdentity || '';
+        return {
+          reachable: true,
           fingerprint: {
-            ...fingerprint,
+            deviceType: 'generic_prometheus',
+            confidence: 'high',
+            detectedVia: 'prometheus_node_exporter',
+            detectedModel: promData.model || 'Linux Server',
+            additionalInfo: { 
+              version: promData.version,
+              cpuUsagePct: promData.cpuUsagePct,
+              memoryUsagePct: promData.memoryUsagePct,
+              diskUsagePct: promData.diskUsagePct,
+            },
+          },
+          pingRtt: pingResult.rtt,
+          sysName: hostname,
+        };
+      } catch (promErr: any) {
+        log(`Prometheus probe failed: ${promErr.message}`);
+      }
+    }
+  }
+  
+  // Step 3: Try SNMP (get sysName for device naming)
+  // Only if 'snmp' is in probeTypes
+  if (!shouldProbe('snmp')) {
+    log('Skipping SNMP probe (not selected)');
+  } else {
+    const snmpProfiles = credentialProfiles.filter(p => p.type === 'snmp');
+    const snmpCommunities = snmpProfiles.length > 0 
+      ? snmpProfiles.map(p => ({ id: p.id, community: p.credentials.snmpCommunity || 'public' }))
+      : [{ id: undefined, community: 'public' }];
+    
+    for (const { id: profileId, community } of snmpCommunities) {
+      log(`Probing SNMP (community: ${community})...`);
+      const snmpResult = await getSnmpSystemInfo(ipAddress, community);
+      
+      if (snmpResult.success && snmpResult.sysDescr) {
+        log(`SNMP responded: ${snmpResult.sysDescr.substring(0, 60)}... sysName: ${snmpResult.sysName || 'N/A'}`);
+        const fingerprint = fingerprintFromSysDescr(snmpResult.sysDescr);
+        
+        if (fingerprint) {
+          log(`Identified via SNMP as: ${fingerprint.deviceType}`);
+          return { 
+            reachable: true, 
+            fingerprint: {
+              ...fingerprint,
+              sysDescr: snmpResult.sysDescr,
+            },
+            pingRtt: pingResult.rtt,
+            sysName: snmpResult.sysName,
+            workingCredentialProfileId: profileId,
+          };
+        }
+        
+        // SNMP works but couldn't identify specific type - return as generic SNMP with sysName
+        log('SNMP responded but could not identify device type');
+        return {
+          reachable: true,
+          fingerprint: {
+            deviceType: 'generic_snmp',
+            confidence: 'low',
+            detectedVia: 'snmp_sysdescr',
             sysDescr: snmpResult.sysDescr,
           },
           pingRtt: pingResult.rtt,
@@ -2508,135 +2576,95 @@ export async function discoverDevice(
           workingCredentialProfileId: profileId,
         };
       }
-      
-      // SNMP works but couldn't identify specific type - return as generic SNMP with sysName
-      log('SNMP responded but could not identify device type');
-      return {
-        reachable: true,
-        fingerprint: {
-          deviceType: 'generic_snmp',
-          confidence: 'low',
-          detectedVia: 'snmp_sysdescr',
-          sysDescr: snmpResult.sysDescr,
-        },
-        pingRtt: pingResult.rtt,
-        sysName: snmpResult.sysName,
-        workingCredentialProfileId: profileId,
-      };
     }
-  }
-  log('SNMP not available or timed out');
-  
-  // Step 3.5: Try Prometheus node_exporter (common on Linux servers)
-  log('Probing Prometheus node_exporter (port 9100)...');
-  const prometheusAvailable = await checkPrometheusAvailable(ipAddress, 9100, 2000);
-  if (prometheusAvailable) {
-    log('Prometheus node_exporter detected');
-    try {
-      const promData = await probePrometheusDevice(ipAddress, {}, 3000);
-      const hostname = promData.systemIdentity || '';
-      return {
-        reachable: true,
-        fingerprint: {
-          deviceType: 'generic_prometheus',
-          confidence: 'high',
-          detectedVia: 'prometheus_node_exporter',
-          detectedModel: promData.model || 'Linux Server',
-          additionalInfo: { 
-            version: promData.version,
-            cpuUsagePct: promData.cpuUsagePct,
-            memoryUsagePct: promData.memoryUsagePct,
-            diskUsagePct: promData.diskUsagePct,
-          },
-        },
-        pingRtt: pingResult.rtt,
-        sysName: hostname,
-      };
-    } catch (promErr: any) {
-      log(`Prometheus probe failed: ${promErr.message}`);
-    }
+    log('SNMP not available or timed out');
   }
   
   // Step 3.6: Try Proxmox VE detection (port 8006)
-  log('Probing Proxmox VE (port 8006)...');
-  const proxmoxAvailable = await checkProxmoxAvailable(ipAddress, 8006, 2000);
-  if (proxmoxAvailable) {
-    log('Proxmox VE detected on port 8006');
-    
-    // Try to get cluster info with Proxmox credentials
-    const proxmoxProfiles = credentialProfiles.filter(p => p.type === 'proxmox');
-    let clusterName: string | undefined;
-    let workingProfileId: string | undefined;
-    
-    for (const profile of proxmoxProfiles) {
-      const creds = profile.credentials || {};
-      if (creds.proxmoxApiTokenId && creds.proxmoxApiTokenSecret) {
-        try {
-          const api = new ProxmoxApi({
-            host: ipAddress,
-            port: creds.proxmoxPort || 8006,
-            apiTokenId: creds.proxmoxApiTokenId,
-            apiTokenSecret: creds.proxmoxApiTokenSecret,
-            verifySsl: creds.proxmoxVerifySsl !== false,
-          });
-          
-          const hostInfo = await api.getHostInfo();
-          clusterName = hostInfo?.clusterName;
-          workingProfileId = profile.id;
-          log(`Proxmox authenticated with profile ${profile.id}, cluster: ${clusterName || 'standalone'}`);
-          break;
-        } catch (proxErr: any) {
-          log(`Proxmox auth failed with profile ${profile.id}: ${proxErr.message}`);
+  // Only if 'server' is in probeTypes
+  if (shouldProbe('server')) {
+    log('Probing Proxmox VE (port 8006)...');
+    const proxmoxAvailable = await checkProxmoxAvailable(ipAddress, 8006, 2000);
+    if (proxmoxAvailable) {
+      log('Proxmox VE detected on port 8006');
+      
+      // Try to get cluster info with Proxmox credentials
+      const proxmoxProfiles = credentialProfiles.filter(p => p.type === 'proxmox');
+      let clusterName: string | undefined;
+      let workingProfileId: string | undefined;
+      
+      for (const profile of proxmoxProfiles) {
+        const creds = profile.credentials || {};
+        if (creds.proxmoxApiTokenId && creds.proxmoxApiTokenSecret) {
+          try {
+            const api = new ProxmoxApi({
+              host: ipAddress,
+              port: creds.proxmoxPort || 8006,
+              apiTokenId: creds.proxmoxApiTokenId,
+              apiTokenSecret: creds.proxmoxApiTokenSecret,
+              verifySsl: creds.proxmoxVerifySsl !== false,
+            });
+            
+            const hostInfo = await api.getHostInfo();
+            clusterName = hostInfo?.clusterName;
+            workingProfileId = profile.id;
+            log(`Proxmox authenticated with profile ${profile.id}, cluster: ${clusterName || 'standalone'}`);
+            break;
+          } catch (proxErr: any) {
+            log(`Proxmox auth failed with profile ${profile.id}: ${proxErr.message}`);
+          }
         }
       }
-    }
-    
-    return {
-      reachable: true,
-      fingerprint: {
-        deviceType: 'proxmox',
-        confidence: 'high',
-        detectedVia: 'proxmox_api',
-        detectedModel: 'Proxmox VE',
-        additionalInfo: { 
-          clusterName,
-          needsCredentials: !workingProfileId,
+      
+      return {
+        reachable: true,
+        fingerprint: {
+          deviceType: 'proxmox',
+          confidence: 'high',
+          detectedVia: 'proxmox_api',
+          detectedModel: 'Proxmox VE',
+          additionalInfo: { 
+            clusterName,
+            needsCredentials: !workingProfileId,
+          },
         },
-      },
-      pingRtt: pingResult.rtt,
-      sysName: clusterName || `Proxmox-${ipAddress}`,
-      workingCredentialProfileId: workingProfileId,
-    };
-  }
-  
-  // Step 4: Try SSH banner grab
-  log('Probing SSH port 22...');
-  const sshFingerprint = await probeSSHBanner(ipAddress, 2000);
-  if (sshFingerprint) {
-    log(`Identified via SSH as: ${sshFingerprint.deviceType}`);
-    return { 
-      reachable: true, 
-      fingerprint: sshFingerprint, 
-      pingRtt: pingResult.rtt 
-    };
-  }
-  log('SSH not available or timed out');
-  
-  // Step 5: Try HTTP/HTTPS fingerprinting
-  const httpPorts = [443, 80, 8006, 8443];
-  for (const port of httpPorts) {
-    log(`Probing HTTP port ${port}...`);
-    const httpFingerprint = await probeHTTPFingerprint(ipAddress, port, 2000);
-    if (httpFingerprint && httpFingerprint.confidence !== 'low') {
-      log(`Identified via HTTP as: ${httpFingerprint.deviceType}`);
-      return { 
-        reachable: true, 
-        fingerprint: httpFingerprint, 
-        pingRtt: pingResult.rtt 
+        pingRtt: pingResult.rtt,
+        sysName: clusterName || `Proxmox-${ipAddress}`,
+        workingCredentialProfileId: workingProfileId,
       };
     }
   }
-  log('HTTP probes did not identify device');
+  
+  // Step 4: Try SSH banner grab - only in 'find_all' mode
+  if (probeTypes.includes('find_all')) {
+    log('Probing SSH port 22...');
+    const sshFingerprint = await probeSSHBanner(ipAddress, 2000);
+    if (sshFingerprint) {
+      log(`Identified via SSH as: ${sshFingerprint.deviceType}`);
+      return { 
+        reachable: true, 
+        fingerprint: sshFingerprint, 
+        pingRtt: pingResult.rtt 
+      };
+    }
+    log('SSH not available or timed out');
+    
+    // Step 5: Try HTTP/HTTPS fingerprinting - only in 'find_all' mode
+    const httpPorts = [443, 80, 8006, 8443];
+    for (const port of httpPorts) {
+      log(`Probing HTTP port ${port}...`);
+      const httpFingerprint = await probeHTTPFingerprint(ipAddress, port, 2000);
+      if (httpFingerprint && httpFingerprint.confidence !== 'low') {
+        log(`Identified via HTTP as: ${httpFingerprint.deviceType}`);
+        return { 
+          reachable: true, 
+          fingerprint: httpFingerprint, 
+          pingRtt: pingResult.rtt 
+        };
+      }
+    }
+    log('HTTP probes did not identify device');
+  }
   
   // Step 6: Device responds to ping but couldn't identify
   log('Classified as generic_ping (no identification possible)');
