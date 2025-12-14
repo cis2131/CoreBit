@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probeMikrotikWithPool, pingDevice, discoverDevice, type DeviceFingerprint } from "./deviceProbe";
+import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probeMikrotikWithPool, pingDevice, discoverDevice, type DeviceFingerprint, type ProbeType } from "./deviceProbe";
 import { mikrotikPool } from "./mikrotikConnectionPool";
 import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, insertUserNotificationChannelSchema, insertDutyUserScheduleSchema, insertDutyShiftConfigSchema, insertIpamPoolSchema, insertIpamAddressSchema, type Device, type Connection, type UserNotificationChannel } from "@shared/schema";
 import { z } from "zod";
@@ -1910,7 +1910,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Find All discovery function - pings then fingerprints
       const findAllScan = async (ip: string): Promise<ScanResult> => {
         try {
-          const discovery = await discoverDevice(ip, validCredProfiles, SCAN_TIMEOUT);
+          const discovery = await discoverDevice(ip, validCredProfiles, SCAN_TIMEOUT, false, probeTypes as ProbeType[]);
           
           if (!discovery.reachable) {
             return { ip, status: 'failed' };
@@ -2062,8 +2062,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const ipRange = req.query.ipRange as string;
       const credentialProfileIds = req.query.credentialProfileIds ? 
         (req.query.credentialProfileIds as string).split(',') : [];
+      const streamProbeTypes: ProbeType[] = req.query.probeTypes ? 
+        (req.query.probeTypes as string).split(',').filter(t => ['mikrotik', 'snmp', 'server', 'find_all'].includes(t)) as ProbeType[]
+        : ['mikrotik', 'snmp', 'server']; // Default to basic probes (no fingerprinting) if not specified
       
-      console.log(`[Scan] Starting two-phase streaming scan for ${ipRange}`);
+      console.log(`[Scan] Starting two-phase streaming scan for ${ipRange} with probeTypes: ${streamProbeTypes.join(',')}`);
       
       // Validate IP range
       const ips = expandCidr(ipRange);
@@ -2188,7 +2191,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         try {
           // Pass full credential profiles array for discovery to try
-          const discovery = await discoverDevice(ip, validCredProfiles, 8000, true);
+          // Pass the user-selected probeTypes so discovery respects their choices
+          const discovery = await discoverDevice(ip, validCredProfiles, 8000, true, streamProbeTypes);
           fingerprintCompleted++;
           
           const fingerprint = discovery.fingerprint;

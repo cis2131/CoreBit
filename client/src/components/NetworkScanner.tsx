@@ -236,6 +236,7 @@ export function NetworkScanner({ open, onClose }: NetworkScannerProps) {
     const params = new URLSearchParams({
       ipRange,
       credentialProfileIds: selectedCredProfiles.join(','),
+      probeTypes: probeTypes.join(','),
     });
     
     const eventSource = new EventSource(`/api/network-scan-stream?${params}`);

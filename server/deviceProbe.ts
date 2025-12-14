@@ -2378,7 +2378,7 @@ export async function discoverDevice(
   credentialProfiles: CredentialProfile[] = [],
   timeoutMs: number = 5000,
   enableLogging: boolean = false,
-  probeTypes: ProbeType[] = ['mikrotik', 'snmp', 'server', 'find_all'] // Default: probe everything
+  probeTypes: ProbeType[] = ['mikrotik', 'snmp', 'server'] // Default: basic probes only (no find_all fingerprinting)
 ): Promise<{
   reachable: boolean;
   fingerprint: DeviceFingerprint | null;
@@ -2394,7 +2394,10 @@ export async function discoverDevice(
   };
   
   // Helper to check if a probe type is enabled
-  const shouldProbe = (type: ProbeType) => probeTypes.includes(type) || probeTypes.includes('find_all');
+  // 'find_all' mode runs ALL probe types (mikrotik, snmp, server, ssh/http)
+  // Individual types (mikrotik, snmp, server) only run when explicitly selected OR when 'find_all' is present
+  const isFindAllMode = probeTypes.includes('find_all');
+  const shouldProbe = (type: ProbeType) => probeTypes.includes(type) || isFindAllMode;
 
   // Step 1: Ping check
   log('Checking reachability...');
