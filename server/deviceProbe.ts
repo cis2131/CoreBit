@@ -1682,21 +1682,24 @@ export async function probeDevice(
       // Return VMs for storage persistence by caller
       return { data, success: true, proxmoxVms: proxmoxResult.vms };
     } else {
-      // Non-Mikrotik devices: try SNMP first, then Prometheus fallback
-      try {
-        data = await probeSnmpDevice(ipAddress, credentials);
-      } catch (snmpError: any) {
-        // SNMP failed - try Prometheus if available
-        if (hasPrometheusCredentials || deviceType === 'generic_server') {
+      // Non-Mikrotik devices: prioritize Prometheus when credentials are available
+      // This ensures we get proper interface IPs from node_exporter
+      if (hasPrometheusCredentials) {
+        // Prometheus credentials available - try Prometheus first, SNMP as fallback
+        try {
+          data = await probePrometheusDevice(ipAddress, credentials, timeoutSeconds * 1000);
+        } catch (promError: any) {
+          // Prometheus failed - try SNMP as fallback
           try {
-            data = await probePrometheusDevice(ipAddress, credentials, timeoutSeconds * 1000);
-          } catch (promError: any) {
-            // Both SNMP and Prometheus failed, rethrow to trigger ping fallback
-            throw snmpError;
+            data = await probeSnmpDevice(ipAddress, credentials);
+          } catch (snmpError: any) {
+            // Both failed, rethrow to trigger ping fallback
+            throw promError;
           }
-        } else {
-          throw snmpError;
         }
+      } else {
+        // No Prometheus credentials - use SNMP only
+        data = await probeSnmpDevice(ipAddress, credentials);
       }
     }
     return { data, success: true };
