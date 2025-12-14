@@ -1391,11 +1391,13 @@ export class DatabaseStorage implements IStorage {
         ipAddress: ipOnly,
         status: discovered.disabled ? 'offline' : 'assigned',
         lastSeenAt: now,
+        assignedDeviceId: deviceId,  // Link IP to device
       };
       // Only include fields when they have values to avoid overwriting existing data
       if (networkAddr) upsertData.networkAddress = networkAddr;
       if (matchingPool?.id) upsertData.poolId = matchingPool.id;
       if (discovered.comment) upsertData.notes = discovered.comment;
+      if (iface?.id) upsertData.assignedInterfaceId = iface.id;  // Link IP to interface
       // Don't override source if IP already exists (preserve 'manual' source)
       
       const upserted = await this.upsertIpamAddress(upsertData);
