@@ -632,6 +632,7 @@ export interface DeviceProbeData {
     speed?: string;
     description?: string;
     snmpIndex?: number; // SNMP ifIndex for this interface - allows direct OID construction for traffic monitoring
+    ipAddresses?: string[]; // IP addresses assigned to this interface (for IPAM integration)
   }>;
   cpuUsagePct?: number;
   memoryUsagePct?: number;
@@ -1396,9 +1397,30 @@ export async function probePrometheusDevice(
           }
           
           // Network interfaces from node_network_*
-          const ports: Array<{ name: string; status: string; speed?: string }> = [];
+          const ports: Array<{ name: string; status: string; speed?: string; ipAddresses?: string[] }> = [];
           const netUp = metrics.get('node_network_up');
           const netSpeed = metrics.get('node_network_speed_bytes');
+          const netAddressInfo = metrics.get('node_network_address_info');
+          
+          // Build IP address map by device (filter out localhost and link-local IPv6)
+          const ipAddressesByDevice: Map<string, string[]> = new Map();
+          if (netAddressInfo) {
+            for (const addrEntry of netAddressInfo) {
+              const device = addrEntry.labels.device;
+              const address = addrEntry.labels.address;
+              const scope = addrEntry.labels.scope;
+              
+              if (!device || !address) continue;
+              if (device === 'lo') continue; // Skip loopback interface
+              if (address === '127.0.0.1' || address === '::1') continue; // Skip localhost addresses
+              if (scope === 'link-local' && address.startsWith('fe80:')) continue; // Skip IPv6 link-local
+              
+              if (!ipAddressesByDevice.has(device)) {
+                ipAddressesByDevice.set(device, []);
+              }
+              ipAddressesByDevice.get(device)!.push(address);
+            }
+          }
           
           if (netUp) {
             for (const iface of netUp) {
@@ -1426,7 +1448,10 @@ export async function probePrometheusDevice(
                 }
               }
               
-              ports.push({ name, status, speed });
+              // Get IP addresses for this interface
+              const ipAddresses = ipAddressesByDevice.get(name);
+              
+              ports.push({ name, status, speed, ipAddresses: ipAddresses?.length ? ipAddresses : undefined });
             }
           }
           

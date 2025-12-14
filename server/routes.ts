@@ -2698,10 +2698,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 status: vmInfo.status,
                 vmType: vmInfo.type,
                 node: vmInfo.node,
-                cpuUsage: vmInfo.cpus?.toString() || null,
-                memoryBytes: vmInfo.mem?.toString() || null,
-                diskBytes: vmInfo.disk?.toString() || null,
-                uptime: vmInfo.uptime?.toString() || null,
+                cpuUsagePct: vmInfo.cpus || null,
+                memoryUsageBytes: vmInfo.mem || null,
+                diskUsageBytes: vmInfo.disk || null,
+                uptime: vmInfo.uptime || null,
                 ipAddresses,
                 macAddresses,
               };
@@ -2850,7 +2850,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 };
               });
               
-              await storage.syncDeviceInterfaces(device.id, interfacesToSync);
+              const syncedInterfaces = await storage.syncDeviceInterfaces(device.id, interfacesToSync);
+              
+              // Extract and sync IP addresses from ports that have ipAddresses (e.g., from Prometheus node_exporter)
+              const discoveredIpAddresses: Array<{ ipAddress: string; interfaceName: string; disabled?: boolean }> = [];
+              for (const port of ports) {
+                if (port.ipAddresses && Array.isArray(port.ipAddresses)) {
+                  for (const ip of port.ipAddresses) {
+                    if (typeof ip === 'string' && ip.trim()) {
+                      discoveredIpAddresses.push({
+                        ipAddress: ip.trim(),
+                        interfaceName: port.name,
+                        disabled: port.status === 'down',
+                      });
+                    }
+                  }
+                }
+              }
+              
+              // Sync discovered IPs to IPAM
+              if (discoveredIpAddresses.length > 0) {
+                try {
+                  await storage.syncDeviceIpAddresses(device.id, discoveredIpAddresses, syncedInterfaces);
+                } catch (ipamError: any) {
+                  console.error(`[Probing] Error syncing interface IPs for ${device.name}:`, ipamError.message);
+                }
+              }
             }
           } catch (ifaceError: any) {
             console.error(`[Probing] Error persisting interfaces for ${device.name}:`, ifaceError.message);
