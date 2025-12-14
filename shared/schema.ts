@@ -37,6 +37,7 @@ export const credentialProfiles = pgTable("credential_profiles", {
     snmpPrivProtocol?: 'DES' | 'AES';
     snmpPrivKey?: string;
     // Prometheus node_exporter settings
+    usePrometheus?: boolean; // Explicitly enable Prometheus probing for this profile
     prometheusPort?: number; // Default 9100
     prometheusPath?: string; // Default /metrics
     prometheusScheme?: 'http' | 'https';
@@ -138,6 +139,7 @@ export const devices = pgTable("devices", {
     snmpPrivProtocol?: 'DES' | 'AES';
     snmpPrivKey?: string;
     // Prometheus node_exporter settings
+    usePrometheus?: boolean;
     prometheusPort?: number;
     prometheusPath?: string;
     prometheusScheme?: 'http' | 'https';
@@ -329,6 +331,7 @@ const credentialsSchema = z.object({
   snmpPrivProtocol: z.enum(['DES', 'AES']).optional(),
   snmpPrivKey: z.string().optional(),
   // Prometheus settings
+  usePrometheus: z.boolean().optional(),
   prometheusPort: z.number().optional(),
   prometheusPath: z.string().optional(),
   prometheusScheme: z.enum(['http', 'https']).optional(),

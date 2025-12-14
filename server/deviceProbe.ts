@@ -1659,9 +1659,21 @@ export async function probeDevice(
     return await probePingOnlyDevice(ipAddress, Math.min(timeoutSeconds, 3));
   }
 
-  // Check if Prometheus is configured (either dedicated prometheus credentials or prometheus settings in mixed credentials)
-  const hasPrometheusCredentials = credentials?.prometheusPort !== undefined || 
-    (deviceType === 'generic_server' && !credentials?.snmpCommunity && !credentials?.snmpVersion);
+  // Check if Prometheus should be used for this device
+  // Priority: any Prometheus-related credential setting, or server-type devices
+  // For generic_snmp with Prometheus creds, always try Prometheus first (it has interface IPs)
+  const hasPrometheusCredentials = 
+    credentials?.prometheusPort !== undefined ||    // Explicit Prometheus port configured
+    credentials?.prometheusPath !== undefined ||    // Custom Prometheus metrics path
+    credentials?.prometheusScheme !== undefined ||  // Custom Prometheus scheme (http/https)
+    credentials?.usePrometheus === true ||          // Explicit Prometheus flag
+    deviceType === 'generic_server' ||              // Server type should try Prometheus first
+    deviceType === 'generic_prometheus';            // Prometheus-specific device type
+  
+  // Debug log to trace probe selection
+  if (hasPrometheusCredentials) {
+    console.log(`[Probing] ${ipAddress}: Using Prometheus first (type=${deviceType}, prometheusPort=${credentials?.prometheusPort || 9100})`);
+  }
 
   try {
     let data: DeviceProbeData;
