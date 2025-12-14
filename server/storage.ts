@@ -1251,6 +1251,7 @@ export class DatabaseStorage implements IStorage {
     if (insertAddr.notes !== undefined) updateSet.notes = insertAddr.notes;
     if (insertAddr.lastSeenAt !== undefined) updateSet.lastSeenAt = insertAddr.lastSeenAt;
     if (insertAddr.assignedDeviceId !== undefined) updateSet.assignedDeviceId = insertAddr.assignedDeviceId;
+    if (insertAddr.assignedInterfaceId !== undefined) updateSet.assignedInterfaceId = insertAddr.assignedInterfaceId;
     if (insertAddr.role !== undefined) updateSet.role = insertAddr.role;
 
     const [addr] = await db
