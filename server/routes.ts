@@ -714,6 +714,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/devices/:id", canModify as any, async (req, res) => {
     try {
+      // Clear IPAM assignments and reset IP statuses to 'available' before deleting device
+      await storage.clearIpamAssignmentsForDevice(req.params.id);
       await storage.deleteDevice(req.params.id);
       res.status(204).send();
     } catch (error) {

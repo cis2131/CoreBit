@@ -301,6 +301,7 @@ export interface IStorage {
   deleteAssignment(id: string): Promise<void>;
   deleteAssignmentsByAddress(addressId: string): Promise<void>;
   deleteAssignmentsByDevice(deviceId: string): Promise<void>;
+  clearIpamAssignmentsForDevice(deviceId: string): Promise<void>;
   upsertAssignment(addressId: string, deviceId: string, interfaceId: string | null, source: 'manual' | 'discovered' | 'sync'): Promise<IpamAddressAssignment>;
   getIpamAddressesWithAssignments(poolId?: string | null): Promise<IpamAddressWithAssignments[]>;
 }
@@ -1449,18 +1450,39 @@ export class DatabaseStorage implements IStorage {
     await db.delete(ipamAddressAssignments).where(eq(ipamAddressAssignments.deviceId, deviceId));
   }
 
+  async clearIpamAssignmentsForDevice(deviceId: string): Promise<void> {
+    // Clear assignedDeviceId and set status to 'available' for all IPAM addresses assigned to this device
+    await db.update(ipamAddresses)
+      .set({ 
+        assignedDeviceId: null, 
+        assignedInterfaceId: null,
+        status: 'available',
+        updatedAt: new Date() 
+      })
+      .where(eq(ipamAddresses.assignedDeviceId, deviceId));
+    
+    // Also delete from junction table (cascade should handle this, but be explicit)
+    await this.deleteAssignmentsByDevice(deviceId);
+  }
+
   async upsertAssignment(addressId: string, deviceId: string, interfaceId: string | null, source: 'manual' | 'discovered' | 'sync'): Promise<IpamAddressAssignment> {
-    // Check if assignment already exists
+    // Check if assignment already exists for this address+device combo
+    // Only check addressId+deviceId to prevent duplicates when interfaceId changes
     const existing = await db.select().from(ipamAddressAssignments)
       .where(and(
         eq(ipamAddressAssignments.addressId, addressId),
-        eq(ipamAddressAssignments.deviceId, deviceId),
-        interfaceId 
-          ? eq(ipamAddressAssignments.interfaceId, interfaceId)
-          : isNull(ipamAddressAssignments.interfaceId)
+        eq(ipamAddressAssignments.deviceId, deviceId)
       ));
     
     if (existing.length > 0) {
+      // Update interfaceId if it changed
+      if (existing[0].interfaceId !== interfaceId) {
+        const [updated] = await db.update(ipamAddressAssignments)
+          .set({ interfaceId })
+          .where(eq(ipamAddressAssignments.id, existing[0].id))
+          .returning();
+        return updated;
+      }
       return existing[0];
     }
 
