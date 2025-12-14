@@ -568,6 +568,24 @@ export function DevicePropertiesPanel({
     },
   });
 
+  // Reprobe interfaces mutation - deletes all and reprobes to fix duplicates
+  const reprobeInterfacesMutation = useMutation({
+    mutationFn: async () =>
+      apiRequest("POST", `/api/devices/${device.id}/reprobe-interfaces`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/devices", device.id, "interfaces"] });
+      invalidateIpamQueries();
+      toast({ description: "Interfaces refreshed successfully" });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        description: "Failed to refresh interfaces",
+      });
+    },
+  });
+
   const handleProbeNow = async () => {
     setProbing(true);
     try {
@@ -906,9 +924,24 @@ export function DevicePropertiesPanel({
                     <Network className="h-4 w-4 text-muted-foreground" />
                     Interfaces
                   </CardTitle>
-                  <Badge variant="secondary" className="text-xs" data-testid="badge-interface-count">
-                    {deviceInterfaces.length}
-                  </Badge>
+                  <div className="flex items-center gap-1">
+                    {canModify && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        onClick={() => reprobeInterfacesMutation.mutate()}
+                        disabled={reprobeInterfacesMutation.isPending}
+                        title="Refresh interfaces (fixes duplicates)"
+                        data-testid="button-refresh-interfaces"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${reprobeInterfacesMutation.isPending ? 'animate-spin' : ''}`} />
+                      </Button>
+                    )}
+                    <Badge variant="secondary" className="text-xs" data-testid="badge-interface-count">
+                      {deviceInterfaces.length}
+                    </Badge>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>

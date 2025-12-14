@@ -959,6 +959,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Reprobe interfaces - deletes all interfaces and reprobes to fix duplicates
+  app.post("/api/devices/:id/reprobe-interfaces", canModify as any, async (req, res) => {
+    try {
+      const device = await storage.getDevice(req.params.id);
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+
+      const credentials = await resolveCredentials(device);
+      
+      // Probe device FIRST to get fresh interface data
+      const deviceTimeoutSeconds = Math.max(device.probeTimeout || 20, 20);
+      const PROBE_TIMEOUT = deviceTimeoutSeconds * 1000;
+      
+      let probeResult: { success: boolean; data?: any; error?: string };
+      try {
+        const probePromise = probeDevice(
+          device.type, 
+          device.ipAddress || undefined, 
+          credentials,
+          true,
+          undefined,
+          true,
+          deviceTimeoutSeconds
+        );
+        
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error(`Probe timed out after ${deviceTimeoutSeconds} seconds`)), PROBE_TIMEOUT);
+        });
+        
+        probeResult = await Promise.race([probePromise, timeoutPromise]);
+      } catch (timeoutError: any) {
+        console.warn(`[Reprobe] Timeout for ${device.name}: ${timeoutError.message}`);
+        return res.status(502).json({ error: `Probe failed: ${timeoutError.message}` });
+      }
+      
+      // Only proceed with interface refresh if probe succeeded with port data
+      if (!probeResult.success || !probeResult.data?.ports) {
+        return res.status(502).json({ 
+          error: 'Probe failed - cannot refresh interfaces without valid port data',
+          details: probeResult.error 
+        });
+      }
+      
+      // Now safe to delete existing interfaces and sync new ones
+      await storage.deleteDeviceInterfacesByDevice(device.id);
+      
+      const status = determineDeviceStatus(probeResult.data, probeResult.success, (probeResult as any).pingOnly, device.type);
+
+      // Update device with new probe data
+      const updatedDevice = await storage.updateDevice(req.params.id, {
+        status,
+        deviceData: probeResult.data,
+      });
+
+      // Sync interfaces from probe data
+      const interfaceData = probeResult.data.ports.map((port: any) => ({
+        name: port.name,
+        displayName: port.name,
+        type: port.type || 'ethernet',
+        speed: port.speed || null,
+        macAddress: port.macAddress || null,
+        operStatus: port.running ? 'up' : 'down',
+        adminStatus: port.disabled ? 'down' : 'up',
+        snmpIndex: port.snmpIndex || null,
+        metadata: null,
+      }));
+      
+      await storage.syncDeviceInterfaces(device.id, interfaceData);
+
+      res.json({ 
+        success: true, 
+        device: updatedDevice,
+        interfacesRefreshed: true 
+      });
+    } catch (error) {
+      console.error('Error reprobing interfaces:', error);
+      res.status(500).json({ error: 'Failed to reprobe interfaces' });
+    }
+  });
+
   // Device status history endpoints
   app.get("/api/devices/:id/status-events", async (req, res) => {
     try {
