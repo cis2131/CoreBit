@@ -1951,16 +1951,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           for (const probeType of probeTypes) {
             if (probeType === 'find_all') continue; // Skip find_all in traditional scan
             
+            // Determine device type based on probe type AND credential profile type
             let deviceType: string;
             switch (probeType) {
               case 'mikrotik':
+                if (profile.type !== 'mikrotik') continue; // Skip non-matching profiles
                 deviceType = 'mikrotik_router';
                 break;
               case 'snmp':
+                if (profile.type !== 'snmp') continue; // Skip non-matching profiles
                 deviceType = 'generic_snmp';
                 break;
               case 'server':
-                deviceType = 'server';
+                // For server probes, use the credential profile type to determine how to probe
+                if (profile.type === 'prometheus') {
+                  deviceType = 'generic_prometheus'; // Use Prometheus-only probing (no SNMP fallback)
+                } else if (profile.type === 'snmp') {
+                  deviceType = 'generic_snmp'; // Server with SNMP monitoring
+                } else if (profile.type === 'proxmox') {
+                  deviceType = 'proxmox';
+                } else {
+                  continue; // Skip incompatible credential profiles
+                }
                 break;
               default:
                 continue;
