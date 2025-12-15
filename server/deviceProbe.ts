@@ -1539,9 +1539,10 @@ export async function probeProxmoxDevice(
   const memoryUsagePct = totalMem > 0 ? Math.round((usedMem / totalMem) * 100) : undefined;
   const diskUsagePct = totalDisk > 0 ? Math.round((usedDisk / totalDisk) * 100) : undefined;
 
-  // Get all VMs for storage update
-  const allVMs = await api.getAllVMs();
-  console.log(`[Proxmox] ${ipAddress}: getAllVMs returned ${allVMs.length} VMs`);
+  // Get VMs for this specific node (filtered by current node in cluster)
+  const currentNode = hostInfo.currentNode;
+  const allVMs = await api.getAllVMs(currentNode);
+  console.log(`[Proxmox] ${ipAddress}: getAllVMs returned ${allVMs.length} VMs${currentNode ? ` for node '${currentNode}'` : ' (no node filter)'}`);
   
   // Fetch network info (IP/MAC) for each running VM in parallel
   // Only probe running VMs to avoid unnecessary API calls

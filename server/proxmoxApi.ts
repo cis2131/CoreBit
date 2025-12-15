@@ -239,7 +239,7 @@ export class ProxmoxApi {
     return this.makeRequest<any[]>('GET', path);
   }
 
-  async getAllVMs(): Promise<ProxmoxVMInfo[]> {
+  async getAllVMs(filterByNode?: string): Promise<ProxmoxVMInfo[]> {
     const authenticated = await this.authenticate();
     if (!authenticated) {
       console.log(`[Proxmox API] ${this.credentials.host}: Authentication failed`);
@@ -253,7 +253,7 @@ export class ProxmoxApi {
       return [];
     }
 
-    const allVMs: ProxmoxVMInfo[] = resourcesResult.data
+    let allVMs: ProxmoxVMInfo[] = resourcesResult.data
       .filter((vm: any) => !vm.template && (vm.type === 'qemu' || vm.type === 'lxc'))
       .map((vm: any) => ({
         vmid: vm.vmid,
@@ -273,8 +273,60 @@ export class ProxmoxApi {
         template: vm.template === 1,
       }));
 
-    console.log(`[Proxmox API] ${this.credentials.host}: Found ${allVMs.length} VMs via cluster/resources`);
+    // Filter by node if specified (only show VMs running on this specific node)
+    if (filterByNode) {
+      const beforeCount = allVMs.length;
+      allVMs = allVMs.filter(vm => vm.node === filterByNode);
+      console.log(`[Proxmox API] ${this.credentials.host}: Filtered ${beforeCount} -> ${allVMs.length} VMs for node '${filterByNode}'`);
+    } else {
+      console.log(`[Proxmox API] ${this.credentials.host}: Found ${allVMs.length} VMs via cluster/resources (no node filter)`);
+    }
+    
     return allVMs;
+  }
+
+  // Identify which node we're connected to by matching the host IP to node network info
+  async identifyCurrentNode(): Promise<string | null> {
+    const nodesResult = await this.getNodes();
+    if (!nodesResult.success || !nodesResult.data) {
+      return null;
+    }
+
+    // If only one node, that's clearly the one we're connected to
+    if (nodesResult.data.length === 1) {
+      return nodesResult.data[0].node;
+    }
+
+    // For multi-node clusters, try to identify which node has our target IP
+    // Check each node's network configuration
+    for (const node of nodesResult.data) {
+      const networkResult = await this.makeRequest<any[]>('GET', `/nodes/${node.node}/network`);
+      if (networkResult.success && networkResult.data) {
+        for (const iface of networkResult.data) {
+          // Check if any interface has our connection IP
+          if (iface.address === this.credentials.host || 
+              iface.address6 === this.credentials.host) {
+            console.log(`[Proxmox API] Identified current node as '${node.node}' via IP match on ${iface.iface}`);
+            return node.node;
+          }
+        }
+      }
+    }
+
+    // Fallback: check cluster status for node with matching IP
+    const statusResult = await this.getClusterStatus();
+    if (statusResult.success && statusResult.data) {
+      for (const item of statusResult.data) {
+        const statusItem = item as any;
+        if (statusItem.type === 'node' && statusItem.ip === this.credentials.host) {
+          console.log(`[Proxmox API] Identified current node as '${statusItem.name}' via cluster status IP`);
+          return statusItem.name;
+        }
+      }
+    }
+
+    console.log(`[Proxmox API] Could not identify specific node for ${this.credentials.host}, returning null`);
+    return null;
   }
 
   async getVMNetworkInfo(node: string, vmid: number, vmType: 'qemu' | 'lxc'): Promise<{
@@ -335,12 +387,13 @@ export class ProxmoxApi {
     return { ipAddresses, macAddresses };
   }
 
-  async getHostInfo(): Promise<{
+  async getHostInfo(filterByCurrentNode: boolean = true): Promise<{
     version?: string;
     nodes: ProxmoxNode[];
     clusterName?: string;
     totalVMs: number;
     runningVMs: number;
+    currentNode?: string;
   } | null> {
     const authenticated = await this.authenticate();
     if (!authenticated) {
@@ -359,7 +412,14 @@ export class ProxmoxApi {
       clusterName = clusterInfo?.name;
     }
 
-    const allVMs = await this.getAllVMs();
+    // Identify which node we're connected to for VM filtering
+    let currentNode: string | undefined;
+    if (filterByCurrentNode) {
+      currentNode = await this.identifyCurrentNode() || undefined;
+    }
+
+    // Get VMs filtered by current node (if in a cluster and filtering is enabled)
+    const allVMs = await this.getAllVMs(currentNode);
     const runningVMs = allVMs.filter(vm => vm.status === 'running').length;
 
     return {
@@ -367,7 +427,8 @@ export class ProxmoxApi {
       nodes: nodesResult.success ? nodesResult.data || [] : [],
       clusterName,
       totalVMs: allVMs.length,
-      runningVMs
+      runningVMs,
+      currentNode
     };
   }
 }
