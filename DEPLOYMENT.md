@@ -59,6 +59,20 @@ sudo ./install.sh
 | `--db-name NAME` | Database name (default: corebit) |
 | `--db-user USER` | Database user (default: corebit) |
 | `--port PORT` | Application port (default: 3000) |
+| `--run-as-root` | Run service as root (see note below) |
+| `--verbose` | Show detailed output for debugging |
+
+### Network Access on Ubuntu 24.04+
+
+Ubuntu 24.04 removed setuid from the ping utility, which can cause network probing issues when running as a non-root user. The installer now automatically grants `CAP_NET_RAW` and `CAP_NET_ADMIN` capabilities to the service, which should resolve this.
+
+If you still experience network issues (devices showing offline despite being reachable), you can use the `--run-as-root` option:
+
+```bash
+sudo ./install.sh --run-as-root
+```
+
+This runs the service as root while maintaining security hardening. Only use this as a last resort if the capability-based approach doesn't work.
 
 ### After Installation
 

@@ -23,6 +23,7 @@ set -e
 #   --db-pass PASS    Database password (will prompt if not provided)
 #   --port PORT       Application port (default: 3000)
 #   --verbose         Show detailed output for debugging
+#   --run-as-root     Run service as root (fixes network issues on some systems)
 #===============================================================================
 
 # Colors for output
@@ -48,6 +49,7 @@ UPDATE_MODE=false
 UNINSTALL_MODE=false
 SKIP_DB=false
 VERBOSE_MODE=false
+RUN_AS_ROOT=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -93,6 +95,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --verbose|-v)
             VERBOSE_MODE=true
+            shift
+            ;;
+        --run-as-root)
+            RUN_AS_ROOT=true
             shift
             ;;
         *)
@@ -417,6 +423,11 @@ EOF
 }
 
 create_user() {
+    if [ "$RUN_AS_ROOT" = true ]; then
+        log_info "Skipping service user creation (running as root)"
+        return
+    fi
+    
     log_info "Creating service user..."
     
     if ! id "$SERVICE_USER" &>/dev/null; then
@@ -533,8 +544,10 @@ install_application() {
     rm -f "$NPM_LOG"
     log_success "Node.js dependencies installed"
     
-    # Set ownership
-    chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+    # Set ownership (skip if running as root)
+    if [ "$RUN_AS_ROOT" != true ]; then
+        chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+    fi
     
     log_success "Application installed"
 }
@@ -578,7 +591,9 @@ SESSION_SECRET=${SESSION_SECRET}
 EOF
         
         chmod 600 "$ENV_FILE"
-        chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE"
+        if [ "$RUN_AS_ROOT" != true ]; then
+            chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE"
+        fi
         log_success "Environment configured"
     else
         log_info "Existing .env preserved"
@@ -591,10 +606,17 @@ run_migrations() {
     cd "$INSTALL_DIR"
     
     # Run Drizzle migrations
-    sudo -u "$SERVICE_USER" npm run db:push 2>/dev/null || {
-        log_warning "Migration command not found, trying alternative..."
-        sudo -u "$SERVICE_USER" npx drizzle-kit push 2>/dev/null || true
-    }
+    if [ "$RUN_AS_ROOT" = true ]; then
+        npm run db:push 2>/dev/null || {
+            log_warning "Migration command not found, trying alternative..."
+            npx drizzle-kit push 2>/dev/null || true
+        }
+    else
+        sudo -u "$SERVICE_USER" npm run db:push 2>/dev/null || {
+            log_warning "Migration command not found, trying alternative..."
+            sudo -u "$SERVICE_USER" npx drizzle-kit push 2>/dev/null || true
+        }
+    fi
     
     log_success "Database migrations complete"
 }
@@ -602,7 +624,45 @@ run_migrations() {
 setup_systemd() {
     log_info "Setting up systemd service..."
     
-    cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
+    if [ "$RUN_AS_ROOT" = true ]; then
+        log_warning "Running service as root (--run-as-root specified)"
+        
+        cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
+[Unit]
+Description=CoreBit Network Manager
+Documentation=https://github.com/your-org/corebit
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+# Running as root for full network access (use with caution)
+User=root
+Group=root
+WorkingDirectory=${INSTALL_DIR}
+EnvironmentFile=${INSTALL_DIR}/.env
+ExecStart=/usr/bin/node ${INSTALL_DIR}/index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=${SERVICE_NAME}
+
+# Maintain some security hardening even when running as root
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=${INSTALL_DIR}/data ${INSTALL_DIR}/backups ${INSTALL_DIR}
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=65535
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    else
+        cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
 Description=CoreBit Network Manager
 Documentation=https://github.com/your-org/corebit
@@ -622,8 +682,13 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=${SERVICE_NAME}
 
+# Network capabilities for device probing (ICMP ping, SNMP)
+# Required on Ubuntu 24.04+ where setuid ping was removed
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+
 # Security hardening
-NoNewPrivileges=true
+NoNewPrivileges=false
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=${INSTALL_DIR}/data ${INSTALL_DIR}/backups
@@ -636,6 +701,7 @@ MemoryMax=1G
 [Install]
 WantedBy=multi-user.target
 EOF
+    fi
 
     # Reload systemd
     systemctl daemon-reload

@@ -21,11 +21,16 @@ SyslogIdentifier=corebit
 # Graceful shutdown timeout
 TimeoutStopSec=30
 
-# Security hardening
-NoNewPrivileges=true
+# Network capabilities for device probing (ICMP ping, SNMP)
+# Required on Ubuntu 24.04+ where setuid ping was removed
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+
+# Security hardening (NoNewPrivileges=false required for AmbientCapabilities)
+NoNewPrivileges=false
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/corebit/data
+ReadWritePaths=/opt/corebit/data /opt/corebit/backups
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
