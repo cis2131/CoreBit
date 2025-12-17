@@ -217,6 +217,15 @@ export const connections = pgTable("connections", {
     previousSampleAt?: string;
     isStale?: boolean;
   }>(),
+  isDynamic: boolean("is_dynamic").default(false),
+  dynamicType: text("dynamic_type").$type<'proxmox_vm_host' | null>(),
+  dynamicMetadata: jsonb("dynamic_metadata").$type<{
+    vmDeviceId?: string;
+    vmEnd?: 'source' | 'target';
+    lastResolvedHostId?: string;
+    lastResolvedNodeName?: string;
+    state?: 'resolved' | 'unresolved' | 'pending';
+  }>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -559,6 +568,29 @@ export const proxmoxVms = pgTable("proxmox_vms", {
   index("idx_proxmox_vms_host").on(table.hostDeviceId),
   index("idx_proxmox_vms_matched").on(table.matchedDeviceId),
 ]);
+
+// Proxmox cluster nodes - maps cluster node names to Proxmox host devices
+// Used to resolve which host device a VM should connect to after migration
+export const proxmoxNodes = pgTable("proxmox_nodes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clusterName: text("cluster_name").notNull(), // Proxmox cluster name
+  nodeName: text("node_name").notNull(), // Proxmox node name within cluster
+  hostDeviceId: varchar("host_device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
+  lastSeen: timestamp("last_seen").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_proxmox_nodes_cluster").on(table.clusterName),
+  index("idx_proxmox_nodes_host").on(table.hostDeviceId),
+]);
+
+export const insertProxmoxNodeSchema = createInsertSchema(proxmoxNodes).omit({
+  id: true,
+  createdAt: true,
+  lastSeen: true,
+});
+
+export type InsertProxmoxNode = z.infer<typeof insertProxmoxNodeSchema>;
+export type ProxmoxNode = typeof proxmoxNodes.$inferSelect;
 
 export const insertUserNotificationChannelSchema = createInsertSchema(userNotificationChannels).omit({
   id: true,

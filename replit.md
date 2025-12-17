@@ -55,6 +55,13 @@ The application is built with a client-server architecture.
     -   Automatic cleanup of expired mutes
     -   OnDutyPanel component in device sidebar shows current on-duty users and mute status
     -   Permission-gated: Only Admin/Superuser roles can create or delete mutes
+-   **Dynamic Connections (Proxmox VM Migration):** Connections can be marked as "dynamic" to automatically update when VMs migrate between Proxmox cluster nodes:
+    -   `isDynamic` boolean flag on connections table enables automatic resolution
+    -   `dynamicType` specifies the connection type (currently `proxmox_vm_host`)
+    -   `dynamicMetadata` JSON stores VM device ID, monitored end, and last resolved host node
+    -   `proxmox_nodes` table maps cluster node names to host device IDs
+    -   When a VM migrates (detected during Proxmox probe), dynamic connections are automatically repointed to the new host device
+    -   Migration events are logged with timestamps and source/destination nodes
 
 **Technical Implementations:**
 -   TypeScript strict mode.

@@ -19,6 +19,7 @@ import {
   alarmMutes,
   deviceStatusEvents,
   proxmoxVms,
+  proxmoxNodes,
   ipamPools,
   ipamAddresses,
   ipamAddressAssignments,
@@ -59,6 +60,8 @@ import {
   type InsertDeviceStatusEvent,
   type ProxmoxVm,
   type InsertProxmoxVm,
+  type ProxmoxNode,
+  type InsertProxmoxNode,
   type IpamPool,
   type InsertIpamPool,
   type IpamAddress,
@@ -253,6 +256,18 @@ export interface IStorage {
   getAllProxmoxVms(): Promise<ProxmoxVm[]>;
   matchProxmoxVmToDevice(vmId: string, matchedDeviceId: string | null): Promise<ProxmoxVm | undefined>;
   autoMatchVmToDevices(vmId: string, ipAddresses: string[], macAddresses?: string[]): Promise<string | null>;
+
+  // Proxmox Cluster Nodes (for VM migration tracking)
+  getProxmoxNodesByCluster(clusterName: string): Promise<ProxmoxNode[]>;
+  getProxmoxNodeByName(clusterName: string, nodeName: string): Promise<ProxmoxNode | undefined>;
+  getProxmoxNodesByHost(hostDeviceId: string): Promise<ProxmoxNode[]>;
+  upsertProxmoxNode(node: InsertProxmoxNode): Promise<ProxmoxNode>;
+  deleteProxmoxNodesByHost(hostDeviceId: string): Promise<void>;
+
+  // Dynamic Connections (for VM-to-host connections that update on migration)
+  getDynamicConnectionsForVm(vmDeviceId: string): Promise<Connection[]>;
+  getDynamicConnections(): Promise<Connection[]>;
+  updateDynamicConnectionHost(connectionId: string, newHostDeviceId: string, nodeName: string): Promise<Connection | undefined>;
 
   // Map Health Summary
   getMapHealthSummary(): Promise<{ mapId: string; hasOffline: boolean }[]>;
@@ -1094,6 +1109,101 @@ export class DatabaseStorage implements IStorage {
     // No match found - clear any existing match
     await this.matchProxmoxVmToDevice(vmId, null);
     return null;
+  }
+
+  // Proxmox Cluster Nodes - for tracking which host device corresponds to which cluster node
+  async getProxmoxNodesByCluster(clusterName: string): Promise<ProxmoxNode[]> {
+    return await db.select().from(proxmoxNodes)
+      .where(eq(proxmoxNodes.clusterName, clusterName))
+      .orderBy(proxmoxNodes.nodeName);
+  }
+
+  async getProxmoxNodeByName(clusterName: string, nodeName: string): Promise<ProxmoxNode | undefined> {
+    const [node] = await db.select().from(proxmoxNodes)
+      .where(and(
+        eq(proxmoxNodes.clusterName, clusterName),
+        eq(proxmoxNodes.nodeName, nodeName)
+      ));
+    return node || undefined;
+  }
+
+  async getProxmoxNodesByHost(hostDeviceId: string): Promise<ProxmoxNode[]> {
+    return await db.select().from(proxmoxNodes)
+      .where(eq(proxmoxNodes.hostDeviceId, hostDeviceId));
+  }
+
+  async upsertProxmoxNode(node: InsertProxmoxNode): Promise<ProxmoxNode> {
+    const existing = await this.getProxmoxNodeByName(node.clusterName, node.nodeName);
+    if (existing) {
+      // Update the existing node's host device ID and last seen
+      const [updated] = await db.update(proxmoxNodes)
+        .set({ hostDeviceId: node.hostDeviceId, lastSeen: new Date() })
+        .where(eq(proxmoxNodes.id, existing.id))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(proxmoxNodes).values(node).returning();
+      return created;
+    }
+  }
+
+  async deleteProxmoxNodesByHost(hostDeviceId: string): Promise<void> {
+    await db.delete(proxmoxNodes).where(eq(proxmoxNodes.hostDeviceId, hostDeviceId));
+  }
+
+  // Dynamic Connections - for VM-to-host connections that automatically update when VMs migrate
+  async getDynamicConnectionsForVm(vmDeviceId: string): Promise<Connection[]> {
+    // Find connections where this VM is either source or target and the connection is dynamic
+    return await db.select().from(connections)
+      .where(and(
+        eq(connections.isDynamic, true),
+        eq(connections.dynamicType, 'proxmox_vm_host'),
+        or(
+          eq(connections.sourceDeviceId, vmDeviceId),
+          eq(connections.targetDeviceId, vmDeviceId)
+        )
+      ));
+  }
+
+  async getDynamicConnections(): Promise<Connection[]> {
+    return await db.select().from(connections)
+      .where(and(
+        eq(connections.isDynamic, true),
+        isNotNull(connections.dynamicType)
+      ));
+  }
+
+  async updateDynamicConnectionHost(connectionId: string, newHostDeviceId: string, nodeName: string): Promise<Connection | undefined> {
+    const conn = await this.getConnection(connectionId);
+    if (!conn || !conn.isDynamic || conn.dynamicType !== 'proxmox_vm_host') {
+      return undefined;
+    }
+
+    const metadata = conn.dynamicMetadata || {};
+    const vmEnd = metadata.vmEnd || 'source';
+    
+    // Update the host device ID on the opposite end from the VM
+    const updateData: Partial<Connection> = {
+      dynamicMetadata: {
+        ...metadata,
+        lastResolvedHostId: newHostDeviceId,
+        lastResolvedNodeName: nodeName,
+        state: 'resolved'
+      }
+    };
+
+    // Update the correct endpoint based on which end is the VM
+    if (vmEnd === 'source') {
+      updateData.targetDeviceId = newHostDeviceId;
+    } else {
+      updateData.sourceDeviceId = newHostDeviceId;
+    }
+
+    const [updated] = await db.update(connections)
+      .set(updateData)
+      .where(eq(connections.id, connectionId))
+      .returning();
+    return updated || undefined;
   }
 
   // Map Health Summary - aggregate device statuses per map

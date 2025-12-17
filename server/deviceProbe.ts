@@ -1572,7 +1572,7 @@ export async function probeProxmoxDevice(
     }
   }
 
-  const hostData: DeviceProbeData = {
+  const hostData: DeviceProbeData & { clusterName?: string; currentNode?: string } = {
     model: `Proxmox VE ${hostInfo.version || ''}`.trim(),
     version: hostInfo.version || 'Unknown',
     systemIdentity: hostInfo.clusterName || hostInfo.nodes[0]?.node || 'Proxmox Host',
@@ -1585,7 +1585,10 @@ export async function probeProxmoxDevice(
       name: node.node,
       status: node.status === 'online' ? 'up' : 'down',
       speed: `${hostInfo.runningVMs}/${hostInfo.totalVMs} VMs`
-    }))
+    })),
+    // Store cluster info for dynamic connection resolution
+    clusterName: hostInfo.clusterName,
+    currentNode: currentNode,
   };
 
   return {
