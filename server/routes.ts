@@ -2836,23 +2836,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   
                   // Resolve dynamic connections for the migrated VM
                   // Find the device matched to this VM and update any dynamic connections
-                  if (existingVm.matchedDeviceId && clusterName) {
+                  console.log(`[Proxmox] Migration check: matchedDeviceId=${existingVm.matchedDeviceId}, clusterName=${clusterName}, newNode=${vmInfo.node}`);
+                  
+                  if (existingVm.matchedDeviceId) {
                     try {
-                      // Find the Proxmox host device for the new node
-                      const newHostNode = await storage.getProxmoxNodeByName(clusterName, vmInfo.node);
+                      // Try to find the new host - first by cluster name, then by matching all registered nodes
+                      let newHostNode = null;
+                      
+                      if (clusterName) {
+                        newHostNode = await storage.getProxmoxNodeByName(clusterName, vmInfo.node);
+                      }
+                      
+                      // If not found by cluster name, search all nodes for matching node name
+                      if (!newHostNode) {
+                        const allNodes = await storage.getAllProxmoxNodes();
+                        newHostNode = allNodes.find(n => n.nodeName === vmInfo.node) || null;
+                        if (newHostNode) {
+                          console.log(`[Proxmox] Found node '${vmInfo.node}' via global search (cluster: ${newHostNode.clusterName})`);
+                        }
+                      }
+                      
                       if (newHostNode) {
                         // Get dynamic connections for this VM device
                         const dynamicConns = await storage.getDynamicConnectionsForVm(existingVm.matchedDeviceId);
+                        console.log(`[Proxmox] Found ${dynamicConns.length} dynamic connection(s) for VM device ${existingVm.matchedDeviceId}`);
+                        
                         for (const conn of dynamicConns) {
+                          console.log(`[Proxmox] Updating dynamic connection ${conn.id}: source=${conn.sourceDeviceId}, target=${conn.targetDeviceId}, vmEnd=${conn.dynamicMetadata?.vmEnd}`);
                           await storage.updateDynamicConnectionHost(conn.id, newHostNode.hostDeviceId, vmInfo.node);
                           console.log(`[Proxmox] Updated dynamic connection ${conn.id} for VM ${vmInfo.name}: now points to host ${newHostNode.hostDeviceId} (node ${vmInfo.node})`);
                         }
                       } else {
-                        console.log(`[Proxmox] No host device registered for node '${vmInfo.node}' in cluster '${clusterName}' - dynamic connections not updated`);
+                        console.log(`[Proxmox] No host device registered for node '${vmInfo.node}' - dynamic connections not updated. Cluster: ${clusterName || 'unknown'}`);
                       }
                     } catch (dynConnError: any) {
                       console.error(`[Proxmox] Error updating dynamic connections for VM ${vmInfo.name}:`, dynConnError.message);
                     }
+                  } else {
+                    console.log(`[Proxmox] VM ${vmInfo.name} has no matchedDeviceId - cannot update dynamic connections`);
                   }
                 }
                 vmRecord = await storage.updateProxmoxVm(existingVm.id, vmData);

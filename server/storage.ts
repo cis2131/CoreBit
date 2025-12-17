@@ -258,6 +258,7 @@ export interface IStorage {
   autoMatchVmToDevices(vmId: string, ipAddresses: string[], macAddresses?: string[]): Promise<string | null>;
 
   // Proxmox Cluster Nodes (for VM migration tracking)
+  getAllProxmoxNodes(): Promise<ProxmoxNode[]>;
   getProxmoxNodesByCluster(clusterName: string): Promise<ProxmoxNode[]>;
   getProxmoxNodeByName(clusterName: string, nodeName: string): Promise<ProxmoxNode | undefined>;
   getProxmoxNodesByHost(hostDeviceId: string): Promise<ProxmoxNode[]>;
@@ -1112,6 +1113,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Proxmox Cluster Nodes - for tracking which host device corresponds to which cluster node
+  async getAllProxmoxNodes(): Promise<ProxmoxNode[]> {
+    return await db.select().from(proxmoxNodes).orderBy(proxmoxNodes.clusterName, proxmoxNodes.nodeName);
+  }
+
   async getProxmoxNodesByCluster(clusterName: string): Promise<ProxmoxNode[]> {
     return await db.select().from(proxmoxNodes)
       .where(eq(proxmoxNodes.clusterName, clusterName))
