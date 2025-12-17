@@ -2898,6 +2898,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 await storage.deleteProxmoxVm(existingVm.id);
               }
             }
+            
+            // Reconciliation phase: Check all dynamic connections and fix any that point to wrong hosts
+            // This handles cases where migration happened while CoreBit was offline
+            try {
+              const allDynamicConns = await storage.getDynamicConnections();
+              const allProxmoxNodes = await storage.getAllProxmoxNodes();
+              const allProxmoxVms = await storage.getAllProxmoxVms();
+              
+              for (const conn of allDynamicConns) {
+                if (conn.dynamicType !== 'proxmox_vm_host' || !conn.dynamicMetadata?.vmDeviceId) {
+                  continue;
+                }
+                
+                const vmDeviceId = conn.dynamicMetadata.vmDeviceId;
+                const vmEnd = conn.dynamicMetadata.vmEnd || 'source';
+                
+                // Find the VM record for this device
+                const vmRecord = allProxmoxVms.find(vm => vm.matchedDeviceId === vmDeviceId);
+                if (!vmRecord || !vmRecord.node) {
+                  continue; // VM not found or no node info
+                }
+                
+                // Find the host device for the VM's current node
+                const correctHostNode = allProxmoxNodes.find(n => n.nodeName === vmRecord.node);
+                if (!correctHostNode) {
+                  continue; // No host registered for this node
+                }
+                
+                // Check if the connection is pointing to the correct host
+                const currentHostDeviceId = vmEnd === 'source' ? conn.targetDeviceId : conn.sourceDeviceId;
+                
+                if (currentHostDeviceId !== correctHostNode.hostDeviceId) {
+                  // Connection is pointing to wrong host - fix it
+                  console.log(`[Proxmox] Reconciliation: Connection ${conn.id} points to ${currentHostDeviceId} but VM is on node '${vmRecord.node}' (host ${correctHostNode.hostDeviceId})`);
+                  await storage.updateDynamicConnectionHost(conn.id, correctHostNode.hostDeviceId, vmRecord.node);
+                  console.log(`[Proxmox] Reconciliation: Fixed connection ${conn.id} to point to correct host ${correctHostNode.hostDeviceId}`);
+                }
+              }
+            } catch (reconcileError: any) {
+              console.error(`[Proxmox] Error during dynamic connection reconciliation:`, reconcileError.message);
+            }
           } catch (vmError: any) {
             console.error(`[Probing] Error persisting Proxmox VMs for ${device.name}:`, vmError.message);
           }
