@@ -296,6 +296,8 @@ export function DevicePropertiesPanel({
       if (!response.ok) return [];
       return response.json();
     },
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const { data: deviceInterfaces = [] } = useQuery<DeviceInterface[]>({
@@ -305,6 +307,8 @@ export function DevicePropertiesPanel({
       if (!response.ok) return [];
       return response.json();
     },
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const addNotificationMutation = useMutation({
