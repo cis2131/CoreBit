@@ -1005,6 +1005,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
+      // Get existing interfaces BEFORE deleting to preserve IPAM address mappings
+      const existingInterfaces = await storage.getDeviceInterfaces(device.id);
+      const oldInterfacesByName = new Map(existingInterfaces.map(i => [i.name, i.id]));
+      
       // Now safe to delete existing interfaces and sync new ones
       await storage.deleteDeviceInterfacesByDevice(device.id);
       
@@ -1030,6 +1034,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }));
       
       await storage.syncDeviceInterfaces(device.id, interfaceData);
+      
+      // Update IPAM address interface assignments to point to new interface IDs
+      const newInterfaces = await storage.getDeviceInterfaces(device.id);
+      const newInterfacesByName = new Map(newInterfaces.map(i => [i.name, i.id]));
+      
+      // Get all IPAM addresses for this device and update their interface references
+      const deviceIpamAddresses = await storage.getIpamAddressesByDevice(device.id);
+      for (const addr of deviceIpamAddresses) {
+        if (addr.assignedInterfaceId) {
+          // Find the interface name from the old ID
+          let oldInterfaceName: string | undefined;
+          for (const [name, id] of Array.from(oldInterfacesByName.entries())) {
+            if (id === addr.assignedInterfaceId) {
+              oldInterfaceName = name;
+              break;
+            }
+          }
+          
+          if (oldInterfaceName) {
+            // Get the new interface ID for the same name
+            const newInterfaceId = newInterfacesByName.get(oldInterfaceName);
+            if (newInterfaceId && newInterfaceId !== addr.assignedInterfaceId) {
+              await storage.updateIpamAddress(addr.id, { assignedInterfaceId: newInterfaceId });
+            }
+          }
+        }
+      }
 
       res.json({ 
         success: true, 
