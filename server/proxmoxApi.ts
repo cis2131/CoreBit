@@ -392,7 +392,12 @@ export class ProxmoxApi {
       try {
         const agentResult = await this.getVMAgentNetworkInterfaces(node, vmid);
         if (agentResult.success && agentResult.data) {
-          for (const iface of agentResult.data) {
+          // API returns { result: [...interfaces...] } so we need to access the result array
+          const interfaces = Array.isArray(agentResult.data) 
+            ? agentResult.data 
+            : (agentResult.data as any).result || [];
+          
+          for (const iface of interfaces) {
             if (iface['hardware-address'] && !iface['hardware-address'].startsWith('00:00:00')) {
               const mac = iface['hardware-address'].toLowerCase();
               if (!macAddresses.includes(mac)) {
