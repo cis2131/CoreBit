@@ -2515,11 +2515,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Settings routes
+  // Settings routes - with default values for uninitialized settings
+  const SETTING_DEFAULTS: Record<string, any> = {
+    'polling_interval': 30,
+    'concurrent_probe_threads': 80,
+    'default_probe_timeout': 6,
+    'default_offline_threshold': 3,
+    'mikrotik_keep_connections': true,
+    'ping_fallback_enabled': false,
+    'day_shift_start': '08:00',
+    'day_shift_end': '20:00',
+    'night_shift_start': '20:00',
+    'night_shift_end': '08:00',
+    'shift_timezone': 'Europe/Copenhagen',
+  };
+  
   app.get("/api/settings/:key", async (req, res) => {
     try {
       const value = await storage.getSetting(req.params.key);
       if (value === undefined) {
+        // Return default value if available, otherwise 404
+        const defaultValue = SETTING_DEFAULTS[req.params.key];
+        if (defaultValue !== undefined) {
+          return res.json({ key: req.params.key, value: defaultValue });
+        }
         return res.status(404).json({ error: 'Setting not found' });
       }
       res.json({ key: req.params.key, value });
