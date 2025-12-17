@@ -1148,6 +1148,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const data = insertConnectionSchema.parse(req.body);
       
+      // Auto-detect dynamic connections: VM to Proxmox host connections
+      // This enables automatic connection updates when VMs migrate between cluster nodes
+      if (!data.isDynamic) {
+        const sourceDevice = await storage.getDevice(data.sourceDeviceId);
+        const targetDevice = await storage.getDevice(data.targetDeviceId);
+        
+        if (sourceDevice && targetDevice) {
+          // Check if this is a VM -> Proxmox or Proxmox -> VM connection
+          const isSourceVM = sourceDevice.type === 'proxmox_vm';
+          const isTargetVM = targetDevice.type === 'proxmox_vm';
+          const isSourceProxmox = sourceDevice.type === 'proxmox';
+          const isTargetProxmox = targetDevice.type === 'proxmox';
+          
+          if ((isSourceVM && isTargetProxmox) || (isTargetVM && isSourceProxmox)) {
+            // Auto-enable dynamic connection for VM-to-host links
+            data.isDynamic = true;
+            data.dynamicType = 'proxmox_vm_host';
+            
+            const vmDeviceId = isSourceVM ? data.sourceDeviceId : data.targetDeviceId;
+            const vmEnd = isSourceVM ? 'source' : 'target';
+            const hostDeviceId = isSourceProxmox ? data.sourceDeviceId : data.targetDeviceId;
+            
+            data.dynamicMetadata = {
+              vmDeviceId,
+              vmEnd,
+              lastResolvedHostId: hostDeviceId,
+            };
+          }
+        }
+      }
+      
       // If monitorInterface is set, look up and cache the SNMP index
       if (data.monitorInterface) {
         const isSource = data.monitorInterface === 'source';
@@ -3605,8 +3636,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     );
     
     // Check if this is a Prometheus/node_exporter device - use HTTP metrics instead of SNMP
+    // Include: explicit prometheus type, server types, proxmox hosts with prometheus credentials
+    const hasPrometheusCredentials = credentials?.prometheusPort !== undefined || 
+      credentials?.prometheusPath !== undefined ||
+      credentials?.prometheusScheme !== undefined ||
+      credentials?.usePrometheus === true;
     const isPrometheusDevice = device.type === 'generic_prometheus' || 
-      (credentials?.prometheusPort || credentials?.prometheusPath);
+      device.type === 'server' ||
+      device.type === 'generic_server' ||
+      (device.type === 'proxmox' && hasPrometheusCredentials) ||
+      hasPrometheusCredentials;
     
     let result: { data: { inOctets: number; outOctets: number; ifIndex: number; timestamp: number } | null; success: boolean; error?: string };
     
