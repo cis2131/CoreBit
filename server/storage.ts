@@ -1188,6 +1188,7 @@ export class DatabaseStorage implements IStorage {
     const vmEnd = metadata.vmEnd || 'source';
     
     // Update the host device ID on the opposite end from the VM
+    // Also clear the port name since it refers to the old host's interface
     const updateData: Partial<Connection> = {
       dynamicMetadata: {
         ...metadata,
@@ -1198,10 +1199,13 @@ export class DatabaseStorage implements IStorage {
     };
 
     // Update the correct endpoint based on which end is the VM
+    // Clear the port name for the host end (it's no longer valid after host change)
     if (vmEnd === 'source') {
       updateData.targetDeviceId = newHostDeviceId;
+      updateData.targetPort = null; // Clear port name - it belonged to old host
     } else {
       updateData.sourceDeviceId = newHostDeviceId;
+      updateData.sourcePort = null; // Clear port name - it belonged to old host
     }
 
     const [updated] = await db.update(connections)

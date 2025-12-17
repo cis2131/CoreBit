@@ -2865,6 +2865,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                           console.log(`[Proxmox] Updating dynamic connection ${conn.id}: source=${conn.sourceDeviceId}, target=${conn.targetDeviceId}, vmEnd=${conn.dynamicMetadata?.vmEnd}`);
                           await storage.updateDynamicConnectionHost(conn.id, newHostNode.hostDeviceId, vmInfo.node);
                           console.log(`[Proxmox] Updated dynamic connection ${conn.id} for VM ${vmInfo.name}: now points to host ${newHostNode.hostDeviceId} (node ${vmInfo.node})`);
+                          
+                          // Broadcast the change so connected clients update their canvas
+                          mapSyncServer.broadcastMapChange(conn.mapId, 'connection', 'update');
                         }
                       } else {
                         console.log(`[Proxmox] No host device registered for node '${vmInfo.node}' - dynamic connections not updated. Cluster: ${clusterName || 'unknown'}`);
@@ -2934,6 +2937,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   console.log(`[Proxmox] Reconciliation: Connection ${conn.id} points to ${currentHostDeviceId} but VM is on node '${vmRecord.node}' (host ${correctHostNode.hostDeviceId})`);
                   await storage.updateDynamicConnectionHost(conn.id, correctHostNode.hostDeviceId, vmRecord.node);
                   console.log(`[Proxmox] Reconciliation: Fixed connection ${conn.id} to point to correct host ${correctHostNode.hostDeviceId}`);
+                  
+                  // Broadcast the change so connected clients update their canvas
+                  mapSyncServer.broadcastMapChange(conn.mapId, 'connection', 'update');
                 }
               }
             } catch (reconcileError: any) {
