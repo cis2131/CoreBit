@@ -1672,6 +1672,7 @@ export async function probeDevice(
     credentials?.prometheusScheme !== undefined ||  // Custom Prometheus scheme (http/https)
     credentials?.usePrometheus === true ||          // Explicit Prometheus flag
     deviceType === 'generic_server' ||              // Server type should try Prometheus first
+    deviceType === 'server' ||                      // User-selected "Server" type in UI
     deviceType === 'generic_prometheus';            // Prometheus-specific device type
   
   // Debug log to trace probe selection
@@ -2629,28 +2630,42 @@ export async function discoverDevice(
     const prometheusAvailable = await checkPrometheusAvailable(ipAddress, 9100, 2000);
     if (prometheusAvailable) {
       log('Prometheus node_exporter detected');
-      try {
-        const promData = await probePrometheusDevice(ipAddress, {}, 3000);
-        const hostname = promData.systemIdentity || '';
-        return {
-          reachable: true,
-          fingerprint: {
-            deviceType: 'generic_prometheus',
-            confidence: 'high',
-            detectedVia: 'prometheus_node_exporter',
-            detectedModel: promData.model || 'Linux Server',
-            additionalInfo: { 
-              version: promData.version,
-              cpuUsagePct: promData.cpuUsagePct,
-              memoryUsagePct: promData.memoryUsagePct,
-              diskUsagePct: promData.diskUsagePct,
+      
+      // Try Prometheus credential profiles first
+      const prometheusProfiles = credentialProfiles.filter(p => p.type === 'prometheus');
+      log(`Found ${prometheusProfiles.length} Prometheus credential profiles to try`);
+      
+      // Try credential profiles first, then fallback to default settings
+      const profilesToTry = prometheusProfiles.length > 0 
+        ? prometheusProfiles.map(p => ({ profile: p, creds: p.credentials }))
+        : [{ profile: null, creds: {} }]; // Fallback: try with default settings (port 9100, /metrics)
+      
+      for (const { profile, creds } of profilesToTry) {
+        try {
+          const promData = await probePrometheusDevice(ipAddress, creds, 3000);
+          const hostname = promData.systemIdentity || '';
+          log(`Prometheus probe SUCCESS${profile ? ` with profile ${profile.id}` : ' with defaults'}`);
+          return {
+            reachable: true,
+            fingerprint: {
+              deviceType: 'generic_prometheus',
+              confidence: 'high',
+              detectedVia: 'prometheus_node_exporter',
+              detectedModel: promData.model || 'Linux Server',
+              additionalInfo: { 
+                version: promData.version,
+                cpuUsagePct: promData.cpuUsagePct,
+                memoryUsagePct: promData.memoryUsagePct,
+                diskUsagePct: promData.diskUsagePct,
+              },
             },
-          },
-          pingRtt: pingResult.rtt,
-          sysName: hostname,
-        };
-      } catch (promErr: any) {
-        log(`Prometheus probe failed: ${promErr.message}`);
+            pingRtt: pingResult.rtt,
+            sysName: hostname,
+            workingCredentialProfileId: profile?.id,
+          };
+        } catch (promErr: any) {
+          log(`Prometheus probe failed${profile ? ` with profile ${profile.id}` : ''}: ${promErr.message}`);
+        }
       }
     }
   }
