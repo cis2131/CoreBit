@@ -282,6 +282,32 @@ export class ProxmoxApi {
       console.log(`[Proxmox API] ${this.credentials.host}: Found ${allVMs.length} VMs via cluster/resources (no node filter)`);
     }
     
+    // Fetch IP addresses for running VMs via guest agent (in parallel, with concurrency limit)
+    const runningVMs = allVMs.filter(vm => vm.status === 'running');
+    if (runningVMs.length > 0) {
+      const CONCURRENCY = 5; // Limit concurrent API calls
+      const chunks: ProxmoxVMInfo[][] = [];
+      for (let i = 0; i < runningVMs.length; i += CONCURRENCY) {
+        chunks.push(runningVMs.slice(i, i + CONCURRENCY));
+      }
+      
+      for (const chunk of chunks) {
+        await Promise.all(chunk.map(async (vm) => {
+          try {
+            const networkInfo = await this.getVMNetworkInfo(vm.node, vm.vmid, vm.type);
+            if (networkInfo.ipAddresses.length > 0) {
+              vm.ipAddresses = networkInfo.ipAddresses;
+            }
+            if (networkInfo.macAddresses.length > 0) {
+              vm.macAddresses = networkInfo.macAddresses;
+            }
+          } catch (e) {
+            // Guest agent may not be installed/running - ignore errors
+          }
+        }));
+      }
+    }
+    
     return allVMs;
   }
 
