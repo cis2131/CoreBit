@@ -285,27 +285,31 @@ export class ProxmoxApi {
     // Fetch IP addresses for running VMs via guest agent (in parallel, with concurrency limit)
     const runningVMs = allVMs.filter(vm => vm.status === 'running');
     if (runningVMs.length > 0) {
+      console.log(`[Proxmox API] ${this.credentials.host}: Fetching IPs for ${runningVMs.length} running VMs...`);
       const CONCURRENCY = 5; // Limit concurrent API calls
       const chunks: ProxmoxVMInfo[][] = [];
       for (let i = 0; i < runningVMs.length; i += CONCURRENCY) {
         chunks.push(runningVMs.slice(i, i + CONCURRENCY));
       }
       
+      let vmsWithIps = 0;
       for (const chunk of chunks) {
         await Promise.all(chunk.map(async (vm) => {
           try {
             const networkInfo = await this.getVMNetworkInfo(vm.node, vm.vmid, vm.type);
             if (networkInfo.ipAddresses.length > 0) {
               vm.ipAddresses = networkInfo.ipAddresses;
+              vmsWithIps++;
             }
             if (networkInfo.macAddresses.length > 0) {
               vm.macAddresses = networkInfo.macAddresses;
             }
-          } catch (e) {
-            // Guest agent may not be installed/running - ignore errors
+          } catch (e: any) {
+            console.log(`[Proxmox API] Failed to get network info for VM ${vm.vmid}: ${e.message}`);
           }
         }));
       }
+      console.log(`[Proxmox API] ${this.credentials.host}: Found IPs for ${vmsWithIps}/${runningVMs.length} running VMs`);
     }
     
     return allVMs;
@@ -405,8 +409,36 @@ export class ProxmoxApi {
               }
             }
           }
+        } else if (!agentResult.success) {
+          // Debug: log agent failures (guest agent might not be running)
+          console.log(`[Proxmox API] Guest agent query failed for VM ${vmid}: ${agentResult.error || 'no data'}`);
         }
-      } catch (e) {
+      } catch (e: any) {
+        console.log(`[Proxmox API] Guest agent exception for VM ${vmid}: ${e.message}`);
+      }
+    } else if (vmType === 'lxc') {
+      // For LXC containers, try to get network info from container interfaces endpoint
+      try {
+        const lxcIfaceResult = await this.makeRequest<any[]>('GET', `/nodes/${node}/lxc/${vmid}/interfaces`);
+        if (lxcIfaceResult.success && lxcIfaceResult.data) {
+          for (const iface of lxcIfaceResult.data) {
+            if (iface.hwaddr && !iface.hwaddr.startsWith('00:00:00')) {
+              const mac = iface.hwaddr.toLowerCase();
+              if (!macAddresses.includes(mac)) {
+                macAddresses.push(mac);
+              }
+            }
+            // LXC interfaces use 'inet' for IPv4 addresses
+            if (iface.inet && !iface.inet.startsWith('127.')) {
+              const ip = iface.inet.split('/')[0]; // Remove CIDR notation
+              if (!ipAddresses.includes(ip)) {
+                ipAddresses.push(ip);
+              }
+            }
+          }
+        }
+      } catch (e: any) {
+        // LXC interface endpoint may not be available
       }
     }
 
