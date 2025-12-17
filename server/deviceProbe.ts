@@ -1818,6 +1818,85 @@ export interface TrafficProbeOptions {
   snmpIndex?: number;  // SNMP ifIndex for this interface (from device probe)
 }
 
+// Probe interface traffic from Prometheus node_exporter
+// Uses node_network_receive_bytes_total and node_network_transmit_bytes_total metrics
+export async function probePrometheusInterfaceTraffic(
+  ipAddress: string,
+  interfaceName: string,
+  credentials?: any,
+  timeoutMs: number = 5000
+): Promise<{ data: TrafficCounters | null; success: boolean; error?: string }> {
+  const port = credentials?.prometheusPort || 9100;
+  const path = credentials?.prometheusPath || '/metrics';
+  const scheme = credentials?.prometheusScheme || 'http';
+  const url = `${scheme}://${ipAddress}:${port}${path}`;
+  
+  return new Promise((resolve) => {
+    const httpModule = scheme === 'https' ? https : http;
+    
+    const req = httpModule.get(url, {
+      timeout: timeoutMs,
+      headers: {
+        'Accept': 'text/plain',
+        'User-Agent': 'CoreBit/1.0'
+      },
+      ...(scheme === 'https' ? { rejectUnauthorized: false } : {})
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        resolve({ data: null, success: false, error: `HTTP ${res.statusCode}` });
+        return;
+      }
+      
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const metrics = parsePrometheusMetrics(data);
+          
+          // Get network receive bytes for interface
+          const receiveBytes = metrics.get('node_network_receive_bytes_total');
+          const transmitBytes = metrics.get('node_network_transmit_bytes_total');
+          
+          if (!receiveBytes || !transmitBytes) {
+            resolve({ data: null, success: false, error: 'Network metrics not found' });
+            return;
+          }
+          
+          // Find the interface in the metrics
+          const rxEntry = receiveBytes.find(m => m.labels.device === interfaceName);
+          const txEntry = transmitBytes.find(m => m.labels.device === interfaceName);
+          
+          if (!rxEntry || !txEntry) {
+            resolve({ data: null, success: false, error: `Interface ${interfaceName} not found in Prometheus metrics` });
+            return;
+          }
+          
+          resolve({
+            data: {
+              inOctets: Math.floor(rxEntry.value),
+              outOctets: Math.floor(txEntry.value),
+              ifIndex: 0, // Prometheus doesn't use ifIndex
+              timestamp: Date.now()
+            },
+            success: true
+          });
+        } catch (parseErr: any) {
+          resolve({ data: null, success: false, error: `Parse error: ${parseErr.message}` });
+        }
+      });
+    });
+    
+    req.on('error', (err) => {
+      resolve({ data: null, success: false, error: `Request error: ${err.message}` });
+    });
+    
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ data: null, success: false, error: 'Request timeout' });
+    });
+  });
+}
+
 export async function probeInterfaceTraffic(
   ipAddress: string,
   interfaceName: string,

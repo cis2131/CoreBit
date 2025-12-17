@@ -37,7 +37,10 @@ The application is built with a client-server architecture.
     -   **Server/Access Point:** SNMP-based monitoring with appropriate icons
 -   **Offline Threshold:** All device types respect configurable offline threshold - devices only go offline after N consecutive failed probes (default 3), preventing notification spam from transient failures.
 -   **Network Scanner:** Automated discovery of devices on IP ranges (CIDR/Range support), multi-credential support, auto-detection of device types, scan profile saving, and bulk device creation.
--   **Traffic Monitoring:** Real-time traffic monitoring on connections using SNMP, requiring SNMP credentials. Optimizes polling with stored SNMP interface indexes for faster data retrieval and calculates traffic rates and utilization.
+-   **Traffic Monitoring:** Real-time traffic monitoring on connections. Supports two methods:
+    -   **SNMP:** For Mikrotik, generic SNMP devices. Uses stored SNMP interface indexes for fast OID construction.
+    -   **Prometheus/node_exporter:** For Linux servers running node_exporter. Uses `node_network_receive_bytes_total` and `node_network_transmit_bytes_total` metrics.
+    -   Automatically detects which method to use based on device type (`generic_prometheus`) or credentials.
 -   **Backup & Restore:** Provides manual and scheduled backups with configurable retention policies. Supports downloading, uploading, and restoring full application data, including devices, maps, connections, credentials, and settings. Backup files are JSON-formatted and stored locally.
 -   **On-Duty Notification System:** Simplified shift-based notification system with direct user-to-shift assignments:
     -   Two shifts: Day and Night, with configurable start/end times and timezone

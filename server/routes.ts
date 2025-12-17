@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probeMikrotikWithPool, pingDevice, discoverDevice, type DeviceFingerprint, type ProbeType } from "./deviceProbe";
+import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probePrometheusInterfaceTraffic, probeMikrotikWithPool, pingDevice, discoverDevice, type DeviceFingerprint, type ProbeType } from "./deviceProbe";
 import { mikrotikPool } from "./mikrotikConnectionPool";
 import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, insertUserNotificationChannelSchema, insertDutyUserScheduleSchema, insertDutyShiftConfigSchema, insertIpamPoolSchema, insertIpamAddressSchema, type Device, type Connection, type UserNotificationChannel } from "@shared/schema";
 import { z } from "zod";
@@ -3499,26 +3499,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       p.name === portName || p.defaultName === portName
     );
     
-    // Get stored snmpIndex for direct OID construction (preferred method)
-    const storedSnmpIndex = port?.snmpIndex;
-    const hasIndex = storedSnmpIndex !== undefined;
+    // Check if this is a Prometheus/node_exporter device - use HTTP metrics instead of SNMP
+    const isPrometheusDevice = device.type === 'generic_prometheus' || 
+      (credentials?.prometheusPort || credentials?.prometheusPath);
     
-    // Probe interface traffic using stored snmpIndex (fast) or SNMP walk (slow fallback)
-    let result = await probeInterfaceTraffic(
-      device.ipAddress, 
-      portName, 
-      credentials, 
-      conn.monitorSnmpIndex ?? undefined, // Use cached connection index as secondary option
-      hasIndex ? { snmpIndex: storedSnmpIndex } : undefined
-    );
+    let result: { data: { inOctets: number; outOctets: number; ifIndex: number; timestamp: number } | null; success: boolean; error?: string };
     
-    // If probe was successful and returned an ifIndex, cache it on the connection for future use
-    // This helps when device ports don't have stored indexes (e.g., non-Mikrotik devices)
-    if (result.success && result.data?.ifIndex !== undefined) {
-      const newIfIndex = result.data.ifIndex;
-      if (conn.monitorSnmpIndex !== newIfIndex) {
-        // Update the connection's cached SNMP index
-        await storage.updateConnection(conn.id, { monitorSnmpIndex: newIfIndex });
+    if (isPrometheusDevice) {
+      // Use Prometheus node_exporter for traffic stats
+      result = await probePrometheusInterfaceTraffic(
+        device.ipAddress,
+        portName,
+        credentials
+      );
+    } else {
+      // Use SNMP for traffic stats
+      // Get stored snmpIndex for direct OID construction (preferred method)
+      const storedSnmpIndex = port?.snmpIndex;
+      const hasIndex = storedSnmpIndex !== undefined;
+      
+      // Probe interface traffic using stored snmpIndex (fast) or SNMP walk (slow fallback)
+      result = await probeInterfaceTraffic(
+        device.ipAddress, 
+        portName, 
+        credentials, 
+        conn.monitorSnmpIndex ?? undefined, // Use cached connection index as secondary option
+        hasIndex ? { snmpIndex: storedSnmpIndex } : undefined
+      );
+      
+      // If probe was successful and returned an ifIndex, cache it on the connection for future use
+      // This helps when device ports don't have stored indexes (e.g., non-Mikrotik devices)
+      if (result.success && result.data?.ifIndex !== undefined) {
+        const newIfIndex = result.data.ifIndex;
+        if (conn.monitorSnmpIndex !== newIfIndex) {
+          // Update the connection's cached SNMP index
+          await storage.updateConnection(conn.id, { monitorSnmpIndex: newIfIndex });
+        }
       }
     }
     
