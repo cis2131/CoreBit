@@ -27,6 +27,7 @@ import {
   RefreshCw,
   BarChart3,
   Spline,
+  RefreshCcw,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -79,8 +80,14 @@ export function ConnectionPropertiesPanel({
   );
   const [curveOffset, setCurveOffset] = useState(connection.curveOffset || 0);
   const [flipTrafficDirection, setFlipTrafficDirection] = useState(connection.flipTrafficDirection || false);
+  const [isDynamic, setIsDynamic] = useState(connection.isDynamic || false);
   const [saving, setSaving] = useState(false);
   const [resettingIndex, setResettingIndex] = useState(false);
+  
+  // Check if source device is a VM (matched to a Proxmox VM) for dynamic connection eligibility
+  const isSourceVmDevice = sourceDevice.type === 'generic_prometheus' || sourceDevice.type === 'server';
+  const isTargetProxmoxHost = targetDevice.type === 'proxmox';
+  const canBeDynamicConnection = isSourceVmDevice && isTargetProxmoxHost;
 
   // Fetch traffic history for bandwidth graph (poll every 10 seconds when monitoring is enabled)
   const { data: trafficHistory = [] } = useQuery<TrafficHistoryPoint[]>({
@@ -98,6 +105,7 @@ export function ConnectionPropertiesPanel({
     setCurveMode((connection.curveMode as 'straight' | 'curved' | 'auto') || "straight");
     setCurveOffset(connection.curveOffset || 0);
     setFlipTrafficDirection(connection.flipTrafficDirection || false);
+    setIsDynamic(connection.isDynamic || false);
   }, [
     connection.id,
     connection.linkSpeed,
@@ -107,6 +115,7 @@ export function ConnectionPropertiesPanel({
     connection.curveMode,
     connection.curveOffset,
     connection.flipTrafficDirection,
+    connection.isDynamic,
   ]);
 
   const sourcePorts = sourceDevice.deviceData?.ports || [];
@@ -130,12 +139,14 @@ export function ConnectionPropertiesPanel({
     monitorInterface !== (connection.monitorInterface || "none") ||
     curveMode !== ((connection.curveMode as 'straight' | 'curved' | 'auto') || "straight") ||
     curveOffset !== (connection.curveOffset || 0) ||
-    flipTrafficDirection !== (connection.flipTrafficDirection || false);
+    flipTrafficDirection !== (connection.flipTrafficDirection || false) ||
+    isDynamic !== (connection.isDynamic || false);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await apiRequest("PATCH", `/api/connections/${connection.id}`, {
+      // Build update payload
+      const updatePayload: Record<string, any> = {
         linkSpeed,
         sourcePort: sourcePort === "none" ? "" : sourcePort,
         targetPort: targetPort === "none" ? "" : targetPort,
@@ -143,7 +154,25 @@ export function ConnectionPropertiesPanel({
         curveMode,
         curveOffset,
         flipTrafficDirection,
-      });
+        isDynamic,
+      };
+      
+      // If enabling dynamic connection, set the type and metadata
+      if (isDynamic && canBeDynamicConnection) {
+        updatePayload.dynamicType = 'proxmox_vm_host';
+        updatePayload.dynamicMetadata = {
+          vmDeviceId: sourceDevice.id,
+          vmEnd: 'source',
+          lastResolvedHostId: targetDevice.id,
+          lastResolvedNodeName: null,
+          state: 'pending',
+        };
+      } else if (!isDynamic) {
+        updatePayload.dynamicType = null;
+        updatePayload.dynamicMetadata = null;
+      }
+      
+      await apiRequest("PATCH", `/api/connections/${connection.id}`, updatePayload);
       queryClient.invalidateQueries({
         queryKey: ["/api/connections", connection.mapId],
       });
@@ -566,6 +595,45 @@ export function ConnectionPropertiesPanel({
               )}
             </CardContent>
           </Card>
+
+          {canBeDynamicConnection && (
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <RefreshCcw className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-sm">Dynamic VM Connection</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="is-dynamic" className="text-sm">Auto-update on VM migration</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Automatically update this connection when the VM migrates to a different Proxmox host
+                    </p>
+                  </div>
+                  <Switch
+                    id="is-dynamic"
+                    checked={isDynamic}
+                    onCheckedChange={setIsDynamic}
+                    data-testid="switch-dynamic-connection"
+                  />
+                </div>
+                {isDynamic && (
+                  <div className="text-xs text-muted-foreground bg-muted/50 rounded-md p-2">
+                    When enabled, if this VM migrates to another Proxmox cluster node, this connection will automatically point to the new host device.
+                  </div>
+                )}
+                {connection.dynamicMetadata?.lastResolvedNodeName && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <Badge variant="outline" className="text-xs">
+                      Last node: {connection.dynamicMetadata.lastResolvedNodeName}
+                    </Badge>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {connection.linkStats && (() => {
             // When monitoring on target device, flip RX/TX to show correct direction
