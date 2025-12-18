@@ -22,8 +22,11 @@ import {
   Loader2,
   Edit,
   MoreVertical,
-  MapPin
+  MapPin,
+  Search,
+  FileText
 } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
@@ -76,6 +79,10 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
   const [selectedPool, setSelectedPool] = useState<IpamPool | null>(null);
   const [viewAddressesPool, setViewAddressesPool] = useState<IpamPool | 'unassigned' | null>(null);
   const [addressStatusFilter, setAddressStatusFilter] = useState<string>('all');
+  const [addressSearchQuery, setAddressSearchQuery] = useState('');
+  const [editNotesOpen, setEditNotesOpen] = useState(false);
+  const [editNotesAddress, setEditNotesAddress] = useState<IpamAddressWithAssignments | null>(null);
+  const [editNotesValue, setEditNotesValue] = useState('');
 
   // Form state for adding pool
   const [poolName, setPoolName] = useState('');
@@ -313,11 +320,41 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
   };
 
   const filteredAddresses = useMemo(() => {
-    const filtered = addresses.filter(addr => 
-      addressStatusFilter === 'all' || addr.status === addressStatusFilter
-    );
+    const searchLower = addressSearchQuery.toLowerCase().trim();
+    
+    const filtered = addresses.filter(addr => {
+      // Status filter
+      if (addressStatusFilter !== 'all' && addr.status !== addressStatusFilter) {
+        return false;
+      }
+      
+      // Search filter - if no search query, show all
+      if (!searchLower) return true;
+      
+      // Search by IP address
+      if (addr.ipAddress.toLowerCase().includes(searchLower)) return true;
+      
+      // Search by hostname
+      if (addr.hostname?.toLowerCase().includes(searchLower)) return true;
+      
+      // Search by notes
+      if (addr.notes?.toLowerCase().includes(searchLower)) return true;
+      
+      // Search by device name (via assignments)
+      const assignmentsList = addr.assignments && addr.assignments.length > 0 
+        ? addr.assignments 
+        : (addr.assignedDeviceId ? [{ deviceId: addr.assignedDeviceId }] : []);
+      
+      for (const assignment of assignmentsList) {
+        const device = devices.find(d => d.id === assignment.deviceId);
+        if (device?.name?.toLowerCase().includes(searchLower)) return true;
+      }
+      
+      return false;
+    });
+    
     return filtered.sort((a, b) => ipToNumber(a.ipAddress) - ipToNumber(b.ipAddress));
-  }, [addresses, addressStatusFilter]);
+  }, [addresses, addressStatusFilter, addressSearchQuery, devices]);
 
   const getPoolTypeLabel = (pool: IpamPool) => {
     if (pool.entryType === 'cidr') return pool.cidr || 'CIDR';
@@ -727,7 +764,12 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
       </Dialog>
 
       {/* View Addresses Dialog */}
-      <Dialog open={!!viewAddressesPool} onOpenChange={(open) => !open && setViewAddressesPool(null)}>
+      <Dialog open={!!viewAddressesPool} onOpenChange={(open) => {
+        if (!open) {
+          setViewAddressesPool(null);
+          setAddressSearchQuery('');
+        }
+      }}>
         <DialogContent className="max-w-3xl max-h-[80vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -742,7 +784,17 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search IP, hostname, notes, device..."
+                  value={addressSearchQuery}
+                  onChange={(e) => setAddressSearchQuery(e.target.value)}
+                  className="pl-8"
+                  data-testid="input-ipam-search"
+                />
+              </div>
               <Select value={addressStatusFilter} onValueChange={setAddressStatusFilter}>
                 <SelectTrigger className="w-40" data-testid="select-address-status-filter">
                   <SelectValue placeholder="Filter by status" />
@@ -792,6 +844,7 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
                       <TableHead>Status</TableHead>
                       <TableHead>Device</TableHead>
                       <TableHead>Hostname</TableHead>
+                      <TableHead>Notes</TableHead>
                       <TableHead>Last Seen</TableHead>
                       {canModify && <TableHead className="w-10"></TableHead>}
                     </TableRow>
@@ -857,6 +910,9 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
                         <TableCell className="text-sm text-muted-foreground">
                           {addr.hostname || '-'}
                         </TableCell>
+                        <TableCell className="text-sm text-muted-foreground max-w-[150px] truncate" title={addr.notes || ''}>
+                          {addr.notes || '-'}
+                        </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {addr.lastSeenAt
                             ? new Date(addr.lastSeenAt).toLocaleString()
@@ -871,6 +927,17 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setEditNotesAddress(addr);
+                                    setEditNotesValue(addr.notes || '');
+                                    setEditNotesOpen(true);
+                                  }}
+                                  data-testid={`button-edit-notes-${addr.id}`}
+                                >
+                                  <FileText className="h-3 w-3 mr-2" />
+                                  Edit Notes
+                                </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() =>
                                     updateAddressMutation.mutate({
@@ -909,6 +976,69 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
               )}
             </ScrollArea>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Notes Dialog */}
+      <Dialog open={editNotesOpen} onOpenChange={(open) => {
+        if (!open) {
+          setEditNotesOpen(false);
+          setEditNotesAddress(null);
+          setEditNotesValue('');
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Edit Notes
+            </DialogTitle>
+            <DialogDescription>
+              {editNotesAddress?.ipAddress} - Add or update notes for this IP address
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Textarea
+              placeholder="Enter notes for this IP address..."
+              value={editNotesValue}
+              onChange={(e) => setEditNotesValue(e.target.value)}
+              className="min-h-[100px]"
+              data-testid="input-edit-notes"
+            />
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setEditNotesOpen(false);
+                setEditNotesAddress(null);
+                setEditNotesValue('');
+              }}
+              data-testid="button-cancel-edit-notes"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (editNotesAddress) {
+                  updateAddressMutation.mutate({
+                    id: editNotesAddress.id,
+                    notes: editNotesValue,
+                  });
+                  setEditNotesOpen(false);
+                  setEditNotesAddress(null);
+                  setEditNotesValue('');
+                }
+              }}
+              disabled={updateAddressMutation.isPending}
+              data-testid="button-save-notes"
+            >
+              {updateAddressMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              Save Notes
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
