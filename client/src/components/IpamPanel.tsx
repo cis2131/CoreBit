@@ -1024,10 +1024,20 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
                   updateAddressMutation.mutate({
                     id: editNotesAddress.id,
                     notes: editNotesValue,
+                  }, {
+                    onSuccess: () => {
+                      setEditNotesOpen(false);
+                      setEditNotesAddress(null);
+                      setEditNotesValue('');
+                    },
+                    onError: (error) => {
+                      toast({
+                        title: "Failed to save notes",
+                        description: error instanceof Error ? error.message : "Please try again",
+                        variant: "destructive",
+                      });
+                    }
                   });
-                  setEditNotesOpen(false);
-                  setEditNotesAddress(null);
-                  setEditNotesValue('');
                 }
               }}
               disabled={updateAddressMutation.isPending}
