@@ -364,6 +364,22 @@ export class DatabaseStorage implements IStorage {
     return device || undefined;
   }
 
+  async getDeviceByAnyIp(ip: string): Promise<Device | undefined> {
+    // First check device primary IP
+    const [deviceByPrimary] = await db.select().from(devices).where(eq(devices.ipAddress, ip));
+    if (deviceByPrimary) {
+      return deviceByPrimary;
+    }
+    
+    // Then check IPAM addresses (supports multiple IPs per device)
+    const [ipamAddr] = await db.select().from(ipamAddresses).where(eq(ipamAddresses.ipAddress, ip));
+    if (ipamAddr?.assignedDeviceId) {
+      return await this.getDevice(ipamAddr.assignedDeviceId);
+    }
+    
+    return undefined;
+  }
+
   async createDevice(insertDevice: InsertDevice): Promise<Device> {
     const [device] = await db
       .insert(devices)
@@ -1092,6 +1108,15 @@ export class DatabaseStorage implements IStorage {
     // Get all devices to match against
     const allDevices = await this.getAllDevices();
     
+    // Build a map of IP -> deviceId from IPAM addresses for multi-IP device matching
+    const allIpamAddresses = await this.getAllIpamAddresses();
+    const ipToDeviceMap = new Map<string, string>();
+    for (const addr of allIpamAddresses) {
+      if (addr.assignedDeviceId) {
+        ipToDeviceMap.set(addr.ipAddress, addr.assignedDeviceId);
+      }
+    }
+    
     // Try to find a device with a matching IP address
     for (const ip of ipAddresses) {
       // Skip link-local and localhost addresses
@@ -1099,11 +1124,19 @@ export class DatabaseStorage implements IStorage {
         continue;
       }
       
+      // First check device primary IP
       const matchedDevice = allDevices.find(d => d.ipAddress === ip);
       if (matchedDevice) {
         // Update the VM with the matched device ID
         await this.matchProxmoxVmToDevice(vmId, matchedDevice.id);
         return matchedDevice.id;
+      }
+      
+      // Then check IPAM addresses (supports multiple IPs per device)
+      const deviceIdFromIpam = ipToDeviceMap.get(ip);
+      if (deviceIdFromIpam) {
+        await this.matchProxmoxVmToDevice(vmId, deviceIdFromIpam);
+        return deviceIdFromIpam;
       }
     }
 
