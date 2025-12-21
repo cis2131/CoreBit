@@ -86,6 +86,34 @@ The project includes a complete deployment system for production servers:
 
 **Snap-to-Grid:** Default ON (devices snap to 20px grid), hold Shift for free placement.
 
+## Licensing System
+
+CoreBit uses a tiered licensing model:
+
+-   **Free Tier:** Fully functional, limited to 10 devices
+-   **Pro Tier:** Unlimited devices, 1 year of update entitlement
+
+**Key Concepts:**
+-   **Server Fingerprint:** Unique hash of hostname + MAC + machine-id, ties license to specific server
+-   **Permanent Activation:** Once activated, works forever without internet (offline-friendly)
+-   **Update Entitlement:** License includes 1 year of updates from purchase date; new versions built after expiry require renewal
+
+**License Management:**
+-   Settings page shows license status, tier, device count, and fingerprint
+-   Manual activation via "Enter License Key" button (admin only)
+-   Device limit enforced at creation time (single and batch)
+
+**Creating Licenses:**
+Use `scripts/create-license.js` to generate licenses:
+```bash
+node scripts/create-license.js <fingerprint> [tier] [deviceLimit] [yearsOfUpdates]
+```
+
+**Files:**
+-   `server/licensing.ts` - Licensing service (fingerprint, storage, validation)
+-   `shared/schema.ts` - License database table
+-   `license.json` - Local license storage file (created on activation)
+
 ## External Dependencies
 
 -   **Database:** PostgreSQL (hosted on Neon for development, standard PostgreSQL for production).
