@@ -796,3 +796,28 @@ export type InsertIpamAddressAssignment = z.infer<typeof insertIpamAddressAssign
 export interface IpamAddressWithAssignments extends IpamAddress {
   assignments: IpamAddressAssignment[];
 }
+
+// License table for software licensing
+export const licenses = pgTable("licenses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  licenseKey: text("license_key").notNull().unique(),
+  tier: text("tier").notNull().default("free"), // free, pro
+  fingerprint: text("fingerprint").notNull(), // Server fingerprint hash
+  deviceLimit: integer("device_limit").default(10), // null = unlimited
+  purchaseDate: timestamp("purchase_date"),
+  updatesValidUntil: timestamp("updates_valid_until"), // Updates entitlement expiry
+  stripeSessionId: text("stripe_session_id"), // Stripe checkout session ID
+  stripeCustomerId: text("stripe_customer_id"), // Stripe customer ID
+  activatedAt: timestamp("activated_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertLicenseSchema = createInsertSchema(licenses).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type License = typeof licenses.$inferSelect;
+export type InsertLicense = z.infer<typeof insertLicenseSchema>;

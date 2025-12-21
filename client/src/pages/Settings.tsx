@@ -498,6 +498,234 @@ function DangerZoneSection() {
   );
 }
 
+interface LicenseInfo {
+  tier: 'free' | 'pro';
+  deviceLimit: number | null;
+  currentDeviceCount: number;
+  canAddDevice: boolean;
+  purchaseDate: string | null;
+  updatesValidUntil: string | null;
+  isUpdateEntitled: boolean;
+  fingerprint: string;
+  isActivated: boolean;
+  buildDate: string;
+}
+
+function LicenseSection() {
+  const { toast } = useToast();
+  const { isAdmin } = useAuth();
+  const [activationDialogOpen, setActivationDialogOpen] = useState(false);
+  const [licenseKey, setLicenseKey] = useState('');
+  const [activating, setActivating] = useState(false);
+
+  const { data: license, isLoading } = useQuery<LicenseInfo>({
+    queryKey: ["/api/license"],
+  });
+
+  const handleActivate = async () => {
+    if (!licenseKey.trim()) {
+      toast({ variant: "destructive", description: "Please enter a license key" });
+      return;
+    }
+
+    setActivating(true);
+    try {
+      const response = await fetch('/api/license/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          licenseKey: licenseKey.trim(),
+          tier: 'pro',
+          deviceLimit: null,
+          purchaseDate: new Date().toISOString(),
+          updatesValidUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+          signature: 'manual-activation',
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Activation failed');
+      }
+      
+      queryClient.invalidateQueries({ queryKey: ["/api/license"] });
+      toast({ description: "License activated successfully!" });
+      setActivationDialogOpen(false);
+      setLicenseKey('');
+    } catch (error: any) {
+      toast({ variant: "destructive", description: error.message || "Activation failed" });
+    } finally {
+      setActivating(false);
+    }
+  };
+
+  const tierColors = {
+    free: 'bg-muted text-muted-foreground',
+    pro: 'bg-primary text-primary-foreground',
+  };
+
+  return (
+    <Card data-testid="card-license">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Crown className="h-5 w-5" />
+          License
+        </CardTitle>
+        <CardDescription>
+          Manage your CoreBit license and subscription
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading license info...
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Tier:</span>
+                <Badge className={tierColors[license?.tier || 'free']}>
+                  {license?.tier === 'pro' ? 'Pro' : 'Free'}
+                </Badge>
+              </div>
+              {license?.isActivated && (
+                <Badge variant="outline" className="text-green-600 border-green-600">
+                  Activated
+                </Badge>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Device Limit:</span>
+                <div className="font-medium">
+                  {license?.deviceLimit === null ? 'Unlimited' : license?.deviceLimit}
+                </div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Current Devices:</span>
+                <div className="font-medium">{license?.currentDeviceCount || 0}</div>
+              </div>
+              {license?.tier === 'pro' && (
+                <>
+                  <div>
+                    <span className="text-muted-foreground">Purchase Date:</span>
+                    <div className="font-medium">
+                      {license?.purchaseDate 
+                        ? new Date(license.purchaseDate).toLocaleDateString() 
+                        : '-'}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Updates Valid Until:</span>
+                    <div className="font-medium">
+                      {license?.updatesValidUntil 
+                        ? new Date(license.updatesValidUntil).toLocaleDateString() 
+                        : '-'}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {license?.tier === 'free' && (
+              <div className="p-4 bg-muted/50 rounded-lg space-y-2">
+                <p className="text-sm">
+                  You're using the free tier with a limit of {license?.deviceLimit} devices.
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Upgrade to Pro for unlimited devices and priority support.
+                </p>
+              </div>
+            )}
+
+            {!license?.isUpdateEntitled && license?.tier === 'pro' && (
+              <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg space-y-2">
+                <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                  Your update entitlement has expired. Renew to get access to new versions.
+                </p>
+              </div>
+            )}
+
+            <div className="text-xs text-muted-foreground pt-2 border-t">
+              <div>Server Fingerprint: <code className="bg-muted px-1 rounded">{license?.fingerprint}</code></div>
+              <div className="mt-1">Build Date: {license?.buildDate}</div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              {license?.tier === 'free' && (
+                <Button 
+                  onClick={() => window.open('https://corebit.io/buy', '_blank')}
+                  data-testid="button-upgrade"
+                >
+                  <Crown className="h-4 w-4 mr-2" />
+                  Upgrade to Pro
+                </Button>
+              )}
+              {isAdmin && (
+                <Button 
+                  variant="outline"
+                  onClick={() => setActivationDialogOpen(true)}
+                  data-testid="button-activate-license"
+                >
+                  Enter License Key
+                </Button>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+
+      <Dialog open={activationDialogOpen} onOpenChange={setActivationDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Activate License</DialogTitle>
+            <DialogDescription>
+              Enter your license key to activate CoreBit Pro
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="license-key">License Key</Label>
+              <Input
+                id="license-key"
+                value={licenseKey}
+                onChange={(e) => setLicenseKey(e.target.value)}
+                placeholder="XXXX-XXXX-XXXX-XXXX"
+                data-testid="input-license-key"
+              />
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Server Fingerprint: <code className="bg-muted px-1 rounded">{license?.fingerprint}</code>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setActivationDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleActivate}
+              disabled={activating}
+              data-testid="button-confirm-activate"
+            >
+              {activating ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Activating...
+                </>
+              ) : (
+                'Activate'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
 function VersionSection() {
   const { data: versionData } = useQuery<{
     version: string;
@@ -3524,6 +3752,8 @@ export default function Settings() {
           <OnDutyScheduleSection />
 
           <UserManagementSection />
+
+          <LicenseSection />
 
           <DangerZoneSection />
 

@@ -614,6 +614,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/devices", canModify as any, async (req, res) => {
     try {
+      // Check license device limit before creating
+      const { canAddDevice } = await import("./licensing");
+      const licenseCheck = await canAddDevice();
+      if (!licenseCheck.allowed) {
+        return res.status(403).json({ error: licenseCheck.reason });
+      }
+      
       const data = insertDeviceSchema.parse(req.body);
       
       // Resolve credentials from profile or custom
@@ -2450,8 +2457,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const createdDevices = [];
       const errors = [];
       
+      // Import licensing function once
+      const { canAddDevice } = await import("./licensing");
+      
       for (const deviceData of devices) {
         try {
+          // Check license device limit before each device
+          const licenseCheck = await canAddDevice();
+          if (!licenseCheck.allowed) {
+            errors.push({ ip: deviceData.ipAddress, error: licenseCheck.reason });
+            continue;
+          }
+          
           // Check if device already exists
           const existingDevices = await storage.getAllDevices();
           const exists = existingDevices.find(d => d.ipAddress === deviceData.ipAddress);
@@ -4975,6 +4992,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error setting polling address:', error);
       res.status(500).json({ error: 'Failed to set polling address' });
+    }
+  });
+
+  // ==================== LICENSE ROUTES ====================
+  
+  // Get current license info
+  app.get("/api/license", async (req, res) => {
+    try {
+      const { getLicenseInfo, getBuildDate } = await import("./licensing");
+      const info = await getLicenseInfo();
+      res.json({
+        ...info,
+        buildDate: getBuildDate(),
+      });
+    } catch (error) {
+      console.error('Error getting license info:', error);
+      res.status(500).json({ error: 'Failed to get license info' });
+    }
+  });
+  
+  // Get server fingerprint (for activation)
+  app.get("/api/license/fingerprint", async (req, res) => {
+    try {
+      const { generateFingerprint } = await import("./licensing");
+      res.json({ fingerprint: generateFingerprint() });
+    } catch (error) {
+      console.error('Error getting fingerprint:', error);
+      res.status(500).json({ error: 'Failed to get fingerprint' });
+    }
+  });
+  
+  // Activate license (receives signed license from external licensing server)
+  app.post("/api/license/activate", requireAdmin as any, async (req, res) => {
+    try {
+      const { licenseKey, tier, deviceLimit, purchaseDate, updatesValidUntil, signature } = req.body;
+      
+      if (!licenseKey || !tier || !purchaseDate || !updatesValidUntil || !signature) {
+        return res.status(400).json({ error: 'Missing required license fields' });
+      }
+      
+      const { activateLicense, getLicenseInfo } = await import("./licensing");
+      const result = await activateLicense(
+        licenseKey,
+        tier,
+        deviceLimit,
+        purchaseDate,
+        updatesValidUntil,
+        signature
+      );
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      const info = await getLicenseInfo();
+      res.json({ success: true, license: info });
+    } catch (error) {
+      console.error('Error activating license:', error);
+      res.status(500).json({ error: 'Failed to activate license' });
+    }
+  });
+  
+  // Create Stripe checkout session (placeholder - needs Stripe integration)
+  app.post("/api/license/checkout", requireAuth as any, async (req, res) => {
+    try {
+      const { generateFingerprint } = await import("./licensing");
+      const fingerprint = generateFingerprint();
+      
+      // This will need to be configured with actual Stripe integration
+      // For now, return the fingerprint and a placeholder response
+      res.json({
+        message: 'Stripe checkout not yet configured. Please set up Stripe integration.',
+        fingerprint,
+        checkoutUrl: null,
+      });
+    } catch (error) {
+      console.error('Error creating checkout session:', error);
+      res.status(500).json({ error: 'Failed to create checkout session' });
     }
   });
 
