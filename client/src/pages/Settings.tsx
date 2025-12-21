@@ -542,7 +542,21 @@ function LicenseSection() {
       }
       
       const { url } = await response.json();
-      window.location.href = url;
+      
+      // Try to redirect - if popup blocked or navigation fails, handle gracefully
+      try {
+        window.location.href = url;
+        // Give the redirect a moment to happen
+        setTimeout(() => {
+          // If we're still here after 3s, the redirect might have been blocked
+          setUpgrading(false);
+        }, 3000);
+      } catch (navError) {
+        // Fallback: open in new tab
+        window.open(url, '_blank');
+        toast({ description: "Checkout opened in a new tab" });
+        setUpgrading(false);
+      }
     } catch (error: any) {
       toast({ variant: "destructive", description: error.message || "Failed to start checkout. Please try again." });
       setUpgrading(false);
