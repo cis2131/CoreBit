@@ -1,6 +1,14 @@
 # CoreBit Licensing Server
 
-A standalone licensing server for CoreBit Network Manager.
+A standalone licensing server for CoreBit Network Manager with Stripe payment integration.
+
+## Features
+
+- License generation and activation
+- RSA signature verification
+- Stripe Checkout integration for payments
+- Webhook handling for automatic license creation
+- SQLite database for license storage
 
 ## Quick Start (Ubuntu)
 
@@ -93,6 +101,56 @@ sudo ln -s /etc/nginx/sites-available/licensing /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d licensing.yourdomain.com
 ```
+
+## Stripe Setup
+
+### 1. Create a Stripe Account
+Go to https://dashboard.stripe.com and sign up or log in.
+
+### 2. Create a Product and Price
+1. Go to **Products** > **Add product**
+2. Name: "CoreBit Pro License"
+3. Description: "Unlimited devices, 1 year of updates"
+4. Price: Your desired amount (e.g., $99.00 USD)
+5. Payment type: **One time**
+6. Click **Save product**
+7. Copy the **Price ID** (starts with `price_`)
+
+### 3. Get Your API Keys
+1. Go to **Developers** > **API keys**
+2. Copy your **Secret key** (starts with `sk_test_` or `sk_live_`)
+
+### 4. Set Up Webhook
+1. Go to **Developers** > **Webhooks**
+2. Click **Add endpoint**
+3. Endpoint URL: `https://licensing.corebit.ease.dk/webhook`
+4. Select events: `checkout.session.completed`
+5. Click **Add endpoint**
+6. Copy the **Signing secret** (starts with `whsec_`)
+
+### 5. Configure Environment
+Add these to your `.env` file:
+```bash
+STRIPE_SECRET_KEY=sk_live_xxxxx
+STRIPE_WEBHOOK_SECRET=whsec_xxxxx
+STRIPE_PRICE_ID=price_xxxxx
+BASE_URL=https://licensing.corebit.ease.dk
+```
+
+### 6. Restart the Server
+```bash
+sudo systemctl restart corebit-licensing
+```
+
+## Purchase Flow
+
+1. User clicks "Upgrade to Pro" in CoreBit Settings
+2. CoreBit calls `/api/stripe/checkout` on this server
+3. User is redirected to Stripe Checkout page
+4. After payment, Stripe sends webhook to `/webhook`
+5. Server creates license and stores it
+6. User is redirected to `/success` page with their license key
+7. User copies key and activates in CoreBit Settings
 
 ## API Usage
 

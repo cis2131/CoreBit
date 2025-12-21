@@ -511,16 +511,43 @@ interface LicenseInfo {
   buildDate: string;
 }
 
+const LICENSING_SERVER_URL = 'https://licensing.corebit.ease.dk';
+
 function LicenseSection() {
   const { toast } = useToast();
   const { isAdmin } = useAuth();
   const [activationDialogOpen, setActivationDialogOpen] = useState(false);
   const [licenseKey, setLicenseKey] = useState('');
   const [activating, setActivating] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
 
   const { data: license, isLoading } = useQuery<LicenseInfo>({
     queryKey: ["/api/license"],
   });
+
+  const handleUpgrade = async () => {
+    setUpgrading(true);
+    try {
+      const response = await fetch(`${LICENSING_SERVER_URL}/api/stripe/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fingerprint: license?.fingerprint,
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to start checkout');
+      }
+      
+      const { url } = await response.json();
+      window.location.href = url;
+    } catch (error: any) {
+      toast({ variant: "destructive", description: error.message || "Failed to start checkout. Please try again." });
+      setUpgrading(false);
+    }
+  };
 
   const handleActivate = async () => {
     if (!licenseKey.trim()) {
@@ -530,22 +557,31 @@ function LicenseSection() {
 
     setActivating(true);
     try {
-      const response = await fetch('/api/license/activate', {
+      const activateResponse = await fetch(`${LICENSING_SERVER_URL}/api/activate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           licenseKey: licenseKey.trim(),
-          tier: 'pro',
-          deviceLimit: null,
-          purchaseDate: new Date().toISOString(),
-          updatesValidUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-          signature: 'manual-activation',
+          fingerprint: license?.fingerprint,
         }),
       });
       
-      if (!response.ok) {
-        const error = await response.json();
+      if (!activateResponse.ok) {
+        const error = await activateResponse.json();
         throw new Error(error.error || 'Activation failed');
+      }
+      
+      const { license: signedLicense } = await activateResponse.json();
+      
+      const localResponse = await fetch('/api/license/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(signedLicense),
+      });
+      
+      if (!localResponse.ok) {
+        const error = await localResponse.json();
+        throw new Error(error.error || 'Local activation failed');
       }
       
       queryClient.invalidateQueries({ queryKey: ["/api/license"] });
@@ -657,11 +693,21 @@ function LicenseSection() {
             <div className="flex gap-2 pt-2">
               {license?.tier === 'free' && (
                 <Button 
-                  onClick={() => window.open('https://corebit.io/buy', '_blank')}
+                  onClick={handleUpgrade}
+                  disabled={upgrading}
                   data-testid="button-upgrade"
                 >
-                  <Crown className="h-4 w-4 mr-2" />
-                  Upgrade to Pro
+                  {upgrading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Redirecting...
+                    </>
+                  ) : (
+                    <>
+                      <Crown className="h-4 w-4 mr-2" />
+                      Upgrade to Pro
+                    </>
+                  )}
                 </Button>
               )}
               {isAdmin && (
