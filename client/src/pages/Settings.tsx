@@ -511,7 +511,9 @@ interface LicenseInfo {
   buildDate: string;
 }
 
-const LICENSING_SERVER_URL = 'https://licensing.corebit.ease.dk';
+interface AppConfig {
+  licensingServerUrl: string;
+}
 
 function LicenseSection() {
   const { toast } = useToast();
@@ -521,6 +523,13 @@ function LicenseSection() {
   const [activating, setActivating] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
 
+  const { data: config } = useQuery<AppConfig>({
+    queryKey: ["/api/config"],
+    staleTime: Infinity,
+  });
+
+  const licensingServerUrl = config?.licensingServerUrl || 'https://licensing.corebit.ease.dk';
+
   const { data: license, isLoading } = useQuery<LicenseInfo>({
     queryKey: ["/api/license"],
   });
@@ -528,7 +537,7 @@ function LicenseSection() {
   const handleUpgrade = async () => {
     setUpgrading(true);
     try {
-      const response = await fetch(`${LICENSING_SERVER_URL}/api/stripe/checkout`, {
+      const response = await fetch(`${licensingServerUrl}/api/stripe/checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -571,7 +580,7 @@ function LicenseSection() {
 
     setActivating(true);
     try {
-      const activateResponse = await fetch(`${LICENSING_SERVER_URL}/api/activate`, {
+      const activateResponse = await fetch(`${licensingServerUrl}/api/activate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

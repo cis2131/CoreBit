@@ -59,6 +59,7 @@ sudo ./install.sh
 | `--db-name NAME` | Database name (default: corebit) |
 | `--db-user USER` | Database user (default: corebit) |
 | `--port PORT` | Application port (default: 3000) |
+| `--licensing-url URL` | Licensing server URL (default: https://licensing.corebit.ease.dk) |
 | `--run-as-root` | Run service as root (see note below) |
 | `--verbose` | Show detailed output for debugging |
 

@@ -367,6 +367,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ version: "unknown", buildDate: "", buildNumber: 0 });
     }
   });
+
+  // Get public configuration (no auth required)
+  app.get("/api/config", async (_req, res) => {
+    res.json({
+      licensingServerUrl: process.env.LICENSING_SERVER_URL || 'https://licensing.corebit.ease.dk',
+    });
+  });
   
   // Get current session
   app.get("/api/auth/session", async (req, res) => {

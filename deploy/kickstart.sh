@@ -22,6 +22,7 @@ set -e
 #   --db-user USER    Database user (default: corebit)
 #   --db-pass PASS    Database password (will prompt if not provided)
 #   --port PORT       Application port (default: 3000)
+#   --licensing-url   Licensing server URL (default: https://licensing.corebit.ease.dk)
 #   --verbose         Show detailed output for debugging
 #   --run-as-root     Run service as root (fixes network issues on some systems)
 #===============================================================================
@@ -42,6 +43,7 @@ DB_HOST="localhost"
 DB_PORT=5432
 DB_NAME="corebit"
 DB_USER="corebit"
+LICENSING_URL="https://licensing.corebit.ease.dk"
 DOWNLOAD_URL="${DOWNLOAD_URL:-https://your-server.com/corebit/releases/latest.zip}"
 
 # Parse command line arguments
@@ -91,6 +93,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --url)
             DOWNLOAD_URL="$2"
+            shift 2
+            ;;
+        --licensing-url)
+            LICENSING_URL="$2"
             shift 2
             ;;
         --verbose|-v)
@@ -581,6 +587,9 @@ PGPASSWORD=${DB_PASSWORD}
 
 # Session Configuration
 SESSION_SECRET=${SESSION_SECRET}
+
+# Licensing Configuration
+LICENSING_SERVER_URL=${LICENSING_URL}
 
 # Optional: SNMP Configuration
 # SNMP_COMMUNITY=public
