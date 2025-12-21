@@ -12,14 +12,31 @@ A standalone licensing server for CoreBit Network Manager with Stripe payment in
 
 ## Quick Start (Ubuntu)
 
-### 1. Install Node.js
+### Option A: Kickstart Installer (Recommended)
+
+```bash
+# Copy licensing-server folder to your server, then:
+cd licensing-server
+sudo ./kickstart.sh
+
+# With Stripe credentials:
+sudo ./kickstart.sh \
+  --domain licensing.yourdomain.com \
+  --stripe-key sk_live_xxxxx \
+  --stripe-webhook whsec_xxxxx \
+  --stripe-price price_xxxxx
+```
+
+### Option B: Manual Installation
+
+#### 1. Install Node.js
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
 
-### 2. Deploy the Server
+#### 2. Deploy the Server
 
 ```bash
 # Create directory
@@ -35,10 +52,10 @@ npm run generate-keys
 
 # Create environment file
 cp .env.example .env
-nano .env  # Set a secure ADMIN_SECRET
+nano .env  # Set ADMIN_SECRET and Stripe credentials
 ```
 
-### 3. Create Systemd Service
+#### 3. Create Systemd Service
 
 ```bash
 sudo nano /etc/systemd/system/corebit-licensing.service
