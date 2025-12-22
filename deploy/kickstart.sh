@@ -700,7 +700,7 @@ AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 NoNewPrivileges=false
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=${INSTALL_DIR}/data ${INSTALL_DIR}/backups ${INSTALL_DIR}/license.json
+ReadWritePaths=${INSTALL_DIR}/data ${INSTALL_DIR}/backups ${INSTALL_DIR}
 PrivateTmp=true
 
 # Resource limits
