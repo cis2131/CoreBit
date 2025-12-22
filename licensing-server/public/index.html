@@ -103,6 +103,34 @@
     .activation-item { padding: 12px; background: #0f172a; border-radius: 6px; margin-bottom: 8px; font-size: 13px; }
     .activation-item .fingerprint { font-family: monospace; color: #60a5fa; word-break: break-all; }
     .activation-item .meta { color: #64748b; margin-top: 4px; }
+    
+    /* Tabs */
+    .tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid #334155; }
+    .tab { padding: 12px 20px; background: transparent; border: none; color: #94a3b8; cursor: pointer; font-size: 14px; font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .tab:hover { color: #e2e8f0; }
+    .tab.active { color: #3b82f6; border-bottom-color: #3b82f6; }
+    
+    /* Tab Content */
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    
+    /* Release Card */
+    .release-card { background: #1e293b; border-radius: 8px; border: 1px solid #334155; padding: 20px; margin-bottom: 16px; }
+    .release-card .version { font-size: 18px; font-weight: 600; color: #22c55e; margin-bottom: 8px; }
+    .release-card .meta-row { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 12px; }
+    .release-card .meta-item { display: flex; flex-direction: column; }
+    .release-card .meta-label { font-size: 12px; color: #64748b; text-transform: uppercase; }
+    .release-card .meta-value { font-size: 14px; color: #e2e8f0; }
+    .release-card .changelog { background: #0f172a; padding: 12px; border-radius: 6px; font-size: 13px; color: #94a3b8; white-space: pre-wrap; margin-top: 12px; }
+    .release-card .actions { display: flex; gap: 8px; margin-top: 16px; }
+    
+    /* File upload */
+    .file-upload { border: 2px dashed #334155; border-radius: 8px; padding: 30px; text-align: center; cursor: pointer; transition: border-color 0.2s; }
+    .file-upload:hover { border-color: #3b82f6; }
+    .file-upload.dragover { border-color: #22c55e; background: #22c55e10; }
+    .file-upload input[type="file"] { display: none; }
+    .file-upload .label { color: #94a3b8; margin-bottom: 8px; }
+    .file-upload .selected { color: #22c55e; font-family: monospace; }
   </style>
 </head>
 <body>
@@ -134,56 +162,97 @@
     </header>
     
     <main class="main">
-      <!-- Stats -->
-      <div class="stats">
-        <div class="stat-card">
-          <div class="label">Total Licenses</div>
-          <div class="value" id="totalLicenses">0</div>
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('licenses')">Licenses</button>
+        <button class="tab" onclick="switchTab('releases')">Releases</button>
+      </div>
+      
+      <!-- Licenses Tab -->
+      <div id="licensesTab" class="tab-content active">
+        <!-- Stats -->
+        <div class="stats">
+          <div class="stat-card">
+            <div class="label">Total Licenses</div>
+            <div class="value" id="totalLicenses">0</div>
+          </div>
+          <div class="stat-card active">
+            <div class="label">Activated</div>
+            <div class="value" id="activatedLicenses">0</div>
+          </div>
+          <div class="stat-card pending">
+            <div class="label">Pending Activation</div>
+            <div class="value" id="pendingLicenses">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Pro Licenses</div>
+            <div class="value" id="proLicenses">0</div>
+          </div>
         </div>
-        <div class="stat-card active">
-          <div class="label">Activated</div>
-          <div class="value" id="activatedLicenses">0</div>
+        
+        <!-- Actions -->
+        <div class="actions">
+          <button class="btn btn-success" onclick="openIssueModal()">+ Issue New License</button>
+          <button class="btn btn-ghost" onclick="loadLicenses()">Refresh</button>
         </div>
-        <div class="stat-card pending">
-          <div class="label">Pending Activation</div>
-          <div class="value" id="pendingLicenses">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">Pro Licenses</div>
-          <div class="value" id="proLicenses">0</div>
+        
+        <!-- Licenses Table -->
+        <div class="table-container">
+          <div class="table-header">
+            <h2>All Licenses</h2>
+            <input type="text" class="search-input" placeholder="Search by key, email, or name..." id="searchInput" oninput="filterLicenses()">
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>License Key</th>
+                <th>Customer</th>
+                <th>Tier</th>
+                <th>Status</th>
+                <th>Updates Until</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="licensesTable">
+            </tbody>
+          </table>
+          <div id="emptyState" class="empty-state hidden">
+            <h3>No licenses found</h3>
+            <p>Issue your first license to get started</p>
+          </div>
         </div>
       </div>
       
-      <!-- Actions -->
-      <div class="actions">
-        <button class="btn btn-success" onclick="openIssueModal()">+ Issue New License</button>
-        <button class="btn btn-ghost" onclick="loadLicenses()">Refresh</button>
-      </div>
-      
-      <!-- Licenses Table -->
-      <div class="table-container">
-        <div class="table-header">
-          <h2>All Licenses</h2>
-          <input type="text" class="search-input" placeholder="Search by key, email, or name..." id="searchInput" oninput="filterLicenses()">
+      <!-- Releases Tab -->
+      <div id="releasesTab" class="tab-content">
+        <!-- Release Stats -->
+        <div class="stats">
+          <div class="stat-card">
+            <div class="label">Total Releases</div>
+            <div class="value" id="totalReleases">0</div>
+          </div>
+          <div class="stat-card active">
+            <div class="label">Latest Version</div>
+            <div class="value" id="latestVersion">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Total Downloads</div>
+            <div class="value" id="totalDownloads">0</div>
+          </div>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>License Key</th>
-              <th>Customer</th>
-              <th>Tier</th>
-              <th>Status</th>
-              <th>Updates Until</th>
-              <th>Created</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="licensesTable">
-          </tbody>
-        </table>
-        <div id="emptyState" class="empty-state hidden">
-          <h3>No licenses found</h3>
-          <p>Issue your first license to get started</p>
+        
+        <!-- Actions -->
+        <div class="actions">
+          <button class="btn btn-success" onclick="openUploadModal()">+ Upload New Release</button>
+          <button class="btn btn-ghost" onclick="loadReleases()">Refresh</button>
+        </div>
+        
+        <!-- Releases List -->
+        <div id="releasesList"></div>
+        <div id="releasesEmptyState" class="empty-state hidden">
+          <h3>No releases yet</h3>
+          <p>Upload your first release to enable updates</p>
         </div>
       </div>
     </main>
@@ -295,6 +364,73 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" onclick="closeSuccessModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload Release Modal -->
+  <div id="uploadModal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Upload New Release</h3>
+        <button class="modal-close" onclick="closeUploadModal()">&times;</button>
+      </div>
+      <form id="uploadForm" onsubmit="uploadRelease(event)">
+        <div class="modal-body">
+          <div id="uploadError" class="message error hidden"></div>
+          <div class="form-group">
+            <label for="releaseVersion">Version *</label>
+            <input type="text" id="releaseVersion" name="version" placeholder="1.0.0" required pattern="[0-9]+\.[0-9]+\.[0-9]+.*">
+            <small class="text-muted">Semantic versioning (e.g., 1.0.0, 2.1.3-beta)</small>
+          </div>
+          <div class="form-group">
+            <label for="releaseChannel">Channel</label>
+            <select id="releaseChannel" name="channel">
+              <option value="stable">Stable</option>
+              <option value="beta">Beta</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="releaseChangelog">Changelog</label>
+            <textarea id="releaseChangelog" name="changelog" rows="4" placeholder="- Fixed bug X&#10;- Added feature Y&#10;- Improved performance"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Release File *</label>
+            <div class="file-upload" id="fileUploadArea" onclick="document.getElementById('releaseFile').click()">
+              <input type="file" id="releaseFile" name="file" accept=".zip,.tar.gz,.tgz" required>
+              <div class="label">Click or drag to upload .zip or .tar.gz</div>
+              <div class="selected" id="selectedFileName"></div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 8px;">
+              <input type="checkbox" id="isPrerelease" name="isPrerelease" style="width: auto;">
+              Mark as pre-release (won't show in update checks)
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" onclick="closeUploadModal()">Cancel</button>
+          <button type="submit" class="btn btn-success" id="uploadBtn">Upload Release</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Delete Release Confirmation Modal -->
+  <div id="deleteReleaseModal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Delete Release</h3>
+        <button class="modal-close" onclick="closeDeleteReleaseModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to delete version <strong id="deleteVersion"></strong>?</p>
+        <p class="text-muted mt-2">This will remove the release file and cannot be undone.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeDeleteReleaseModal()">Cancel</button>
+        <button type="button" class="btn btn-danger" onclick="confirmDeleteRelease()">Delete</button>
       </div>
     </div>
   </div>
@@ -670,6 +806,224 @@
       } catch (e) {
         errorEl.textContent = 'Connection error';
         errorEl.classList.remove('hidden');
+      }
+    }
+
+    // ============== RELEASES TAB ==============
+    let releases = [];
+    let deleteReleaseVersion = null;
+
+    // Tab switching
+    function switchTab(tab) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      
+      document.querySelector(`.tab[onclick*="${tab}"]`).classList.add('active');
+      document.getElementById(`${tab}Tab`).classList.add('active');
+      
+      if (tab === 'releases') {
+        loadReleases();
+      }
+    }
+
+    // Load releases
+    async function loadReleases() {
+      try {
+        const res = await fetch('/api/admin/releases', { credentials: 'include' });
+        if (res.status === 401) {
+          showLogin();
+          return;
+        }
+        releases = await res.json();
+        renderReleases();
+        updateReleaseStats();
+      } catch (e) {
+        console.error('Failed to load releases:', e);
+      }
+    }
+
+    function updateReleaseStats() {
+      const total = releases.length;
+      const latest = releases.length > 0 ? releases[0].version : '-';
+      const downloads = releases.reduce((sum, r) => sum + (r.download_count || 0), 0);
+      
+      document.getElementById('totalReleases').textContent = total;
+      document.getElementById('latestVersion').textContent = latest;
+      document.getElementById('totalDownloads').textContent = downloads;
+    }
+
+    function formatFileSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function renderReleases() {
+      const container = document.getElementById('releasesList');
+      const emptyState = document.getElementById('releasesEmptyState');
+      
+      if (releases.length === 0) {
+        container.innerHTML = '';
+        emptyState.classList.remove('hidden');
+        return;
+      }
+      
+      emptyState.classList.add('hidden');
+      container.innerHTML = releases.map((release, idx) => `
+        <div class="release-card">
+          <div class="version">
+            v${release.version}
+            ${release.is_prerelease ? '<span class="status pending" style="margin-left: 8px;">Pre-release</span>' : ''}
+            ${idx === 0 ? '<span class="status active" style="margin-left: 8px;">Latest</span>' : ''}
+          </div>
+          <div class="meta-row">
+            <div class="meta-item">
+              <span class="meta-label">Build Date</span>
+              <span class="meta-value">${formatDate(release.build_date)}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Channel</span>
+              <span class="meta-value">${release.channel}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">File</span>
+              <span class="meta-value">${release.file_name} (${formatFileSize(release.file_size_bytes)})</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Downloads</span>
+              <span class="meta-value">${release.download_count || 0}</span>
+            </div>
+          </div>
+          ${release.changelog ? `<div class="changelog">${release.changelog}</div>` : ''}
+          <div class="actions">
+            <button class="btn btn-primary action-btn" onclick="downloadRelease('${release.version}')">Download</button>
+            <button class="btn btn-ghost action-btn" onclick="copyChecksum('${release.sha256}')">Copy SHA256</button>
+            <button class="btn btn-danger action-btn" onclick="openDeleteReleaseModal('${release.version}')">Delete</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function downloadRelease(version) {
+      window.open(`/api/releases/${version}/download`, '_blank');
+    }
+
+    function copyChecksum(sha256) {
+      navigator.clipboard.writeText(sha256);
+      alert('SHA256 checksum copied to clipboard');
+    }
+
+    // Upload Modal
+    function openUploadModal() {
+      document.getElementById('uploadModal').classList.add('active');
+      document.getElementById('uploadForm').reset();
+      document.getElementById('uploadError').classList.add('hidden');
+      document.getElementById('selectedFileName').textContent = '';
+      document.getElementById('uploadBtn').disabled = false;
+      document.getElementById('uploadBtn').textContent = 'Upload Release';
+    }
+
+    function closeUploadModal() {
+      document.getElementById('uploadModal').classList.remove('active');
+    }
+
+    // File upload handling
+    document.getElementById('releaseFile').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        document.getElementById('selectedFileName').textContent = file.name;
+      }
+    });
+
+    // Drag and drop
+    const uploadArea = document.getElementById('fileUploadArea');
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        document.getElementById('releaseFile').files = e.dataTransfer.files;
+        document.getElementById('selectedFileName').textContent = file.name;
+      }
+    });
+
+    async function uploadRelease(e) {
+      e.preventDefault();
+      const errorEl = document.getElementById('uploadError');
+      const uploadBtn = document.getElementById('uploadBtn');
+      
+      const formData = new FormData();
+      formData.append('version', document.getElementById('releaseVersion').value);
+      formData.append('channel', document.getElementById('releaseChannel').value);
+      formData.append('changelog', document.getElementById('releaseChangelog').value);
+      formData.append('isPrerelease', document.getElementById('isPrerelease').checked);
+      formData.append('buildDate', new Date().toISOString());
+      formData.append('file', document.getElementById('releaseFile').files[0]);
+      
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = 'Uploading...';
+      
+      try {
+        const res = await fetch('/api/admin/releases', {
+          method: 'POST',
+          body: formData,
+          credentials: 'include'
+        });
+        
+        if (res.ok) {
+          closeUploadModal();
+          loadReleases();
+        } else {
+          const data = await res.json();
+          errorEl.textContent = data.error || 'Failed to upload release';
+          errorEl.classList.remove('hidden');
+        }
+      } catch (e) {
+        errorEl.textContent = 'Connection error';
+        errorEl.classList.remove('hidden');
+      } finally {
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = 'Upload Release';
+      }
+    }
+
+    // Delete Release Modal
+    function openDeleteReleaseModal(version) {
+      deleteReleaseVersion = version;
+      document.getElementById('deleteVersion').textContent = version;
+      document.getElementById('deleteReleaseModal').classList.add('active');
+    }
+
+    function closeDeleteReleaseModal() {
+      document.getElementById('deleteReleaseModal').classList.remove('active');
+      deleteReleaseVersion = null;
+    }
+
+    async function confirmDeleteRelease() {
+      if (!deleteReleaseVersion) return;
+      
+      try {
+        const res = await fetch(`/api/admin/releases/${deleteReleaseVersion}`, {
+          method: 'DELETE',
+          credentials: 'include'
+        });
+        
+        if (res.ok) {
+          closeDeleteReleaseModal();
+          loadReleases();
+        } else {
+          const data = await res.json();
+          alert(data.error || 'Failed to delete release');
+        }
+      } catch (e) {
+        alert('Connection error');
       }
     }
   </script>
