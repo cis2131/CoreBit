@@ -77,7 +77,13 @@ export function getStoredLicense(): StoredLicense | null {
 }
 
 export function storeLicense(license: StoredLicense): void {
-  writeFileSync(LICENSE_FILE_PATH, JSON.stringify(license, null, 2));
+  try {
+    writeFileSync(LICENSE_FILE_PATH, JSON.stringify(license, null, 2));
+    console.log('[License] Saved license to', LICENSE_FILE_PATH);
+  } catch (error) {
+    console.error('[License] Failed to save license file:', error);
+    throw error;
+  }
 }
 
 export function validateLicense(license: StoredLicense): boolean {
@@ -212,6 +218,7 @@ export async function activateLicense(
   signature: string
 ): Promise<{ success: boolean; error?: string }> {
   const fingerprint = generateFingerprint();
+  console.log('[License] Activating license:', licenseKey, 'tier:', tier, 'fingerprint:', fingerprint);
   
   const license: StoredLicense = {
     licenseKey,
@@ -223,8 +230,15 @@ export async function activateLicense(
     signature,
   };
   
-  storeLicense(license);
+  // Store to local file first (primary storage)
+  try {
+    storeLicense(license);
+  } catch (error) {
+    console.error('[License] Failed to store license to file:', error);
+    return { success: false, error: 'Failed to save license file. Check file permissions.' };
+  }
   
+  // Also try to store in database (optional, for backup/tracking)
   try {
     const existing = await db.select().from(licenses).where(eq(licenses.licenseKey, licenseKey));
     
@@ -238,6 +252,7 @@ export async function activateLicense(
         updatesValidUntil: new Date(updatesValidUntil),
         activatedAt: new Date(),
       });
+      console.log('[License] License saved to database');
     } else {
       await db.update(licenses)
         .set({
@@ -250,11 +265,14 @@ export async function activateLicense(
           updatedAt: new Date(),
         })
         .where(eq(licenses.licenseKey, licenseKey));
+      console.log('[License] License updated in database');
     }
   } catch (error) {
-    console.error('Failed to save license to database:', error);
+    // Database storage is optional - license.json is the primary storage
+    console.warn('[License] Failed to save license to database (non-fatal):', error);
   }
   
+  console.log('[License] Activation successful');
   return { success: true };
 }
 
