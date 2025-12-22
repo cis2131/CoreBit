@@ -308,7 +308,7 @@
 
     async function checkSession() {
       try {
-        const res = await fetch('/api/admin/session');
+        const res = await fetch('/api/admin/session', { credentials: 'include' });
         if (res.ok) {
           showDashboard();
           loadLicenses();
@@ -341,7 +341,8 @@
         const res = await fetch('/api/admin/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
+          body: JSON.stringify({ username, password }),
+          credentials: 'include'
         });
         
         if (res.ok) {
@@ -360,14 +361,14 @@
     });
 
     async function logout() {
-      await fetch('/api/admin/logout', { method: 'POST' });
+      await fetch('/api/admin/logout', { method: 'POST', credentials: 'include' });
       showLogin();
     }
 
     // Load licenses
     async function loadLicenses() {
       try {
-        const res = await fetch('/api/admin/licenses');
+        const res = await fetch('/api/admin/licenses', { credentials: 'include' });
         if (res.status === 401) {
           showLogin();
           return;
@@ -480,7 +481,8 @@
         const res = await fetch('/api/admin/licenses', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(formData)
+          body: JSON.stringify(formData),
+          credentials: 'include'
         });
         
         if (res.ok) {
@@ -569,7 +571,7 @@
       
       // Load activation history
       try {
-        const res = await fetch(`/api/admin/licenses/${licenseKey}/activations`);
+        const res = await fetch(`/api/admin/licenses/${licenseKey}/activations`, { credentials: 'include' });
         const activations = await res.json();
         
         if (activations.length === 0) {
@@ -621,7 +623,8 @@
         const res = await fetch(`/api/admin/licenses/${currentLicenseKey}/release`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason })
+          body: JSON.stringify({ reason }),
+          credentials: 'include'
         });
         
         if (res.ok) {
