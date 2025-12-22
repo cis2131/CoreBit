@@ -9,6 +9,9 @@ const session = require('express-session');
 
 const app = express();
 
+// Trust reverse proxy (nginx) - required for secure cookies behind HTTPS proxy
+app.set('trust proxy', 1);
+
 const PORT = process.env.PORT || 3001;
 const ADMIN_SECRET = process.env.ADMIN_SECRET;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
@@ -145,13 +148,17 @@ function requireAdmin(req, res, next) {
 }
 
 // Session middleware for admin UI
+// Determine if we're behind HTTPS (check BASE_URL or NODE_ENV)
+const isHttps = BASE_URL.startsWith('https://') || process.env.NODE_ENV === 'production';
+
 app.use(session({
   secret: ADMIN_SECRET || crypto.randomBytes(32).toString('hex'),
   resave: false,
   saveUninitialized: false,
   cookie: { 
-    secure: process.env.NODE_ENV === 'production',
+    secure: isHttps,
     httpOnly: true,
+    sameSite: 'lax',
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 }));
