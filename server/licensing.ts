@@ -279,3 +279,126 @@ export async function activateLicense(
 export function getBuildDate(): string {
   return BUILD_DATE;
 }
+
+// App version from package.json (or env)
+const APP_VERSION = process.env.APP_VERSION || '1.0.0';
+
+export function getAppVersion(): string {
+  return APP_VERSION;
+}
+
+export interface UpdateCheckResult {
+  updateAvailable: boolean;
+  currentVersion: string;
+  latestVersion?: string;
+  buildDate?: string;
+  changelog?: string;
+  fileSize?: number;
+  sha256?: string;
+  status: 'allowed' | 'warning' | 'error';
+  reason?: string;
+  downloadUrl?: string;
+  downloadToken?: string;
+}
+
+/**
+ * Check for updates from the licensing server
+ * @param licensingServerUrl Base URL of the licensing server (e.g., https://license.example.com)
+ */
+export async function checkForUpdates(licensingServerUrl?: string): Promise<UpdateCheckResult> {
+  // Default to localhost for development, should be configured in production
+  const baseUrl = licensingServerUrl || process.env.LICENSING_SERVER_URL || 'http://localhost:3001';
+  
+  const storedLicense = getStoredLicense();
+  const fingerprint = generateFingerprint();
+  
+  try {
+    const response = await fetch(`${baseUrl}/api/releases/check`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        licenseKey: storedLicense?.licenseKey,
+        fingerprint: storedLicense ? fingerprint : undefined,
+        currentVersion: APP_VERSION,
+        channel: 'stable',
+      }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('[License] Update check failed:', error);
+      return {
+        updateAvailable: false,
+        currentVersion: APP_VERSION,
+        status: 'error',
+        reason: 'Failed to check for updates',
+      };
+    }
+    
+    const data = await response.json();
+    
+    return {
+      updateAvailable: data.updateAvailable,
+      currentVersion: APP_VERSION,
+      latestVersion: data.latestVersion,
+      buildDate: data.buildDate,
+      changelog: data.changelog,
+      fileSize: data.fileSize,
+      sha256: data.sha256,
+      status: data.status || 'allowed',
+      reason: data.reason,
+      downloadUrl: data.downloadUrl,
+      downloadToken: data.downloadToken,
+    };
+  } catch (error) {
+    console.error('[License] Update check error:', error);
+    return {
+      updateAvailable: false,
+      currentVersion: APP_VERSION,
+      status: 'error',
+      reason: 'Unable to connect to licensing server',
+    };
+  }
+}
+
+/**
+ * Get latest release info from the licensing server
+ */
+export async function getLatestRelease(licensingServerUrl?: string): Promise<{
+  version: string;
+  channel: string;
+  buildDate: string;
+  changelog?: string;
+  fileName: string;
+  fileSize: number;
+  sha256: string;
+  downloadUrl: string;
+} | null> {
+  const baseUrl = licensingServerUrl || process.env.LICENSING_SERVER_URL || 'http://localhost:3001';
+  
+  try {
+    const response = await fetch(`${baseUrl}/api/releases/latest`);
+    
+    if (!response.ok) {
+      return null;
+    }
+    
+    const data = await response.json();
+    
+    return {
+      version: data.version,
+      channel: data.channel,
+      buildDate: data.build_date,
+      changelog: data.changelog,
+      fileName: data.file_name,
+      fileSize: data.file_size_bytes,
+      sha256: data.sha256,
+      downloadUrl: data.downloadUrl,
+    };
+  } catch (error) {
+    console.error('[License] Failed to get latest release:', error);
+    return null;
+  }
+}

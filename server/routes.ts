@@ -5354,6 +5354,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Check for application updates
+  app.get("/api/updates/check", requireAuth as any, async (req, res) => {
+    try {
+      const { checkForUpdates, getAppVersion } = await import("./licensing");
+      const result = await checkForUpdates();
+      res.json(result);
+    } catch (error) {
+      console.error('Error checking for updates:', error);
+      res.status(500).json({ 
+        updateAvailable: false,
+        currentVersion: '1.0.0',
+        status: 'error',
+        reason: 'Failed to check for updates' 
+      });
+    }
+  });
+
+  // Get latest release info
+  app.get("/api/updates/latest", requireAuth as any, async (req, res) => {
+    try {
+      const { getLatestRelease } = await import("./licensing");
+      const release = await getLatestRelease();
+      if (release) {
+        res.json(release);
+      } else {
+        res.status(404).json({ error: 'No releases available' });
+      }
+    } catch (error) {
+      console.error('Error getting latest release:', error);
+      res.status(500).json({ error: 'Failed to get latest release' });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
