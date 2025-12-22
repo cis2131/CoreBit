@@ -4035,7 +4035,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const filename = `backup-${timestamp}.json`;
       const filePath = path.join(BACKUP_DIR, filename);
       
-      // Gather all data
+      // Gather all data including IPAM, Proxmox, and other new tables
       const [
         maps,
         devices,
@@ -4045,6 +4045,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         notifications,
         scanProfiles,
         settingsData,
+        // New tables since IPAM integration
+        deviceInterfaces,
+        userNotificationChannels,
+        dutyUserSchedules,
+        dutyShiftConfig,
+        proxmoxNodes,
+        proxmoxVms,
+        ipamPools,
+        ipamAddresses,
+        ipamAddressAssignments,
       ] = await Promise.all([
         storage.getAllMaps(),
         storage.getAllDevices(),
@@ -4079,6 +4089,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           backup_schedule: schedule,
           backup_retention: retention,
         })),
+        // New tables
+        storage.getAllDeviceInterfaces(),
+        storage.getAllUserNotificationChannels(),
+        storage.getAllDutyUserSchedules(),
+        storage.getDutyShiftConfig(),
+        storage.getAllProxmoxNodes(),
+        storage.getAllProxmoxVms(),
+        storage.getAllIpamPools(),
+        storage.getAllIpamAddresses(),
+        storage.getAllIpamAddressAssignments(),
       ]);
       
       // Get device notifications for each device
@@ -4089,7 +4109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const backupData = {
-        version: '1.0',
+        version: '2.0',  // Version bump for new backup format
         createdAt: new Date().toISOString(),
         data: {
           maps,
@@ -4101,6 +4121,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           deviceNotifications,
           scanProfiles,
           settings: settingsData,
+          // New tables since IPAM integration
+          deviceInterfaces,
+          userNotificationChannels,
+          dutyUserSchedules,
+          dutyShiftConfig,
+          proxmoxNodes,
+          proxmoxVms,
+          ipamPools,
+          ipamAddresses,
+          ipamAddressAssignments,
         },
       };
       
@@ -4264,19 +4294,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     trafficHistory.clear();
     
     // Clear existing data in reverse dependency order
-    // 1. Clear connections (depends on placements)
-    // 2. Clear placements (depends on devices, maps)
-    // 3. Clear device notifications (depends on devices, notifications)
-    // 4. Clear devices (depends on credential profiles)
-    // 5. Clear maps
-    // 6. Clear notifications
-    // 7. Clear scan profiles
-    // 8. Clear credential profiles
+    // First clear IPAM and Proxmox data (depends on devices)
+    const existingIpamAssignments = await storage.getAllIpamAddressAssignments();
+    for (const assignment of existingIpamAssignments) {
+      await storage.deleteAssignment(assignment.id);
+    }
     
-    // We need to clear data - use storage methods to get and delete each
+    const existingIpamAddresses = await storage.getAllIpamAddresses();
+    for (const addr of existingIpamAddresses) {
+      await storage.deleteIpamAddress(addr.id);
+    }
+    
+    const existingIpamPools = await storage.getAllIpamPools();
+    for (const pool of existingIpamPools) {
+      await storage.deleteIpamPool(pool.id);
+    }
+    
+    const existingProxmoxVms = await storage.getAllProxmoxVms();
+    for (const vm of existingProxmoxVms) {
+      await storage.deleteProxmoxVm(vm.id);
+    }
+    
+    const existingProxmoxNodes = await storage.getAllProxmoxNodes();
+    for (const node of existingProxmoxNodes) {
+      await storage.deleteProxmoxNodesByHost(node.hostDeviceId);
+    }
+    
+    const existingDeviceInterfaces = await storage.getAllDeviceInterfaces();
+    for (const iface of existingDeviceInterfaces) {
+      await storage.deleteDeviceInterface(iface.id);
+    }
+    
+    const existingUserNotificationChannels = await storage.getAllUserNotificationChannels();
+    for (const channel of existingUserNotificationChannels) {
+      await storage.deleteUserNotificationChannel(channel.id);
+    }
+    
+    const existingDutySchedules = await storage.getAllDutyUserSchedules();
+    for (const schedule of existingDutySchedules) {
+      await storage.removeDutyUserScheduleById(schedule.id);
+    }
+    
+    // Clear connections, placements, maps, devices, notifications
     const existingMaps = await storage.getAllMaps();
     for (const map of existingMaps) {
-      // Clear connections and placements for this map
       const connections = await storage.getConnectionsByMapId(map.id);
       for (const conn of connections) {
         await storage.deleteConnection(conn.id);
@@ -4290,7 +4351,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     const existingDevices = await storage.getAllDevices();
     for (const device of existingDevices) {
-      // Clear device notifications
       const deviceNotifs = await storage.getDeviceNotifications(device.id);
       for (const dn of deviceNotifs) {
         await storage.removeDeviceNotification(dn.deviceId, dn.notificationId);
@@ -4314,10 +4374,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Create ID mapping tables
-    const credentialProfileIdMap = new Map<string, string>(); // old ID -> new ID
+    const credentialProfileIdMap = new Map<string, string>();
     const mapIdMap = new Map<string, string>();
     const deviceIdMap = new Map<string, string>();
     const notificationIdMap = new Map<string, string>();
+    const ipamPoolIdMap = new Map<string, string>();
+    const ipamAddressIdMap = new Map<string, string>();
+    const deviceInterfaceIdMap = new Map<string, string>();
+    const userIdMap = new Map<string, string>(); // For user notification channels
     
     // 1. Credential profiles first (referenced by devices)
     if (data.credentialProfiles) {
@@ -4381,7 +4445,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const newDeviceId = deviceIdMap.get(placement.deviceId);
         const newMapId = mapIdMap.get(placement.mapId);
         if (newDeviceId && newMapId) {
-          // Handle both old format (x, y) and new format (position: {x, y})
           const x = placement.position?.x ?? placement.x ?? 0;
           const y = placement.position?.y ?? placement.y ?? 0;
           await storage.createPlacement({
@@ -4433,7 +4496,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // 8. Scan profiles
     if (data.scanProfiles) {
       for (const profile of data.scanProfiles) {
-        // Map credential profile IDs
         const mappedCredentialIds = (profile.credentialProfileIds || [])
           .map((id: string) => credentialProfileIdMap.get(id))
           .filter(Boolean);
@@ -4456,9 +4518,182 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Restart scheduled backups with restored settings
       if (data.settings.backup_schedule) {
         rescheduleBackups(data.settings.backup_schedule);
+      }
+    }
+    
+    // ===== NEW TABLES (version 2.0+) =====
+    
+    // 10. Device Interfaces (depends on devices)
+    if (data.deviceInterfaces) {
+      for (const iface of data.deviceInterfaces) {
+        const newDeviceId = deviceIdMap.get(iface.deviceId);
+        if (newDeviceId) {
+          const newIface = await storage.createDeviceInterface({
+            deviceId: newDeviceId,
+            name: iface.name,
+            type: iface.type,
+            description: iface.description,
+            macAddress: iface.macAddress,
+            speed: iface.speed,
+            snmpIndex: iface.snmpIndex,
+            operStatus: iface.operStatus,
+            adminStatus: iface.adminStatus,
+            isVirtual: iface.isVirtual,
+            duplex: iface.duplex,
+            discoverySource: iface.discoverySource,
+          });
+          deviceInterfaceIdMap.set(iface.id, newIface.id);
+        }
+      }
+    }
+    
+    // 11. IPAM Pools
+    if (data.ipamPools) {
+      for (const pool of data.ipamPools) {
+        const newPool = await storage.createIpamPool({
+          name: pool.name,
+          entryType: pool.entryType || 'cidr',
+          cidr: pool.cidr,
+          rangeStart: pool.rangeStart,
+          rangeEnd: pool.rangeEnd,
+          description: pool.description,
+          gateway: pool.gateway,
+          vlan: pool.vlan || pool.vlanId, // Support both old and new field names
+        });
+        ipamPoolIdMap.set(pool.id, newPool.id);
+      }
+    }
+    
+    // 12. IPAM Addresses (depends on pools and devices)
+    if (data.ipamAddresses) {
+      for (const addr of data.ipamAddresses) {
+        const newPoolId = addr.poolId ? ipamPoolIdMap.get(addr.poolId) : null;
+        const newDeviceId = addr.assignedDeviceId ? deviceIdMap.get(addr.assignedDeviceId) : null;
+        const newInterfaceId = addr.assignedInterfaceId ? deviceInterfaceIdMap.get(addr.assignedInterfaceId) : null;
+        
+        const newAddr = await storage.createIpamAddress({
+          ipAddress: addr.ipAddress,
+          poolId: newPoolId || undefined,
+          status: addr.status,
+          source: addr.source,
+          hostname: addr.hostname,
+          notes: addr.notes,
+          role: addr.role,
+          networkAddress: addr.networkAddress,
+          assignedDeviceId: newDeviceId || undefined,
+          assignedInterfaceId: newInterfaceId || undefined,
+          lastSeenAt: addr.lastSeenAt ? new Date(addr.lastSeenAt) : undefined,
+        });
+        ipamAddressIdMap.set(addr.id, newAddr.id);
+      }
+    }
+    
+    // 13. IPAM Address Assignments (depends on addresses, devices, interfaces)
+    if (data.ipamAddressAssignments) {
+      for (const assignment of data.ipamAddressAssignments) {
+        const newAddressId = ipamAddressIdMap.get(assignment.addressId);
+        const newDeviceId = deviceIdMap.get(assignment.deviceId);
+        const newInterfaceId = assignment.interfaceId ? deviceInterfaceIdMap.get(assignment.interfaceId) : null;
+        
+        if (newAddressId && newDeviceId) {
+          await storage.createAssignment({
+            addressId: newAddressId,
+            deviceId: newDeviceId,
+            interfaceId: newInterfaceId || undefined,
+            source: assignment.source,
+          });
+        }
+      }
+    }
+    
+    // 14. Proxmox Nodes (depends on devices)
+    if (data.proxmoxNodes) {
+      for (const node of data.proxmoxNodes) {
+        const newHostDeviceId = deviceIdMap.get(node.hostDeviceId);
+        if (newHostDeviceId) {
+          await storage.upsertProxmoxNode({
+            clusterName: node.clusterName,
+            nodeName: node.nodeName,
+            hostDeviceId: newHostDeviceId,
+          });
+        }
+      }
+    }
+    
+    // 15. Proxmox VMs (depends on devices)
+    if (data.proxmoxVms) {
+      for (const vm of data.proxmoxVms) {
+        const newHostDeviceId = deviceIdMap.get(vm.hostDeviceId);
+        const newMatchedDeviceId = vm.matchedDeviceId ? deviceIdMap.get(vm.matchedDeviceId) : null;
+        
+        if (newHostDeviceId) {
+          await storage.createProxmoxVm({
+            vmid: vm.vmid,
+            name: vm.name,
+            vmType: vm.vmType || vm.type, // Support both field names
+            status: vm.status,
+            hostDeviceId: newHostDeviceId,
+            node: vm.node || vm.nodeName, // Support both field names
+            ipAddresses: vm.ipAddresses,
+            macAddresses: vm.macAddresses,
+            matchedDeviceId: newMatchedDeviceId || undefined,
+            cpuUsage: vm.cpuUsage,
+            cpuUsagePct: vm.cpuUsagePct,
+            memoryBytes: vm.memoryBytes,
+            memoryUsagePct: vm.memoryUsagePct,
+            diskBytes: vm.diskBytes,
+            uptime: vm.uptime,
+            clusterName: vm.clusterName,
+          });
+        }
+      }
+    }
+    
+    // 16. Duty Shift Config (single row)
+    if (data.dutyShiftConfig) {
+      await storage.updateDutyShiftConfig({
+        dayShiftStart: data.dutyShiftConfig.dayShiftStart,
+        dayShiftEnd: data.dutyShiftConfig.dayShiftEnd,
+        nightShiftStart: data.dutyShiftConfig.nightShiftStart,
+        nightShiftEnd: data.dutyShiftConfig.nightShiftEnd,
+        timezone: data.dutyShiftConfig.timezone,
+      });
+    }
+    
+    // 17. User Notification Channels (depends on users - users preserved during restore)
+    // Note: We map by userId which should still exist after restore
+    if (data.userNotificationChannels) {
+      const existingUsers = await storage.getAllUsers();
+      
+      for (const channel of data.userNotificationChannels) {
+        // Try to find user by original ID first, or skip if user doesn't exist
+        const user = existingUsers.find(u => u.id === channel.userId);
+        if (user) {
+          await storage.createUserNotificationChannel({
+            userId: user.id,
+            name: channel.name,
+            type: channel.type,
+            config: channel.config,
+            enabled: channel.enabled,
+          });
+        }
+      }
+    }
+    
+    // 18. Duty User Schedules (depends on users)
+    if (data.dutyUserSchedules) {
+      const existingUsers = await storage.getAllUsers();
+      
+      for (const schedule of data.dutyUserSchedules) {
+        const user = existingUsers.find(u => u.id === schedule.userId);
+        if (user) {
+          await storage.addDutyUserSchedule({
+            userId: user.id,
+            shift: schedule.shift,
+          });
+        }
       }
     }
     

@@ -311,6 +311,7 @@ export interface IStorage {
   syncDeviceIpAddresses(deviceId: string, discoveredAddresses: { ipAddress: string; networkAddress?: string; interfaceName: string; disabled?: boolean; comment?: string }[], interfaces: DeviceInterface[]): Promise<IpamAddress[]>;
   
   // IPAM Address Assignments (junction table)
+  getAllIpamAddressAssignments(): Promise<IpamAddressAssignment[]>;
   getAssignmentsByAddress(addressId: string): Promise<IpamAddressAssignment[]>;
   getAssignmentsByDevice(deviceId: string): Promise<IpamAddressAssignment[]>;
   createAssignment(assignment: InsertIpamAddressAssignment): Promise<IpamAddressAssignment>;
@@ -1575,6 +1576,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // IPAM Address Assignments (junction table) implementations
+  async getAllIpamAddressAssignments(): Promise<IpamAddressAssignment[]> {
+    return await db.select().from(ipamAddressAssignments);
+  }
+
   async getAssignmentsByAddress(addressId: string): Promise<IpamAddressAssignment[]> {
     return await db.select().from(ipamAddressAssignments)
       .where(eq(ipamAddressAssignments.addressId, addressId));
