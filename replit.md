@@ -110,9 +110,44 @@ node scripts/create-license.js <fingerprint> [tier] [deviceLimit] [yearsOfUpdate
 ```
 
 **Files:**
--   `server/licensing.ts` - Licensing service (fingerprint, storage, validation)
+-   `server/licensing.ts` - Licensing service (fingerprint, storage, validation, update checking)
 -   `shared/schema.ts` - License database table
 -   `license.json` - Local license storage file (created on activation)
+
+## Release Management System
+
+The licensing server includes a complete release management system for distributing CoreBit updates:
+
+**Admin Features:**
+-   Web-based admin UI with tabbed interface (Licenses / Releases)
+-   Upload releases with drag-and-drop support (.zip, .tar.gz, max 100MB)
+-   Automatic SHA256 checksum calculation for integrity verification
+-   Release channels (stable, beta) and pre-release marking
+-   Changelog support and download count tracking
+-   Delete releases from admin interface
+
+**Update Check API:**
+-   `/api/releases/check` - CoreBit installations check for updates
+-   Entitlement-aware logic:
+    -   Free tier: Always allowed to update
+    -   Pro tier with valid entitlement: Allowed to update
+    -   Pro tier with expired entitlement: Warning (update will revert to read-only mode)
+-   Returns version info, changelog, download token, and SHA256 checksum
+
+**Authenticated Downloads:**
+-   Download tokens use HMAC-SHA256 signatures with 1-hour expiry
+-   Admin sessions can download directly without token
+-   Token tied to specific version to prevent misuse
+
+**CoreBit Client Integration:**
+-   `server/licensing.ts` exports `checkForUpdates()` and `getLatestRelease()` functions
+-   API endpoints: `/api/updates/check` and `/api/updates/latest`
+-   Uses `LICENSING_SERVER_URL` environment variable for production configuration
+
+**Files:**
+-   `licensing-server/server.js` - Release API endpoints and file storage
+-   `licensing-server/public/index.html` - Admin UI with releases tab
+-   `licensing-server/releases/` - Directory for release files (per-version subdirectories)
 
 ## External Dependencies
 
