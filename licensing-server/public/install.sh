@@ -63,8 +63,9 @@ cd "$EXTRACTED_DIR"
 echo -e "${BLUE}Running installer...${NC}"
 echo ""
 
-# Pass all arguments to kickstart script
-bash deploy/kickstart.sh "$@"
+# Pass --url to use already-extracted files (skip re-download)
+# Pass all other arguments from user
+bash deploy/kickstart.sh --url "$(pwd)" "$@"
 
 # Cleanup
 cd /
