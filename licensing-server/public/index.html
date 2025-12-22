@@ -409,9 +409,14 @@
         const statusClass = license.fingerprint ? 'active' : 'pending';
         const statusText = license.fingerprint ? 'Activated' : 'Pending';
         
+        const isStripe = license.stripe_payment_intent || license.stripe_session_id;
+        
         return `
           <tr>
-            <td><span class="license-key">${license.license_key}</span></td>
+            <td>
+              <span class="license-key">${license.license_key}</span>
+              ${isStripe ? '<span style="display: inline-block; margin-left: 6px; padding: 2px 6px; background: #635bff30; color: #a5b4fc; border-radius: 4px; font-size: 10px; vertical-align: middle;">STRIPE</span>' : ''}
+            </td>
             <td>
               <div>${license.customer_name || '<span class="text-muted">-</span>'}</div>
               <div class="text-sm text-muted">${license.customer_email || ''}</div>
@@ -562,6 +567,33 @@
           <div class="form-group" style="margin-top: 16px;">
             <label>Notes</label>
             <div class="text-muted">${license.notes}</div>
+          </div>
+        ` : ''}
+        ${license.stripe_payment_intent || license.stripe_session_id ? `
+          <div class="form-group" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #334155;">
+            <label style="display: flex; align-items: center; gap: 6px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#635bff" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+              Stripe Payment
+            </label>
+            <div style="display: flex; gap: 12px; margin-top: 8px; flex-wrap: wrap;">
+              ${license.stripe_payment_intent ? `
+                <a href="https://dashboard.stripe.com/payments/${license.stripe_payment_intent}" 
+                   target="_blank" rel="noopener" 
+                   style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; background: #635bff20; color: #a5b4fc; border-radius: 6px; text-decoration: none; font-size: 13px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  View Payment
+                </a>
+              ` : ''}
+              ${license.stripe_session_id ? `
+                <a href="https://dashboard.stripe.com/checkout/sessions/${license.stripe_session_id}" 
+                   target="_blank" rel="noopener"
+                   style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; background: #635bff20; color: #a5b4fc; border-radius: 6px; text-decoration: none; font-size: 13px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  View Checkout Session
+                </a>
+              ` : ''}
+            </div>
+            <div class="text-muted text-sm mt-2">Invoice available in Stripe Dashboard under the payment details</div>
           </div>
         ` : ''}
       `;
