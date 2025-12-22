@@ -452,6 +452,57 @@ app.get('/api/licenses', requireAdmin, (req, res) => {
   }
 });
 
+// Get activation history for a license
+app.get('/api/licenses/:licenseKey/activations', requireAdmin, (req, res) => {
+  try {
+    const { licenseKey } = req.params;
+    const activations = db.prepare('SELECT * FROM activations WHERE license_key = ? ORDER BY activated_at DESC').all(licenseKey);
+    res.json(activations);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch activations' });
+  }
+});
+
+// Release fingerprint - allows license to be activated on a new server
+// Used when customer moves to new hardware or restores from backup
+app.post('/api/licenses/:licenseKey/release', requireAdmin, (req, res) => {
+  try {
+    const { licenseKey } = req.params;
+    const { reason } = req.body;
+    
+    const license = db.prepare('SELECT * FROM licenses WHERE license_key = ?').get(licenseKey);
+    
+    if (!license) {
+      return res.status(404).json({ error: 'License not found' });
+    }
+    
+    const oldFingerprint = license.fingerprint;
+    
+    if (!oldFingerprint) {
+      return res.status(400).json({ error: 'License is not currently activated' });
+    }
+    
+    // Clear the fingerprint to allow reactivation
+    db.prepare('UPDATE licenses SET fingerprint = NULL, activated_at = NULL WHERE license_key = ?')
+      .run(licenseKey);
+    
+    // Log the release in activations table for audit trail
+    db.prepare('INSERT INTO activations (license_key, fingerprint, ip_address) VALUES (?, ?, ?)')
+      .run(licenseKey, `RELEASED: ${oldFingerprint} - ${reason || 'No reason provided'}`, req.ip);
+    
+    console.log(`License ${licenseKey} fingerprint released. Old fingerprint: ${oldFingerprint}`);
+    
+    res.json({
+      success: true,
+      message: `License fingerprint released. Customer can now activate on a new server.`,
+      oldFingerprint,
+    });
+  } catch (error) {
+    console.error('Error releasing license:', error);
+    res.status(500).json({ error: 'Failed to release license' });
+  }
+});
+
 app.post('/api/activate', (req, res) => {
   try {
     const { licenseKey, fingerprint } = req.body;

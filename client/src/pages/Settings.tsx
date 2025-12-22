@@ -15,7 +15,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw, Users, Crown, Shield, Eye, Loader2, UserCog, Calendar, Sun, Moon, Webhook, Mail, MessageSquare, Info, Send } from "lucide-react";
+import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw, Users, Crown, Shield, Eye, Loader2, UserCog, Calendar, Sun, Moon, Webhook, Mail, MessageSquare, Info, Send, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { z } from "zod";
@@ -509,6 +509,8 @@ interface LicenseInfo {
   fingerprint: string;
   isActivated: boolean;
   buildDate: string;
+  readOnly?: boolean;
+  readOnlyReason?: string;
 }
 
 interface AppConfig {
@@ -696,6 +698,25 @@ function LicenseSection() {
                 </p>
                 <p className="text-sm text-muted-foreground">
                   Upgrade to Pro for unlimited devices and priority support.
+                </p>
+              </div>
+            )}
+
+            {license?.readOnly && (
+              <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg space-y-2">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                  <p className="text-sm font-medium text-yellow-600 dark:text-yellow-400">
+                    Read-Only Mode
+                  </p>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  You have {license?.currentDeviceCount} devices but no Pro license. 
+                  Existing devices continue working, but editing device connections (IP, credentials, type) 
+                  and deleting devices is disabled.
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Upgrade to Pro or activate your license to unlock full editing.
                 </p>
               </div>
             )}

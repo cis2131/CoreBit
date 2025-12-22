@@ -162,6 +162,47 @@ export async function canAddDevice(): Promise<{ allowed: boolean; reason?: strin
   return { allowed: true };
 }
 
+export async function canModifyDevices(): Promise<{ allowed: boolean; reason?: string; readOnly: boolean }> {
+  const info = await getLicenseInfo();
+  
+  // If we have a valid Pro license, all modifications are allowed
+  if (info.isActivated && info.tier === 'pro') {
+    return { allowed: true, readOnly: false };
+  }
+  
+  // If device count is within free tier limit, modifications are allowed
+  if (info.currentDeviceCount <= FREE_DEVICE_LIMIT) {
+    return { allowed: true, readOnly: false };
+  }
+  
+  // Over free tier limit without valid license = read-only mode
+  return {
+    allowed: false,
+    readOnly: true,
+    reason: `Read-only mode: You have ${info.currentDeviceCount} devices but no Pro license. Existing devices continue working, but editing connection-critical fields (IP, credentials, type) is disabled. Upgrade to Pro to unlock full editing.`,
+  };
+}
+
+export async function canDeleteDevices(): Promise<{ allowed: boolean; reason?: string }> {
+  const info = await getLicenseInfo();
+  
+  // If we have a valid Pro license, deletion is allowed
+  if (info.isActivated && info.tier === 'pro') {
+    return { allowed: true };
+  }
+  
+  // If device count is within free tier limit, deletion is allowed
+  if (info.currentDeviceCount <= FREE_DEVICE_LIMIT) {
+    return { allowed: true };
+  }
+  
+  // Over free tier limit without valid license = no deletion (prevents gaming the limit)
+  return {
+    allowed: false,
+    reason: `Read-only mode: Deleting devices is disabled when over the free tier limit without a Pro license. This prevents circumventing the device limit.`,
+  };
+}
+
 export async function activateLicense(
   licenseKey: string,
   tier: 'free' | 'pro',

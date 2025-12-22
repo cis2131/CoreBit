@@ -687,6 +687,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const updateData = insertDeviceSchema.partial().parse(req.body);
       
+      // Check if modifying connection-critical fields (IP, credentials, type)
+      const connectionCriticalFields = ['ipAddress', 'credentialProfileId', 'customCredentials', 'type'];
+      const isModifyingCriticalFields = connectionCriticalFields.some(field => field in updateData);
+      
+      if (isModifyingCriticalFields) {
+        const { canModifyDevices } = await import("./licensing");
+        const modifyCheck = await canModifyDevices();
+        if (!modifyCheck.allowed) {
+          return res.status(403).json({ error: modifyCheck.reason });
+        }
+      }
+      
       // Re-probe device if IP, type, or credentials changed
       let finalUpdateData = { ...updateData };
       if (updateData.type || updateData.ipAddress || updateData.credentialProfileId !== undefined || updateData.customCredentials !== undefined) {
@@ -728,6 +740,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/devices/:id", canModify as any, async (req, res) => {
     try {
+      // Check licensing - prevent deletion when over free tier limit without Pro license
+      const { canDeleteDevices } = await import("./licensing");
+      const deleteCheck = await canDeleteDevices();
+      if (!deleteCheck.allowed) {
+        return res.status(403).json({ error: deleteCheck.reason });
+      }
+      
       // Clear IPAM assignments and reset IP statuses to 'available' before deleting device
       await storage.clearIpamAssignmentsForDevice(req.params.id);
       await storage.deleteDevice(req.params.id);
@@ -5007,11 +5026,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get current license info
   app.get("/api/license", async (req, res) => {
     try {
-      const { getLicenseInfo, getBuildDate } = await import("./licensing");
+      const { getLicenseInfo, getBuildDate, canModifyDevices } = await import("./licensing");
       const info = await getLicenseInfo();
+      const modifyCheck = await canModifyDevices();
       res.json({
         ...info,
         buildDate: getBuildDate(),
+        readOnly: modifyCheck.readOnly,
+        readOnlyReason: modifyCheck.reason,
       });
     } catch (error) {
       console.error('Error getting license info:', error);
