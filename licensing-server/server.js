@@ -152,6 +152,7 @@ function requireAdmin(req, res, next) {
 const isHttps = BASE_URL.startsWith('https://') || process.env.NODE_ENV === 'production';
 
 app.use(session({
+  name: 'corebit.sid',
   secret: ADMIN_SECRET || crypto.randomBytes(32).toString('hex'),
   resave: false,
   saveUninitialized: false,
@@ -162,6 +163,7 @@ app.use(session({
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 }));
+console.log('Session config: secure=' + isHttps + ', BASE_URL=' + BASE_URL);
 
 // Serve static files for admin UI
 app.use(express.static(path.join(__dirname, 'public')));
@@ -186,6 +188,7 @@ app.use((req, res, next) => {
 
 // Admin session authentication middleware
 function requireAdminSession(req, res, next) {
+  console.log('Session check - ID:', req.sessionID, 'isAdmin:', req.session?.isAdmin);
   if (req.session && req.session.isAdmin) {
     next();
   } else {
@@ -455,7 +458,15 @@ app.post('/api/admin/login', (req, res) => {
   
   if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
     req.session.isAdmin = true;
-    res.json({ success: true });
+    // Explicitly save session before responding
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error:', err);
+        return res.status(500).json({ error: 'Session error' });
+      }
+      console.log('Admin login successful, session ID:', req.sessionID);
+      res.json({ success: true });
+    });
   } else {
     res.status(401).json({ error: 'Invalid credentials' });
   }
