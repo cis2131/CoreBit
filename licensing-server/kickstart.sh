@@ -122,7 +122,11 @@ install_application() {
         cp server.js "$INSTALL_DIR/"
         cp package.json "$INSTALL_DIR/"
         cp generate-keys.js "$INSTALL_DIR/"
-        cp .env.example "$INSTALL_DIR/"
+        cp .env.example "$INSTALL_DIR/" 2>/dev/null || true
+        # Copy admin UI
+        if [ -d "public" ]; then
+            cp -r public "$INSTALL_DIR/"
+        fi
     else
         log_error "Source files not found. Please run from the licensing-server directory."
         exit 1
@@ -158,6 +162,14 @@ configure_environment() {
     
     ADMIN_SECRET="${EXISTING_SECRET:-$(generate_admin_secret)}"
     
+    # Generate or preserve admin UI credentials
+    if [ -f "$ENV_FILE" ]; then
+        EXISTING_ADMIN_USER=$(grep "^ADMIN_USERNAME=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
+        EXISTING_ADMIN_PASS=$(grep "^ADMIN_PASSWORD=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
+    fi
+    ADMIN_USERNAME="${EXISTING_ADMIN_USER:-admin}"
+    ADMIN_PASSWORD="${EXISTING_ADMIN_PASS:-$(openssl rand -base64 16)}"
+    
     # Determine BASE_URL
     if [ -n "$DOMAIN" ]; then
         BASE_URL="https://$DOMAIN"
@@ -169,6 +181,10 @@ configure_environment() {
 PORT=$APP_PORT
 ADMIN_SECRET=$ADMIN_SECRET
 BASE_URL=$BASE_URL
+
+# Admin UI Credentials
+ADMIN_USERNAME=$ADMIN_USERNAME
+ADMIN_PASSWORD=$ADMIN_PASSWORD
 
 # Stripe Configuration (required for payment processing)
 STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY
@@ -247,6 +263,8 @@ uninstall() {
 show_completion() {
     LOCAL_IP=$(hostname -I | awk '{print $1}')
     ADMIN_SECRET=$(grep "^ADMIN_SECRET=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
+    ADMIN_USER=$(grep "^ADMIN_USERNAME=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
+    ADMIN_PASS=$(grep "^ADMIN_PASSWORD=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
     
     echo ""
     echo -e "${GREEN}======================================================${NC}"
@@ -254,10 +272,16 @@ show_completion() {
     echo -e "${GREEN}======================================================${NC}"
     echo ""
     echo -e "  ${BLUE}Server URL:${NC}      http://${LOCAL_IP}:${APP_PORT}"
+    echo -e "  ${BLUE}Admin Panel:${NC}     http://${LOCAL_IP}:${APP_PORT}/"
     echo -e "  ${BLUE}Health Check:${NC}    http://${LOCAL_IP}:${APP_PORT}/health"
     echo ""
-    echo -e "  ${BLUE}Admin Secret:${NC}    $ADMIN_SECRET"
-    echo -e "  ${YELLOW}(Save this! Required for creating licenses via API)${NC}"
+    echo -e "  ${BLUE}Admin Panel Login:${NC}"
+    echo -e "    Username:      $ADMIN_USER"
+    echo -e "    Password:      $ADMIN_PASS"
+    echo -e "  ${YELLOW}(Save these credentials to access the admin panel)${NC}"
+    echo ""
+    echo -e "  ${BLUE}API Admin Secret:${NC} $ADMIN_SECRET"
+    echo -e "  ${YELLOW}(Used for programmatic API access)${NC}"
     echo ""
     echo -e "  ${BLUE}Service Commands:${NC}"
     echo "    Start:    sudo systemctl start $SERVICE_NAME"

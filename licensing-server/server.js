@@ -5,12 +5,21 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
+const session = require('express-session');
 
 const app = express();
 
 const PORT = process.env.PORT || 3001;
 const ADMIN_SECRET = process.env.ADMIN_SECRET;
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+
+// Admin UI credentials from .env
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+if (!ADMIN_PASSWORD || ADMIN_PASSWORD.length < 8) {
+  console.warn('WARNING: ADMIN_PASSWORD not set or too short. Admin UI login disabled.');
+}
 
 // Stripe configuration (optional - only required for payment processing)
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
@@ -135,6 +144,21 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// Session middleware for admin UI
+app.use(session({
+  secret: ADMIN_SECRET || crypto.randomBytes(32).toString('hex'),
+  resave: false,
+  saveUninitialized: false,
+  cookie: { 
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
+
+// Serve static files for admin UI
+app.use(express.static(path.join(__dirname, 'public')));
+
 // CORS for all routes except webhook
 app.use((req, res, next) => {
   if (req.path === '/webhook') {
@@ -152,6 +176,15 @@ app.use((req, res, next) => {
     express.json()(req, res, next);
   }
 });
+
+// Admin session authentication middleware
+function requireAdminSession(req, res, next) {
+  if (req.session && req.session.isAdmin) {
+    next();
+  } else {
+    res.status(401).json({ error: 'Unauthorized' });
+  }
+}
 
 // ============== STRIPE ENDPOINTS ==============
 
@@ -403,7 +436,136 @@ function generateErrorPage(message) {
   `;
 }
 
-// ============== ADMIN/MANUAL ENDPOINTS ==============
+// ============== ADMIN UI ENDPOINTS ==============
+
+// Admin login
+app.post('/api/admin/login', (req, res) => {
+  const { username, password } = req.body;
+  
+  if (!ADMIN_PASSWORD) {
+    return res.status(503).json({ error: 'Admin login not configured' });
+  }
+  
+  if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+    req.session.isAdmin = true;
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ error: 'Invalid credentials' });
+  }
+});
+
+// Admin logout
+app.post('/api/admin/logout', (req, res) => {
+  req.session.destroy();
+  res.json({ success: true });
+});
+
+// Check admin session
+app.get('/api/admin/session', (req, res) => {
+  if (req.session && req.session.isAdmin) {
+    res.json({ authenticated: true });
+  } else {
+    res.status(401).json({ authenticated: false });
+  }
+});
+
+// Admin UI endpoints (session-based auth)
+app.get('/api/admin/licenses', requireAdminSession, (req, res) => {
+  try {
+    const licenses = db.prepare('SELECT * FROM licenses ORDER BY created_at DESC').all();
+    res.json(licenses);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch licenses' });
+  }
+});
+
+app.post('/api/admin/licenses', requireAdminSession, (req, res) => {
+  try {
+    const { tier = 'pro', deviceLimit = null, yearsOfUpdates = 1, customerEmail, customerName, notes } = req.body;
+    
+    const licenseKey = generateLicenseKey();
+    const now = new Date();
+    const updatesValidUntil = new Date(now.getTime() + yearsOfUpdates * 365 * 24 * 60 * 60 * 1000);
+    
+    const stmt = db.prepare(`
+      INSERT INTO licenses (license_key, tier, device_limit, purchase_date, updates_valid_until, customer_email, customer_name, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    
+    stmt.run(
+      licenseKey,
+      tier,
+      deviceLimit,
+      now.toISOString(),
+      updatesValidUntil.toISOString(),
+      customerEmail || null,
+      customerName || null,
+      notes || null
+    );
+    
+    res.json({
+      success: true,
+      licenseKey,
+      tier,
+      deviceLimit,
+      purchaseDate: now.toISOString(),
+      updatesValidUntil: updatesValidUntil.toISOString(),
+    });
+  } catch (error) {
+    console.error('Error creating license:', error);
+    res.status(500).json({ error: 'Failed to create license' });
+  }
+});
+
+app.get('/api/admin/licenses/:licenseKey/activations', requireAdminSession, (req, res) => {
+  try {
+    const { licenseKey } = req.params;
+    const activations = db.prepare('SELECT * FROM activations WHERE license_key = ? ORDER BY activated_at DESC').all(licenseKey);
+    res.json(activations);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch activations' });
+  }
+});
+
+app.post('/api/admin/licenses/:licenseKey/release', requireAdminSession, (req, res) => {
+  try {
+    const { licenseKey } = req.params;
+    const { reason } = req.body;
+    
+    const license = db.prepare('SELECT * FROM licenses WHERE license_key = ?').get(licenseKey);
+    
+    if (!license) {
+      return res.status(404).json({ error: 'License not found' });
+    }
+    
+    const oldFingerprint = license.fingerprint;
+    
+    if (!oldFingerprint) {
+      return res.status(400).json({ error: 'License is not currently activated' });
+    }
+    
+    // Clear the fingerprint to allow reactivation
+    db.prepare('UPDATE licenses SET fingerprint = NULL, activated_at = NULL WHERE license_key = ?')
+      .run(licenseKey);
+    
+    // Log the release in activations table for audit trail
+    db.prepare('INSERT INTO activations (license_key, fingerprint, ip_address) VALUES (?, ?, ?)')
+      .run(licenseKey, `RELEASED: ${oldFingerprint} - ${reason || 'No reason provided'}`, req.ip);
+    
+    console.log(`License ${licenseKey} fingerprint released via admin UI. Old fingerprint: ${oldFingerprint}`);
+    
+    res.json({
+      success: true,
+      message: 'License fingerprint released. Customer can now activate on a new server.',
+      oldFingerprint,
+    });
+  } catch (error) {
+    console.error('Error releasing license:', error);
+    res.status(500).json({ error: 'Failed to release license' });
+  }
+});
+
+// ============== ADMIN/MANUAL ENDPOINTS (API Key Auth) ==============
 
 app.post('/api/licenses', requireAdmin, (req, res) => {
   try {

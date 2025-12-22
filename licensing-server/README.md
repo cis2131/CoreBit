@@ -4,11 +4,31 @@ A standalone licensing server for CoreBit Network Manager with Stripe payment in
 
 ## Features
 
+- **Admin UI** - Web-based dashboard at `/` for managing licenses
 - License generation and activation
 - RSA signature verification
 - Stripe Checkout integration for payments
 - Webhook handling for automatic license creation
 - SQLite database for license storage
+
+## Admin UI
+
+The licensing server includes a built-in web admin panel accessible at the root URL (e.g., `https://licensing.yourdomain.com/`).
+
+### Features
+- View all licenses with customer details
+- Issue new licenses manually (without payment)
+- Release license activations for hardware migrations
+- View activation history
+
+### Configuration
+Add these to your `.env` file:
+```bash
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your-secure-password-here
+```
+
+The password must be at least 8 characters. For security, use HTTPS in production.
 
 ## Quick Start (Ubuntu)
 
