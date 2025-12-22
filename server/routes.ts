@@ -4671,12 +4671,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Try to find user by original ID first, or skip if user doesn't exist
         const user = existingUsers.find(u => u.id === channel.userId);
         if (user) {
+          // Handle backward compatibility for pre-2.0 backups with 'value' field
+          let config = channel.config;
+          if (!config && channel.value) {
+            // Translate legacy 'value' field to new 'config' structure
+            if (channel.type === 'email') {
+              config = { emailAddress: channel.value };
+            } else if (channel.type === 'telegram') {
+              config = { chatId: channel.value };
+            } else if (channel.type === 'webhook') {
+              config = { url: channel.value };
+            } else if (channel.type === 'pushover') {
+              config = { pushoverUserKey: channel.value };
+            } else {
+              config = {}; // Fallback empty config
+            }
+          }
+          
           await storage.createUserNotificationChannel({
             userId: user.id,
-            name: channel.name,
+            name: channel.name || `${channel.type} channel`,
             type: channel.type,
-            config: channel.config,
-            enabled: channel.enabled,
+            config: config || {},
+            enabled: channel.enabled !== false, // Default to true if not specified
           });
         }
       }
