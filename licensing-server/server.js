@@ -548,11 +548,8 @@ app.post('/api/admin/licenses/:licenseKey/release', requireAdminSession, (req, r
     db.prepare('UPDATE licenses SET fingerprint = NULL, activated_at = NULL WHERE license_key = ?')
       .run(licenseKey);
     
-    // Log the release in activations table for audit trail
-    db.prepare('INSERT INTO activations (license_key, fingerprint, ip_address) VALUES (?, ?, ?)')
-      .run(licenseKey, `RELEASED: ${oldFingerprint} - ${reason || 'No reason provided'}`, req.ip);
-    
-    console.log(`License ${licenseKey} fingerprint released via admin UI. Old fingerprint: ${oldFingerprint}`);
+    // Log the release event (audit trail via server logs, not in activations table)
+    console.log(`[LICENSE RELEASE] License: ${licenseKey}, Old fingerprint: ${oldFingerprint}, Reason: ${reason || 'Not provided'}, IP: ${req.ip}, Admin UI`);
     
     res.json({
       success: true,
@@ -648,11 +645,8 @@ app.post('/api/licenses/:licenseKey/release', requireAdmin, (req, res) => {
     db.prepare('UPDATE licenses SET fingerprint = NULL, activated_at = NULL WHERE license_key = ?')
       .run(licenseKey);
     
-    // Log the release in activations table for audit trail
-    db.prepare('INSERT INTO activations (license_key, fingerprint, ip_address) VALUES (?, ?, ?)')
-      .run(licenseKey, `RELEASED: ${oldFingerprint} - ${reason || 'No reason provided'}`, req.ip);
-    
-    console.log(`License ${licenseKey} fingerprint released. Old fingerprint: ${oldFingerprint}`);
+    // Log the release event (audit trail via server logs, not in activations table)
+    console.log(`[LICENSE RELEASE] License: ${licenseKey}, Old fingerprint: ${oldFingerprint}, Reason: ${reason || 'Not provided'}, IP: ${req.ip}, API`);
     
     res.json({
       success: true,
