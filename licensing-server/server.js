@@ -6,8 +6,45 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 const session = require('express-session');
+const multer = require('multer');
 
 const app = express();
+
+// Releases storage directory
+const RELEASES_DIR = path.join(__dirname, 'releases');
+if (!fs.existsSync(RELEASES_DIR)) {
+  fs.mkdirSync(RELEASES_DIR, { recursive: true });
+}
+
+// Multer configuration for release uploads
+const releaseStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const version = req.body.version || 'temp';
+    const versionDir = path.join(RELEASES_DIR, version);
+    if (!fs.existsSync(versionDir)) {
+      fs.mkdirSync(versionDir, { recursive: true });
+    }
+    cb(null, versionDir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  }
+});
+
+const releaseUpload = multer({
+  storage: releaseStorage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB max
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['.zip', '.tar.gz', '.tgz'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    const isTarGz = file.originalname.endsWith('.tar.gz');
+    if (allowedTypes.includes(ext) || isTarGz) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only .zip, .tar.gz, and .tgz files are allowed'));
+    }
+  }
+});
 
 // Trust reverse proxy (nginx) - required for secure cookies behind HTTPS proxy
 app.set('trust proxy', 1);
@@ -76,6 +113,22 @@ db.exec(`
     activated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     ip_address TEXT,
     FOREIGN KEY (license_key) REFERENCES licenses(license_key)
+  );
+  
+  CREATE TABLE IF NOT EXISTS releases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    version TEXT UNIQUE NOT NULL,
+    channel TEXT DEFAULT 'stable',
+    build_date TEXT NOT NULL,
+    changelog TEXT,
+    file_name TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    file_size_bytes INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    min_app_version TEXT,
+    is_prerelease INTEGER DEFAULT 0,
+    download_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
   );
 `);
 
@@ -745,6 +798,313 @@ app.get('/api/validate', (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Validation failed' });
+  }
+});
+
+// ============== RELEASE MANAGEMENT ENDPOINTS ==============
+
+// Helper function to compute SHA256 of a file
+function computeFileSha256(filePath) {
+  const fileBuffer = fs.readFileSync(filePath);
+  const hashSum = crypto.createHash('sha256');
+  hashSum.update(fileBuffer);
+  return hashSum.digest('hex');
+}
+
+// Helper to generate signed download token
+function generateDownloadToken(version, licenseKey) {
+  const data = JSON.stringify({ version, licenseKey, exp: Date.now() + 3600000 }); // 1 hour expiry
+  const hmac = crypto.createHmac('sha256', ADMIN_SECRET);
+  hmac.update(data);
+  const signature = hmac.digest('hex');
+  return Buffer.from(JSON.stringify({ data, signature })).toString('base64');
+}
+
+// Helper to verify download token
+function verifyDownloadToken(token) {
+  try {
+    const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+    const { data, signature } = decoded;
+    const hmac = crypto.createHmac('sha256', ADMIN_SECRET);
+    hmac.update(data);
+    const expectedSig = hmac.digest('hex');
+    if (signature !== expectedSig) return null;
+    
+    const payload = JSON.parse(data);
+    if (payload.exp < Date.now()) return null;
+    
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
+
+// List all releases (admin)
+app.get('/api/admin/releases', requireAdminSession, (req, res) => {
+  try {
+    const releases = db.prepare('SELECT * FROM releases ORDER BY build_date DESC').all();
+    res.json(releases);
+  } catch (error) {
+    console.error('Error fetching releases:', error);
+    res.status(500).json({ error: 'Failed to fetch releases' });
+  }
+});
+
+// Upload new release (admin)
+app.post('/api/admin/releases', requireAdminSession, releaseUpload.single('file'), (req, res) => {
+  try {
+    const { version, channel = 'stable', changelog, buildDate, minAppVersion, isPrerelease } = req.body;
+    
+    if (!version || !req.file) {
+      // Clean up temp file if exists
+      if (req.file) fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: 'Version and file are required' });
+    }
+    
+    // Check if version already exists
+    const existing = db.prepare('SELECT id FROM releases WHERE version = ?').get(version);
+    if (existing) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: 'Version already exists' });
+    }
+    
+    // Compute SHA256
+    const sha256 = computeFileSha256(req.file.path);
+    
+    // Move file to correct directory (in case version was different from temp)
+    const versionDir = path.join(RELEASES_DIR, version);
+    if (!fs.existsSync(versionDir)) {
+      fs.mkdirSync(versionDir, { recursive: true });
+    }
+    const finalPath = path.join(versionDir, req.file.originalname);
+    if (req.file.path !== finalPath) {
+      fs.renameSync(req.file.path, finalPath);
+    }
+    
+    const stmt = db.prepare(`
+      INSERT INTO releases (version, channel, build_date, changelog, file_name, file_path, file_size_bytes, sha256, min_app_version, is_prerelease)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    
+    stmt.run(
+      version,
+      channel,
+      buildDate || new Date().toISOString(),
+      changelog || null,
+      req.file.originalname,
+      finalPath,
+      req.file.size,
+      sha256,
+      minAppVersion || null,
+      isPrerelease === 'true' || isPrerelease === true ? 1 : 0
+    );
+    
+    console.log(`[RELEASE] New release uploaded: ${version} (${req.file.originalname})`);
+    
+    res.json({
+      success: true,
+      version,
+      fileName: req.file.originalname,
+      fileSize: req.file.size,
+      sha256
+    });
+  } catch (error) {
+    console.error('Error uploading release:', error);
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    res.status(500).json({ error: 'Failed to upload release' });
+  }
+});
+
+// Delete release (admin)
+app.delete('/api/admin/releases/:version', requireAdminSession, (req, res) => {
+  try {
+    const { version } = req.params;
+    
+    const release = db.prepare('SELECT * FROM releases WHERE version = ?').get(version);
+    if (!release) {
+      return res.status(404).json({ error: 'Release not found' });
+    }
+    
+    // Delete file
+    if (fs.existsSync(release.file_path)) {
+      fs.unlinkSync(release.file_path);
+    }
+    
+    // Delete version directory if empty
+    const versionDir = path.dirname(release.file_path);
+    try {
+      fs.rmdirSync(versionDir);
+    } catch (e) { /* Directory not empty or doesn't exist */ }
+    
+    // Delete from database
+    db.prepare('DELETE FROM releases WHERE version = ?').run(version);
+    
+    console.log(`[RELEASE] Release deleted: ${version}`);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting release:', error);
+    res.status(500).json({ error: 'Failed to delete release' });
+  }
+});
+
+// ============== PUBLIC RELEASE ENDPOINTS ==============
+
+// Check for updates (public - used by CoreBit installations)
+app.post('/api/releases/check', (req, res) => {
+  try {
+    const { licenseKey, fingerprint, currentVersion, channel = 'stable' } = req.body;
+    
+    // Get latest release for the channel
+    const latestRelease = db.prepare(`
+      SELECT * FROM releases 
+      WHERE channel = ? AND is_prerelease = 0
+      ORDER BY build_date DESC 
+      LIMIT 1
+    `).get(channel);
+    
+    if (!latestRelease) {
+      return res.json({
+        updateAvailable: false,
+        message: 'No releases available'
+      });
+    }
+    
+    // Compare versions (simple string comparison - assumes semver)
+    const isNewer = latestRelease.version !== currentVersion;
+    
+    // Determine entitlement status
+    let status = 'allowed';
+    let reason = null;
+    let downloadToken = null;
+    
+    if (licenseKey && fingerprint) {
+      const license = db.prepare('SELECT * FROM licenses WHERE license_key = ? AND fingerprint = ?').get(licenseKey, fingerprint);
+      
+      if (license) {
+        const releaseBuildDate = new Date(latestRelease.build_date);
+        const entitlementExpiry = new Date(license.updates_valid_until);
+        
+        if (license.tier === 'free') {
+          // Free tier always allowed
+          status = 'allowed';
+          downloadToken = generateDownloadToken(latestRelease.version, licenseKey);
+        } else if (releaseBuildDate <= entitlementExpiry) {
+          // Pro tier with valid entitlement
+          status = 'allowed';
+          downloadToken = generateDownloadToken(latestRelease.version, licenseKey);
+        } else {
+          // Pro tier with expired entitlement
+          status = 'warning';
+          reason = `Your update entitlement expired on ${entitlementExpiry.toLocaleDateString()}. Installing this update will revert your installation to read-only mode (Free tier). Consider renewing your Pro license to maintain full functionality.`;
+          // Still provide token but with warning
+          downloadToken = generateDownloadToken(latestRelease.version, licenseKey);
+        }
+      } else {
+        // Invalid or unactivated license
+        status = 'allowed';
+        reason = 'No valid license detected. Updates are available but the installation will operate in Free tier mode.';
+        downloadToken = generateDownloadToken(latestRelease.version, 'anonymous');
+      }
+    } else {
+      // No license provided - anonymous update check
+      status = 'allowed';
+      downloadToken = generateDownloadToken(latestRelease.version, 'anonymous');
+    }
+    
+    res.json({
+      updateAvailable: isNewer,
+      currentVersion,
+      latestVersion: latestRelease.version,
+      buildDate: latestRelease.build_date,
+      changelog: latestRelease.changelog,
+      fileSize: latestRelease.file_size_bytes,
+      sha256: latestRelease.sha256,
+      status,
+      reason,
+      downloadToken: isNewer ? downloadToken : null,
+      downloadUrl: isNewer ? `${BASE_URL}/api/releases/${latestRelease.version}/download` : null
+    });
+  } catch (error) {
+    console.error('Error checking for updates:', error);
+    res.status(500).json({ error: 'Failed to check for updates' });
+  }
+});
+
+// Get latest release info (public)
+app.get('/api/releases/latest', (req, res) => {
+  try {
+    const { channel = 'stable' } = req.query;
+    
+    const release = db.prepare(`
+      SELECT version, channel, build_date, changelog, file_name, file_size_bytes, sha256 
+      FROM releases 
+      WHERE channel = ? AND is_prerelease = 0
+      ORDER BY build_date DESC 
+      LIMIT 1
+    `).get(channel);
+    
+    if (!release) {
+      return res.status(404).json({ error: 'No releases available' });
+    }
+    
+    res.json({
+      ...release,
+      downloadUrl: `${BASE_URL}/api/releases/${release.version}/download`
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get latest release' });
+  }
+});
+
+// Download release file (requires token or admin session)
+app.get('/api/releases/:version/download', (req, res) => {
+  try {
+    const { version } = req.params;
+    const { token } = req.query;
+    
+    // Check if admin session or valid token
+    const isAdmin = req.session && req.session.isAdmin;
+    let tokenPayload = null;
+    
+    if (!isAdmin) {
+      if (!token) {
+        return res.status(401).json({ error: 'Download token required' });
+      }
+      tokenPayload = verifyDownloadToken(token);
+      if (!tokenPayload || tokenPayload.version !== version) {
+        return res.status(401).json({ error: 'Invalid or expired download token' });
+      }
+    }
+    
+    const release = db.prepare('SELECT * FROM releases WHERE version = ?').get(version);
+    if (!release) {
+      return res.status(404).json({ error: 'Release not found' });
+    }
+    
+    if (!fs.existsSync(release.file_path)) {
+      return res.status(404).json({ error: 'Release file not found' });
+    }
+    
+    // Increment download count
+    db.prepare('UPDATE releases SET download_count = download_count + 1 WHERE version = ?').run(version);
+    
+    // Log download
+    console.log(`[DOWNLOAD] Release ${version} downloaded by ${tokenPayload?.licenseKey || 'admin'}`);
+    
+    // Stream the file
+    res.setHeader('Content-Disposition', `attachment; filename="${release.file_name}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Length', release.file_size_bytes);
+    res.setHeader('X-Checksum-SHA256', release.sha256);
+    
+    const fileStream = fs.createReadStream(release.file_path);
+    fileStream.pipe(res);
+  } catch (error) {
+    console.error('Error downloading release:', error);
+    res.status(500).json({ error: 'Failed to download release' });
   }
 });
 
