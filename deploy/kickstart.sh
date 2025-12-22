@@ -44,7 +44,7 @@ DB_PORT=5432
 DB_NAME="corebit"
 DB_USER="corebit"
 LICENSING_URL="https://licensing.corebit.ease.dk"
-DOWNLOAD_URL="${DOWNLOAD_URL:-https://your-server.com/corebit/releases/latest.zip}"
+DOWNLOAD_URL="${DOWNLOAD_URL:-${LICENSING_URL}/releases/latest.zip}"
 
 # Parse command line arguments
 UPDATE_MODE=false

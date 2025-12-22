@@ -191,7 +191,8 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-DOWNLOAD_URL="${DOWNLOAD_URL:-https://your-server.com/corebit/releases/latest.zip}"
+LICENSING_URL="${LICENSING_URL:-https://licensing.corebit.ease.dk}"
+DOWNLOAD_URL="${DOWNLOAD_URL:-${LICENSING_URL}/releases/latest.zip}"
 
 echo -e "${BLUE}CoreBit Network Manager - Quick Install${NC}"
 echo ""
@@ -238,9 +239,9 @@ echo -e "  ${BLUE}Quick Install Script:${NC}"
 echo "    $BUILD_DIR/install.sh"
 echo ""
 echo -e "  ${YELLOW}To distribute:${NC}"
-echo "    1. Upload files to your web server"
-echo "    2. Update DOWNLOAD_URL in install.sh"
+echo "    1. Upload the .zip file to your licensing server via the admin UI"
+echo "    2. Host install.sh on your website or licensing server"
 echo "    3. Users can install with:"
-echo "       curl -fsSL https://your-server.com/corebit/install.sh | sudo bash"
+echo "       curl -fsSL https://licensing.corebit.ease.dk/install.sh | sudo bash"
 echo ""
 echo -e "${GREEN}======================================================${NC}"

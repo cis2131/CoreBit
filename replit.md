@@ -134,6 +134,12 @@ The licensing server includes a complete release management system for distribut
     -   Pro tier with expired entitlement: Warning (update will revert to read-only mode)
 -   Returns version info, changelog, download token, and SHA256 checksum
 
+**Public Downloads (for Install Script):**
+-   `/releases/latest.zip` - Public endpoint serving latest stable release
+-   `/install.sh` - Quick install script for new installations
+-   No authentication required - enables free tier distribution via website
+-   Install command: `curl -fsSL https://licensing.corebit.ease.dk/install.sh | sudo bash`
+
 **Authenticated Downloads:**
 -   Download tokens use HMAC-SHA256 signatures with 1-hour expiry
 -   Admin sessions can download directly without token

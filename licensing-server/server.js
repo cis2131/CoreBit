@@ -1033,6 +1033,66 @@ app.post('/api/releases/check', (req, res) => {
   }
 });
 
+// Public download of latest release (for install script)
+// Supports: /releases/latest.zip, /releases/latest.tar.gz
+app.get('/releases/latest.:ext', (req, res) => {
+  try {
+    const { ext } = req.params;
+    const { channel = 'stable' } = req.query;
+    
+    // Validate extension
+    if (ext !== 'zip' && ext !== 'tar.gz' && ext !== 'gz') {
+      return res.status(400).json({ error: 'Unsupported file format. Use .zip or .tar.gz' });
+    }
+    
+    // For .gz, check if it's actually .tar.gz (the route param captures after last dot)
+    const expectedExt = ext === 'gz' ? '.tar.gz' : `.${ext}`;
+    
+    // Get latest release
+    const release = db.prepare(`
+      SELECT * FROM releases 
+      WHERE channel = ? AND is_prerelease = 0
+      ORDER BY build_date DESC 
+      LIMIT 1
+    `).get(channel);
+    
+    if (!release) {
+      return res.status(404).send('No releases available. Please upload a release first.');
+    }
+    
+    // Check if file exists
+    if (!fs.existsSync(release.file_path)) {
+      return res.status(404).send('Release file not found on server.');
+    }
+    
+    // Check if requested extension matches the release file
+    if (!release.file_name.endsWith(expectedExt) && !release.file_name.endsWith('.zip')) {
+      // Try to serve what we have - most install scripts handle .zip
+      console.log(`[DOWNLOAD] Requested ${expectedExt} but serving ${release.file_name}`);
+    }
+    
+    // Increment download count
+    db.prepare('UPDATE releases SET download_count = download_count + 1 WHERE version = ?').run(release.version);
+    
+    // Log public download
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    console.log(`[PUBLIC DOWNLOAD] Release ${release.version} (${release.file_name}) downloaded from ${clientIp}`);
+    
+    // Stream the file
+    res.setHeader('Content-Disposition', `attachment; filename="${release.file_name}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Length', release.file_size_bytes);
+    res.setHeader('X-Checksum-SHA256', release.sha256);
+    res.setHeader('X-Version', release.version);
+    
+    const fileStream = fs.createReadStream(release.file_path);
+    fileStream.pipe(res);
+  } catch (error) {
+    console.error('Error serving latest release:', error);
+    res.status(500).send('Failed to download release');
+  }
+});
+
 // Get latest release info (public)
 app.get('/api/releases/latest', (req, res) => {
   try {
