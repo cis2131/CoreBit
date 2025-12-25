@@ -1,6 +1,7 @@
 import { Connection, Device } from '@shared/schema';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { useState, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 
@@ -8,6 +9,13 @@ interface BandwidthDataPoint {
   timestamp: number;
   inbound: number;
   outbound: number;
+}
+
+interface TrafficHistoryPoint {
+  timestamp: number;
+  inBitsPerSec: number;
+  outBitsPerSec: number;
+  utilizationPct: number;
 }
 
 interface ConnectionLineProps {
@@ -55,6 +63,25 @@ export function ConnectionLine({
   const speed = (connection.linkSpeed || '1G') as keyof typeof linkSpeedStyles;
   const style = linkSpeedStyles[speed] || linkSpeedStyles['1G'];
   const strokeWidth = isSelected ? style.width + 2 : style.width;
+
+  // Fetch traffic history for bandwidth graph - only when hovered and monitoring is enabled
+  const hasMonitoring = !!connection.monitorInterface;
+  const { data: trafficHistoryData = [] } = useQuery<TrafficHistoryPoint[]>({
+    queryKey: ["/api/connections", connection.id, "traffic-history"],
+    enabled: hasMonitoring && isHovered, // Only fetch when hovering
+    refetchInterval: isHovered ? 10000 : false, // Only poll when hovered
+    staleTime: 5000, // Keep data fresh for 5 seconds
+  });
+
+  // Convert traffic history to bandwidth history format
+  const fetchedBandwidthHistory: BandwidthDataPoint[] = trafficHistoryData.map(point => ({
+    timestamp: point.timestamp,
+    inbound: point.inBitsPerSec,
+    outbound: point.outBitsPerSec,
+  }));
+
+  // Use passed-in bandwidthHistory if available, otherwise use fetched data
+  const effectiveBandwidthHistory = bandwidthHistory.length > 0 ? bandwidthHistory : fetchedBandwidthHistory;
 
   // Determine threshold flash class based on utilization
   const utilizationPct = connection.linkStats?.utilizationPct || 0;
@@ -432,8 +459,8 @@ export function ConnectionLine({
           : connection.linkStats.outBitsPerSec || 0;
         
         // Prepare chart data from history
-        const chartData = bandwidthHistory.length > 0 
-          ? bandwidthHistory.map((point, index) => ({
+        const chartData = effectiveBandwidthHistory.length > 0 
+          ? effectiveBandwidthHistory.map((point, index) => ({
               time: index,
               inbound: shouldFlip ? point.outbound : point.inbound,
               outbound: shouldFlip ? point.inbound : point.outbound,
