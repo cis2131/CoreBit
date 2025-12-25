@@ -1,8 +1,8 @@
 import { Connection, Device } from '@shared/schema';
 import { ArrowDown, ArrowUp } from 'lucide-react';
-import { useState, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 
 interface BandwidthDataPoint {
@@ -447,11 +447,8 @@ export function ConnectionLine({
 
       {/* Traffic stats display when monitoring is enabled - positioned at curve apex */}
       {connection.monitorInterface && connection.linkStats && (() => {
-        // When monitoring on target device, flip RX/TX to show correct direction
-        // from the connection's perspective (source → target)
-        // Also apply manual flip if user toggled the switch
         const isMonitoringTarget = connection.monitorInterface === 'target';
-        const shouldFlip = isMonitoringTarget !== (connection.flipTrafficDirection || false); // XOR logic
+        const shouldFlip = isMonitoringTarget !== (connection.flipTrafficDirection || false);
         const inbound = shouldFlip 
           ? connection.linkStats.outBitsPerSec || 0
           : connection.linkStats.inBitsPerSec || 0;
@@ -459,7 +456,6 @@ export function ConnectionLine({
           ? connection.linkStats.inBitsPerSec || 0
           : connection.linkStats.outBitsPerSec || 0;
         
-        // Prepare chart data from history
         const chartData = effectiveBandwidthHistory.length > 0 
           ? effectiveBandwidthHistory.map((point, index) => ({
               time: index,
@@ -469,44 +465,45 @@ export function ConnectionLine({
           : [];
         
         return (
-          <foreignObject
-            x={curveApex.x - 55}
-            y={curveApex.y - 30}
-            width="110"
-            height="45"
-            style={{ overflow: 'visible' }}
-          >
-            <HoverCard openDelay={200} closeDelay={100}>
-              <HoverCardTrigger asChild>
-                <div 
-                  className="bg-background border border-border rounded px-2 py-1 cursor-pointer hover-elevate"
-                  style={{ opacity: 0.95 }}
-                  onMouseEnter={(e) => {
-                    setIsHovered(true);
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    setMousePos({ x: rect.left + rect.width / 2, y: rect.top });
-                  }}
-                  onMouseMove={(e) => {
-                    setMousePos({ x: e.clientX, y: e.clientY });
-                  }}
-                  onMouseLeave={() => setIsHovered(false)}
-                  data-testid={`traffic-stats-${connection.id}`}
-                >
-                  <div className="text-[10px] font-mono text-blue-500 flex items-center gap-1" data-testid="text-connection-inbound">
-                    <ArrowDown className="h-3 w-3" /> {formatBitsPerSec(inbound)}
-                  </div>
-                  <div className="text-[10px] font-mono text-green-500 flex items-center gap-1" data-testid="text-connection-outbound">
-                    <ArrowUp className="h-3 w-3" /> {formatBitsPerSec(outbound)}
-                  </div>
+          <>
+            <foreignObject
+              x={curveApex.x - 55}
+              y={curveApex.y - 30}
+              width="110"
+              height="45"
+              style={{ overflow: 'visible' }}
+            >
+              <div 
+                className="bg-background border border-border rounded px-2 py-1 cursor-pointer hover-elevate"
+                style={{ opacity: 0.95 }}
+                onMouseEnter={(e) => {
+                  setIsHovered(true);
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setMousePos({ x: rect.left + rect.width / 2, y: rect.top });
+                }}
+                onMouseMove={(e) => {
+                  setMousePos({ x: e.clientX, y: e.clientY - 20 });
+                }}
+                onMouseLeave={() => setIsHovered(false)}
+                data-testid={`traffic-stats-${connection.id}`}
+              >
+                <div className="text-[10px] font-mono text-blue-500 flex items-center gap-1" data-testid="text-connection-inbound">
+                  <ArrowDown className="h-3 w-3" /> {formatBitsPerSec(inbound)}
                 </div>
-              </HoverCardTrigger>
-              <HoverCardContent 
-                className="w-80 p-3 z-[100]" 
-                side="top"
-                sideOffset={10}
-                align="center"
-                avoidCollisions={true}
-                collisionPadding={10}
+                <div className="text-[10px] font-mono text-green-500 flex items-center gap-1" data-testid="text-connection-outbound">
+                  <ArrowUp className="h-3 w-3" /> {formatBitsPerSec(outbound)}
+                </div>
+              </div>
+            </foreignObject>
+            {/* Portal-based tooltip for bandwidth graph - renders above everything */}
+            {isHovered && createPortal(
+              <div 
+                className="fixed bg-popover border border-border rounded-md shadow-xl p-3 w-80 pointer-events-none"
+                style={{ 
+                  left: mousePos.x - 160,
+                  top: mousePos.y - 220,
+                  zIndex: 9999,
+                }}
               >
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
@@ -545,10 +542,7 @@ export function ConnectionLine({
                               <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
                             </linearGradient>
                           </defs>
-                          <YAxis 
-                            hide 
-                            domain={['dataMin', 'dataMax']}
-                          />
+                          <YAxis hide domain={['dataMin', 'dataMax']} />
                           <XAxis hide dataKey="time" />
                           <Tooltip 
                             content={({ active, payload }) => {
@@ -586,13 +580,18 @@ export function ConnectionLine({
                     </div>
                   )}
                   <div className="text-[10px] text-muted-foreground flex justify-between">
-                    <span>Thresholds: ⚠ {warningThreshold}% | 🔴 {criticalThreshold}%</span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-orange-500" /> {warningThreshold}%
+                      <span className="mx-1">|</span>
+                      <span className="w-2 h-2 rounded-full bg-red-500" /> {criticalThreshold}%
+                    </span>
                     <span>{connection.linkSpeed || '1G'}</span>
                   </div>
                 </div>
-              </HoverCardContent>
-            </HoverCard>
-          </foreignObject>
+              </div>,
+              document.body
+            )}
+          </>
         );
       })()}
     </g>
