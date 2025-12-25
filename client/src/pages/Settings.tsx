@@ -1523,7 +1523,7 @@ function UserManagementSection() {
 
       {/* Add/Edit Channel Dialog */}
       <Dialog open={channelDialogOpen} onOpenChange={setChannelDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingChannel ? "Edit Channel" : "Add Notification Channel"}</DialogTitle>
             <DialogDescription>
@@ -4093,7 +4093,11 @@ export default function Settings() {
                             {notification.name}
                           </div>
                           <div className="text-sm text-muted-foreground" data-testid={`text-notification-url-${notification.id}`}>
-                            {notification.method} {notification.url}
+                            {notification.type === 'telegram' && 'Telegram'}
+                            {notification.type === 'slack' && 'Slack'}
+                            {notification.type === 'pushover' && 'Pushover'}
+                            {notification.type === 'email' && 'Email'}
+                            {(notification.type === 'webhook' || !notification.type) && `${notification.method} ${notification.url}`}
                           </div>
                         </div>
                       </div>
