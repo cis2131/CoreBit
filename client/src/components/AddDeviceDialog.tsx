@@ -299,13 +299,14 @@ export function AddDeviceDialog({
         position: initialPosition,
       };
 
-      let credentialData = {};
+      let credentialData: any = {};
 
       if (credMode === 'profile' && selectedProfileId) {
-        credentialData = { credentialProfileId: selectedProfileId };
+        credentialData = { credentialProfileId: selectedProfileId, customCredentials: null };
       } else if (credMode === 'custom') {
         if (deviceCategory === 'mikrotik') {
           credentialData = {
+            credentialProfileId: null,
             customCredentials: {
               username: mikrotikUsername,
               password: mikrotikPassword,
@@ -327,10 +328,11 @@ export function AddDeviceDialog({
             snmpCreds.snmpPrivKey = snmpPrivKey;
           }
           
-          credentialData = { customCredentials: snmpCreds };
+          credentialData = { credentialProfileId: null, customCredentials: snmpCreds };
         } else if (deviceCategory === 'proxmox') {
           if (proxmoxAuthType === 'token') {
             credentialData = {
+              credentialProfileId: null,
               customCredentials: {
                 proxmoxApiTokenId,
                 proxmoxApiTokenSecret,
@@ -339,6 +341,7 @@ export function AddDeviceDialog({
             };
           } else {
             credentialData = {
+              credentialProfileId: null,
               customCredentials: {
                 username: proxmoxUsername,
                 password: proxmoxPassword,
@@ -350,6 +353,7 @@ export function AddDeviceDialog({
         } else if (deviceCategory === 'server') {
           if (serverPollingType === 'prometheus') {
             credentialData = {
+              credentialProfileId: null,
               customCredentials: {
                 usePrometheus: true,
                 prometheusPort: parseInt(prometheusPort) || 9100,
@@ -373,9 +377,12 @@ export function AddDeviceDialog({
               snmpCreds.snmpPrivKey = snmpPrivKey;
             }
             
-            credentialData = { customCredentials: snmpCreds };
+            credentialData = { credentialProfileId: null, customCredentials: snmpCreds };
           }
         }
+      } else if (credMode === 'none') {
+        // Clear both when no credentials are selected
+        credentialData = { credentialProfileId: null, customCredentials: null };
       }
 
       onSubmit({ ...baseData, ...credentialData });
@@ -847,10 +854,10 @@ export function AddDeviceDialog({
                                         return (
                                           <div key={metricName} className="mb-2">
                                             <div className="flex items-start justify-between gap-2 p-2 hover-elevate rounded-md">
-                                              <div className="flex-1 min-w-0">
+                                              <div className="flex-1 min-w-0 overflow-hidden">
                                                 <p className="text-sm font-mono truncate" title={metricName}>{metricName}</p>
                                                 {details?.help && (
-                                                  <p className="text-xs text-muted-foreground truncate" title={details.help}>
+                                                  <p className="text-xs text-muted-foreground line-clamp-2 break-words" title={details.help}>
                                                     {details.help}
                                                   </p>
                                                 )}
