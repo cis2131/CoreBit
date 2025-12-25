@@ -395,6 +395,20 @@ export const insertMapSchema = createInsertSchema(maps).omit({
   isDefault: z.boolean().optional(),
 });
 
+// Zod schema for PrometheusMetricConfig
+const prometheusMetricConfigSchema = z.object({
+  id: z.string(),
+  metricName: z.string(),
+  label: z.string(),
+  displayType: z.enum(['bar', 'gauge', 'number', 'text', 'bytes', 'percentage']),
+  unit: z.string().optional(),
+  labelFilter: z.record(z.string()).optional(),
+  transform: z.enum(['toGB', 'toMB', 'toPercent', 'divide1000', 'none']).optional(),
+  maxValue: z.number().optional(),
+  warningThreshold: z.number().optional(),
+  criticalThreshold: z.number().optional(),
+});
+
 const credentialsSchema = z.object({
   username: z.string().optional(),
   password: z.string().optional(),
@@ -411,6 +425,7 @@ const credentialsSchema = z.object({
   prometheusPort: z.number().optional(),
   prometheusPath: z.string().optional(),
   prometheusScheme: z.enum(['http', 'https']).optional(),
+  prometheusMetrics: z.array(prometheusMetricConfigSchema).optional(),
   // Proxmox VE API settings
   proxmoxPort: z.number().optional(),
   proxmoxApiTokenId: z.string().optional(),
