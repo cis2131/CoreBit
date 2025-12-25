@@ -459,7 +459,8 @@ export const insertDeviceSchema = createInsertSchema(devices).omit({
     cpuUsagePct: z.number().optional(),
     memoryUsagePct: z.number().optional(),
   }).optional(),
-  customCredentials: credentialsSchema.optional(),
+  customCredentials: credentialsSchema.nullable().optional(),
+  credentialProfileId: z.string().nullable().optional(),
   probeTimeout: z.union([z.number().int().min(1).max(120), z.null()]).optional(),
   useOnDuty: z.boolean().optional(),
 });
