@@ -4135,6 +4135,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Ad-hoc Prometheus metrics discovery (for new devices before creation)
+  app.post("/api/discover-prometheus-metrics", requireAuth as any, async (req, res) => {
+    try {
+      const { ipAddress, prometheusPort, prometheusPath, prometheusScheme } = req.body;
+      
+      if (!ipAddress) {
+        return res.status(400).json({ error: 'IP address is required' });
+      }
+      
+      const credentials = {
+        prometheusPort: prometheusPort || 9100,
+        prometheusPath: prometheusPath || '/metrics',
+        prometheusScheme: prometheusScheme || 'http'
+      };
+      
+      const result = await discoverPrometheusMetrics(ipAddress, credentials);
+      res.json(result);
+    } catch (error: any) {
+      console.error('Error discovering Prometheus metrics:', error);
+      res.status(500).json({ error: `Failed to discover metrics: ${error.message}` });
+    }
+  });
+
   // ============ PROXMOX VMS ROUTES ============
 
   // Get all VMs for a specific Proxmox host device

@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { Device, type CredentialProfile, PROMETHEUS_METRIC_PRESETS, type PrometheusMetricConfig } from '@shared/schema';
+import { apiRequest } from '@/lib/queryClient';
+import { Search, Loader2, Plus, ChevronDown, ChevronUp } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Dialog,
   DialogContent,
@@ -93,6 +98,22 @@ export function AddDeviceDialog({
   const [prometheusPort, setPrometheusPort] = useState('9100');
   const [prometheusPath, setPrometheusPath] = useState('/metrics');
   const [prometheusMetrics, setPrometheusMetrics] = useState<PrometheusMetricConfig[]>([]);
+  
+  // Metric discovery state
+  const [discoveryOpen, setDiscoveryOpen] = useState(false);
+  const [discoveredMetrics, setDiscoveredMetrics] = useState<{
+    metrics: string[];
+    metricDetails: Record<string, { type?: string; help?: string; sampleCount: number }>;
+  } | null>(null);
+  const [metricSearch, setMetricSearch] = useState('');
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  
+  // State for adding a new discovered metric
+  const [addingMetric, setAddingMetric] = useState<string | null>(null);
+  const [newMetricLabel, setNewMetricLabel] = useState('');
+  const [newMetricDisplayType, setNewMetricDisplayType] = useState<'number' | 'bytes' | 'percentage' | 'bar' | 'text'>('number');
+  const [newMetricUnit, setNewMetricUnit] = useState('');
 
   const { data: profiles = [] } = useQuery<CredentialProfile[]>({
     queryKey: ['/api/credential-profiles'],
@@ -187,8 +208,87 @@ export function AddDeviceDialog({
       setPrometheusPort('9100');
       setPrometheusPath('/metrics');
       setPrometheusMetrics([]);
+      // Reset discovery state
+      setDiscoveryOpen(false);
+      setDiscoveredMetrics(null);
+      setMetricSearch('');
+      setDiscoveryError(null);
+      setAddingMetric(null);
     }
   }, [editDevice, initialType, open]);
+
+  // Discover metrics from a device (for edit mode) or via ad-hoc probe
+  const handleDiscoverMetrics = async () => {
+    if (!editDevice?.id && !ipAddress.trim()) {
+      setDiscoveryError('Please enter an IP address first');
+      return;
+    }
+    
+    setIsDiscovering(true);
+    setDiscoveryError(null);
+    
+    try {
+      if (editDevice?.id) {
+        // Use the existing device endpoint
+        const response = await fetch(`/api/devices/${editDevice.id}/prometheus-metrics`);
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to discover metrics');
+        }
+        const data = await response.json();
+        setDiscoveredMetrics(data);
+      } else {
+        // For new devices, use ad-hoc discovery endpoint
+        const response = await fetch('/api/discover-prometheus-metrics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ipAddress: ipAddress.trim(),
+            prometheusPort: parseInt(prometheusPort) || 9100,
+            prometheusPath: prometheusPath || '/metrics'
+          })
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to discover metrics');
+        }
+        const data = await response.json();
+        setDiscoveredMetrics(data);
+      }
+      setDiscoveryOpen(true);
+    } catch (error: any) {
+      setDiscoveryError(error.message || 'Failed to discover metrics');
+    } finally {
+      setIsDiscovering(false);
+    }
+  };
+
+  // Add a discovered metric to the list
+  const handleAddDiscoveredMetric = (metricName: string) => {
+    if (prometheusMetrics.some(m => m.metricName === metricName)) {
+      return; // Already added
+    }
+    
+    const details = discoveredMetrics?.metricDetails[metricName];
+    const newMetric: PrometheusMetricConfig = {
+      id: `discovered_${metricName.replace(/[^a-zA-Z0-9]/g, '_')}`,
+      label: newMetricLabel || metricName.replace(/^node_/, '').replace(/_/g, ' '),
+      metricName,
+      displayType: newMetricDisplayType,
+      unit: newMetricUnit || undefined
+    };
+    
+    setPrometheusMetrics([...prometheusMetrics, newMetric]);
+    setAddingMetric(null);
+    setNewMetricLabel('');
+    setNewMetricDisplayType('number');
+    setNewMetricUnit('');
+  };
+
+  // Remove a metric from the list
+  const handleRemoveMetric = (metricId: string) => {
+    setPrometheusMetrics(prometheusMetrics.filter(m => m.id !== metricId));
+  };
 
   const handleSubmit = () => {
     if (name.trim()) {
@@ -682,6 +782,206 @@ export function AddDeviceDialog({
                               );
                             })}
                           </div>
+                        </div>
+                        
+                        {/* Metric Discovery Section */}
+                        <div className="space-y-3 p-4 border rounded-md">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-sm font-medium">Discover Custom Metrics</h4>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={handleDiscoverMetrics}
+                              disabled={isDiscovering}
+                              data-testid="button-discover-metrics"
+                            >
+                              {isDiscovering ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  Discovering...
+                                </>
+                              ) : (
+                                <>
+                                  <Search className="w-4 h-4 mr-2" />
+                                  Discover Metrics
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                          
+                          {discoveryError && (
+                            <p className="text-sm text-destructive">{discoveryError}</p>
+                          )}
+                          
+                          {discoveredMetrics && discoveryOpen && (
+                            <Collapsible open={discoveryOpen} onOpenChange={setDiscoveryOpen}>
+                              <CollapsibleTrigger asChild>
+                                <Button variant="ghost" size="sm" className="w-full justify-between">
+                                  <span>{discoveredMetrics.metrics.length} metrics available</span>
+                                  {discoveryOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                </Button>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent className="mt-2">
+                                <div className="space-y-2">
+                                  <div className="relative">
+                                    <Search className="absolute left-2 top-2.5 w-4 h-4 text-muted-foreground" />
+                                    <Input
+                                      placeholder="Search metrics..."
+                                      value={metricSearch}
+                                      onChange={(e) => setMetricSearch(e.target.value)}
+                                      className="pl-8"
+                                      data-testid="input-metric-search"
+                                    />
+                                  </div>
+                                  
+                                  <ScrollArea className="h-48 border rounded-md p-2">
+                                    {discoveredMetrics.metrics
+                                      .filter(m => m.toLowerCase().includes(metricSearch.toLowerCase()))
+                                      .slice(0, 100)
+                                      .map(metricName => {
+                                        const details = discoveredMetrics.metricDetails[metricName];
+                                        const isAlreadyAdded = prometheusMetrics.some(m => m.metricName === metricName);
+                                        const isConfiguring = addingMetric === metricName;
+                                        
+                                        return (
+                                          <div key={metricName} className="mb-2">
+                                            <div className="flex items-start justify-between gap-2 p-2 hover-elevate rounded-md">
+                                              <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-mono truncate" title={metricName}>{metricName}</p>
+                                                {details?.help && (
+                                                  <p className="text-xs text-muted-foreground truncate" title={details.help}>
+                                                    {details.help}
+                                                  </p>
+                                                )}
+                                                <div className="flex gap-1 mt-1">
+                                                  {details?.type && (
+                                                    <Badge variant="secondary" className="text-xs">
+                                                      {details.type}
+                                                    </Badge>
+                                                  )}
+                                                  {details?.sampleCount > 1 && (
+                                                    <Badge variant="outline" className="text-xs">
+                                                      {details.sampleCount} samples
+                                                    </Badge>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              <div className="flex-shrink-0">
+                                                {isAlreadyAdded ? (
+                                                  <Badge variant="secondary">Added</Badge>
+                                                ) : isConfiguring ? null : (
+                                                  <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => {
+                                                      setAddingMetric(metricName);
+                                                      setNewMetricLabel(metricName.replace(/^node_/, '').replace(/_/g, ' '));
+                                                    }}
+                                                    data-testid={`button-add-metric-${metricName}`}
+                                                  >
+                                                    <Plus className="w-4 h-4" />
+                                                  </Button>
+                                                )}
+                                              </div>
+                                            </div>
+                                            
+                                            {isConfiguring && (
+                                              <div className="ml-2 mt-2 p-3 border rounded-md space-y-3 bg-muted/50">
+                                                <div className="space-y-2">
+                                                  <Label className="text-xs">Display Label</Label>
+                                                  <Input
+                                                    value={newMetricLabel}
+                                                    onChange={(e) => setNewMetricLabel(e.target.value)}
+                                                    placeholder="Enter display label"
+                                                    data-testid="input-new-metric-label"
+                                                  />
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                  <div className="space-y-2">
+                                                    <Label className="text-xs">Display Type</Label>
+                                                    <Select value={newMetricDisplayType} onValueChange={(v) => setNewMetricDisplayType(v as any)}>
+                                                      <SelectTrigger data-testid="select-new-metric-display-type">
+                                                        <SelectValue />
+                                                      </SelectTrigger>
+                                                      <SelectContent>
+                                                        <SelectItem value="number">Number</SelectItem>
+                                                        <SelectItem value="bytes">Bytes</SelectItem>
+                                                        <SelectItem value="percentage">Percentage</SelectItem>
+                                                        <SelectItem value="bar">Progress Bar</SelectItem>
+                                                        <SelectItem value="text">Text</SelectItem>
+                                                      </SelectContent>
+                                                    </Select>
+                                                  </div>
+                                                  <div className="space-y-2">
+                                                    <Label className="text-xs">Unit (optional)</Label>
+                                                    <Input
+                                                      value={newMetricUnit}
+                                                      onChange={(e) => setNewMetricUnit(e.target.value)}
+                                                      placeholder="e.g., MB, %"
+                                                      data-testid="input-new-metric-unit"
+                                                    />
+                                                  </div>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                  <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    onClick={() => handleAddDiscoveredMetric(metricName)}
+                                                    data-testid="button-confirm-add-metric"
+                                                  >
+                                                    Add Metric
+                                                  </Button>
+                                                  <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() => setAddingMetric(null)}
+                                                    data-testid="button-cancel-add-metric"
+                                                  >
+                                                    Cancel
+                                                  </Button>
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                  </ScrollArea>
+                                  
+                                  {discoveredMetrics.metrics.filter(m => m.toLowerCase().includes(metricSearch.toLowerCase())).length > 100 && (
+                                    <p className="text-xs text-muted-foreground text-center">
+                                      Showing first 100 matches. Refine your search to see more.
+                                    </p>
+                                  )}
+                                </div>
+                              </CollapsibleContent>
+                            </Collapsible>
+                          )}
+                          
+                          {/* Show currently added custom metrics */}
+                          {prometheusMetrics.filter(m => !PROMETHEUS_METRIC_PRESETS.some(p => p.id === m.id)).length > 0 && (
+                            <div className="mt-3">
+                              <h5 className="text-xs font-medium text-muted-foreground mb-2">Custom Metrics Added:</h5>
+                              <div className="flex flex-wrap gap-1">
+                                {prometheusMetrics
+                                  .filter(m => !PROMETHEUS_METRIC_PRESETS.some(p => p.id === m.id))
+                                  .map(m => (
+                                    <Badge 
+                                      key={m.id} 
+                                      variant="secondary" 
+                                      className="cursor-pointer"
+                                      onClick={() => handleRemoveMetric(m.id)}
+                                      title="Click to remove"
+                                    >
+                                      {m.label} ×
+                                    </Badge>
+                                  ))
+                                }
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </>
                     )}
