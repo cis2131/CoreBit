@@ -286,3 +286,24 @@
     inset: -1px;
   }
 }
+
+/* Connection bandwidth threshold flash animations */
+@keyframes warning-flash {
+  0%, 100% { stroke-opacity: 0.7; }
+  50% { stroke-opacity: 0.9; }
+}
+
+@keyframes critical-flash {
+  0%, 100% { stroke-opacity: 0.6; }
+  50% { stroke-opacity: 1; }
+}
+
+.connection-warning-flash {
+  animation: warning-flash 1.5s ease-in-out infinite;
+  stroke: #f97316 !important; /* orange-500 */
+}
+
+.connection-critical-flash {
+  animation: critical-flash 0.8s ease-in-out infinite;
+  stroke: #ef4444 !important; /* red-500 */
+}

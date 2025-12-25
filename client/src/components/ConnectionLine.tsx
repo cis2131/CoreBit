@@ -1,5 +1,14 @@
 import { Connection, Device } from '@shared/schema';
 import { ArrowDown, ArrowUp } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
+import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
+
+interface BandwidthDataPoint {
+  timestamp: number;
+  inbound: number;
+  outbound: number;
+}
 
 interface ConnectionLineProps {
   connection: Connection;
@@ -10,6 +19,7 @@ interface ConnectionLineProps {
   sourceDevice?: Device;
   targetDevice?: Device;
   autoOffset?: number;
+  bandwidthHistory?: BandwidthDataPoint[];
 }
 
 // Format bits per second to human readable (network standard)
@@ -39,10 +49,24 @@ export function ConnectionLine({
   sourceDevice,
   targetDevice,
   autoOffset = 0,
+  bandwidthHistory = [],
 }: ConnectionLineProps) {
+  const [isHovered, setIsHovered] = useState(false);
   const speed = (connection.linkSpeed || '1G') as keyof typeof linkSpeedStyles;
   const style = linkSpeedStyles[speed] || linkSpeedStyles['1G'];
   const strokeWidth = isSelected ? style.width + 2 : style.width;
+
+  // Determine threshold flash class based on utilization
+  const utilizationPct = connection.linkStats?.utilizationPct || 0;
+  const warningThreshold = connection.warningThresholdPct ?? 70;
+  const criticalThreshold = connection.criticalThresholdPct ?? 90;
+  
+  let thresholdFlashClass = '';
+  if (utilizationPct >= criticalThreshold) {
+    thresholdFlashClass = 'connection-critical-flash';
+  } else if (utilizationPct >= warningThreshold) {
+    thresholdFlashClass = 'connection-warning-flash';
+  }
 
   // Calculate curve offset - use manual offset if set, otherwise use auto-offset for duplicate connections
   const curveMode = connection.curveMode || 'straight';
@@ -301,7 +325,7 @@ export function ConnectionLine({
             strokeWidth={strokeWidth}
             strokeOpacity={0.7}
             strokeDasharray={style.dashArray}
-            className="transition-all"
+            className={`transition-all ${thresholdFlashClass}`}
           />
           {/* Invisible hit area for curved path */}
           <path
@@ -324,7 +348,7 @@ export function ConnectionLine({
             strokeWidth={strokeWidth}
             strokeOpacity={0.7}
             strokeDasharray={style.dashArray}
-            className="transition-all"
+            className={`transition-all ${thresholdFlashClass}`}
           />
           {/* Invisible hit area for straight line */}
           <line
@@ -407,41 +431,130 @@ export function ConnectionLine({
           ? connection.linkStats.inBitsPerSec || 0
           : connection.linkStats.outBitsPerSec || 0;
         
+        // Prepare chart data from history
+        const chartData = bandwidthHistory.length > 0 
+          ? bandwidthHistory.map((point, index) => ({
+              time: index,
+              inbound: shouldFlip ? point.outbound : point.inbound,
+              outbound: shouldFlip ? point.inbound : point.outbound,
+            }))
+          : [];
+        
         return (
-          <g>
-            {/* Background box for traffic stats */}
-            <rect
-              x={curveApex.x - 50}
-              y={curveApex.y - 28}
-              width="100"
-              height="36"
-              rx="4"
-              fill="hsl(var(--background))"
-              stroke="hsl(var(--border))"
-              strokeWidth="1"
-              opacity="0.95"
-            />
-            {/* Inbound traffic (towards source) */}
-            <text
-              x={curveApex.x}
-              y={curveApex.y - 14}
-              textAnchor="middle"
-              className="text-[10px] font-mono fill-blue-500"
-              data-testid="text-connection-inbound"
-            >
-              ↓ {formatBitsPerSec(inbound)}
-            </text>
-            {/* Outbound traffic (towards target) */}
-            <text
-              x={curveApex.x}
-              y={curveApex.y + 2}
-              textAnchor="middle"
-              className="text-[10px] font-mono fill-green-500"
-              data-testid="text-connection-outbound"
-            >
-              ↑ {formatBitsPerSec(outbound)}
-            </text>
-          </g>
+          <foreignObject
+            x={curveApex.x - 55}
+            y={curveApex.y - 30}
+            width="110"
+            height="45"
+            style={{ overflow: 'visible' }}
+          >
+            <HoverCard openDelay={200} closeDelay={100}>
+              <HoverCardTrigger asChild>
+                <div 
+                  className="bg-background border border-border rounded px-2 py-1 cursor-pointer hover-elevate"
+                  style={{ opacity: 0.95 }}
+                  onMouseEnter={() => setIsHovered(true)}
+                  onMouseLeave={() => setIsHovered(false)}
+                  data-testid={`traffic-stats-${connection.id}`}
+                >
+                  <div className="text-[10px] font-mono text-blue-500 flex items-center gap-1" data-testid="text-connection-inbound">
+                    <ArrowDown className="h-3 w-3" /> {formatBitsPerSec(inbound)}
+                  </div>
+                  <div className="text-[10px] font-mono text-green-500 flex items-center gap-1" data-testid="text-connection-outbound">
+                    <ArrowUp className="h-3 w-3" /> {formatBitsPerSec(outbound)}
+                  </div>
+                </div>
+              </HoverCardTrigger>
+              <HoverCardContent 
+                className="w-80 p-3" 
+                side="top"
+                sideOffset={5}
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium">Bandwidth Monitor</span>
+                    {utilizationPct > 0 && (
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${
+                        utilizationPct >= criticalThreshold 
+                          ? 'bg-red-500/20 text-red-500' 
+                          : utilizationPct >= warningThreshold 
+                            ? 'bg-orange-500/20 text-orange-500'
+                            : 'bg-muted text-muted-foreground'
+                      }`}>
+                        {utilizationPct.toFixed(1)}% utilization
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex gap-4 text-xs">
+                    <div className="flex items-center gap-1 text-blue-500">
+                      <ArrowDown className="h-3 w-3" /> In: {formatBitsPerSec(inbound)}
+                    </div>
+                    <div className="flex items-center gap-1 text-green-500">
+                      <ArrowUp className="h-3 w-3" /> Out: {formatBitsPerSec(outbound)}
+                    </div>
+                  </div>
+                  {chartData.length > 1 ? (
+                    <div className="h-24 mt-2">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id={`inGrad-${connection.id}`} x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                            </linearGradient>
+                            <linearGradient id={`outGrad-${connection.id}`} x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/>
+                              <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <YAxis 
+                            hide 
+                            domain={['dataMin', 'dataMax']}
+                          />
+                          <XAxis hide dataKey="time" />
+                          <Tooltip 
+                            content={({ active, payload }) => {
+                              if (active && payload && payload.length) {
+                                return (
+                                  <div className="bg-popover border rounded p-2 text-xs shadow-lg">
+                                    <div className="text-blue-500">In: {formatBitsPerSec(payload[0]?.value as number || 0)}</div>
+                                    <div className="text-green-500">Out: {formatBitsPerSec(payload[1]?.value as number || 0)}</div>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            }}
+                          />
+                          <Area 
+                            type="monotone" 
+                            dataKey="inbound" 
+                            stroke="#3b82f6" 
+                            strokeWidth={1.5}
+                            fill={`url(#inGrad-${connection.id})`}
+                          />
+                          <Area 
+                            type="monotone" 
+                            dataKey="outbound" 
+                            stroke="#22c55e" 
+                            strokeWidth={1.5}
+                            fill={`url(#outGrad-${connection.id})`}
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <div className="h-24 flex items-center justify-center text-xs text-muted-foreground">
+                      Collecting bandwidth history...
+                    </div>
+                  )}
+                  <div className="text-[10px] text-muted-foreground flex justify-between">
+                    <span>Thresholds: ⚠ {warningThreshold}% | 🔴 {criticalThreshold}%</span>
+                    <span>{connection.linkSpeed || '1G'}</span>
+                  </div>
+                </div>
+              </HoverCardContent>
+            </HoverCard>
+          </foreignObject>
         );
       })()}
     </g>

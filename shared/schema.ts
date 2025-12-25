@@ -250,6 +250,8 @@ export const connections = pgTable("connections", {
     lastResolvedNodeName?: string;
     state?: 'resolved' | 'unresolved' | 'pending';
   }>(),
+  warningThresholdPct: integer("warning_threshold_pct").default(70),
+  criticalThresholdPct: integer("critical_threshold_pct").default(90),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

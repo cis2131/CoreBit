@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -81,6 +82,8 @@ export function ConnectionPropertiesPanel({
   const [curveOffset, setCurveOffset] = useState(connection.curveOffset || 0);
   const [flipTrafficDirection, setFlipTrafficDirection] = useState(connection.flipTrafficDirection || false);
   const [isDynamic, setIsDynamic] = useState(connection.isDynamic || false);
+  const [warningThreshold, setWarningThreshold] = useState(connection.warningThresholdPct ?? 70);
+  const [criticalThreshold, setCriticalThreshold] = useState(connection.criticalThresholdPct ?? 90);
   const [saving, setSaving] = useState(false);
   const [resettingIndex, setResettingIndex] = useState(false);
   
@@ -106,6 +109,8 @@ export function ConnectionPropertiesPanel({
     setCurveOffset(connection.curveOffset || 0);
     setFlipTrafficDirection(connection.flipTrafficDirection || false);
     setIsDynamic(connection.isDynamic || false);
+    setWarningThreshold(connection.warningThresholdPct ?? 70);
+    setCriticalThreshold(connection.criticalThresholdPct ?? 90);
   }, [
     connection.id,
     connection.linkSpeed,
@@ -116,6 +121,8 @@ export function ConnectionPropertiesPanel({
     connection.curveOffset,
     connection.flipTrafficDirection,
     connection.isDynamic,
+    connection.warningThresholdPct,
+    connection.criticalThresholdPct,
   ]);
 
   const sourcePorts = sourceDevice.deviceData?.ports || [];
@@ -140,7 +147,9 @@ export function ConnectionPropertiesPanel({
     curveMode !== ((connection.curveMode as 'straight' | 'curved' | 'auto') || "straight") ||
     curveOffset !== (connection.curveOffset || 0) ||
     flipTrafficDirection !== (connection.flipTrafficDirection || false) ||
-    isDynamic !== (connection.isDynamic || false);
+    isDynamic !== (connection.isDynamic || false) ||
+    warningThreshold !== (connection.warningThresholdPct ?? 70) ||
+    criticalThreshold !== (connection.criticalThresholdPct ?? 90);
 
   const handleSave = async () => {
     setSaving(true);
@@ -155,6 +164,8 @@ export function ConnectionPropertiesPanel({
         curveOffset,
         flipTrafficDirection,
         isDynamic,
+        warningThresholdPct: warningThreshold,
+        criticalThresholdPct: criticalThreshold,
       };
       
       // If enabling dynamic connection, set the type and metadata
@@ -590,6 +601,64 @@ export function ConnectionPropertiesPanel({
                       onCheckedChange={setFlipTrafficDirection}
                       data-testid="switch-flip-traffic"
                     />
+                  </div>
+                  
+                  <div className="space-y-3 pt-3 border-t">
+                    <Label className="text-sm font-medium">Utilization Thresholds</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Connection line flashes when utilization exceeds these thresholds
+                    </p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="warning-threshold" className="text-xs flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-orange-500" />
+                          Warning
+                        </Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id="warning-threshold"
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={warningThreshold}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                              const val = parseInt(e.target.value) || 0;
+                              setWarningThreshold(Math.min(100, Math.max(0, val)));
+                            }}
+                            className="h-8 w-20"
+                            data-testid="input-warning-threshold"
+                          />
+                          <span className="text-xs text-muted-foreground">%</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="critical-threshold" className="text-xs flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-red-500" />
+                          Critical
+                        </Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id="critical-threshold"
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={criticalThreshold}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                              const val = parseInt(e.target.value) || 0;
+                              setCriticalThreshold(Math.min(100, Math.max(0, val)));
+                            }}
+                            className="h-8 w-20"
+                            data-testid="input-critical-threshold"
+                          />
+                          <span className="text-xs text-muted-foreground">%</span>
+                        </div>
+                      </div>
+                    </div>
+                    {warningThreshold >= criticalThreshold && (
+                      <p className="text-xs text-destructive">
+                        Warning threshold should be less than critical threshold
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
