@@ -105,6 +105,11 @@ export class ProxmoxApi {
       const headers: Record<string, string> = {
         'Content-Type': 'application/x-www-form-urlencoded',
       };
+      
+      // Add Content-Length for POST requests (required by some servers)
+      if (postData) {
+        headers['Content-Length'] = Buffer.byteLength(postData).toString();
+      }
 
       if (apiTokenId && apiTokenSecret) {
         headers['Authorization'] = `PVEAPIToken=${apiTokenId}=${apiTokenSecret}`;
@@ -173,6 +178,8 @@ export class ProxmoxApi {
       return false;
     }
 
+    console.log(`[Proxmox] Authenticating as ${username}@${realm} to ${this.credentials.host}:${this.credentials.port}`);
+    
     const result = await this.makeRequest<{
       ticket: string;
       CSRFPreventionToken: string;
