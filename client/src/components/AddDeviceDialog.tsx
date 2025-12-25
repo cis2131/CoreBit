@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Device, type CredentialProfile } from '@shared/schema';
+import { Device, type CredentialProfile, PROMETHEUS_METRIC_PRESETS, type PrometheusMetricConfig } from '@shared/schema';
 import {
   Dialog,
   DialogContent,
@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Separator } from '@/components/ui/separator';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface AddDeviceDialogProps {
   open: boolean;
@@ -86,6 +87,12 @@ export function AddDeviceDialog({
   const [proxmoxPassword, setProxmoxPassword] = useState('');
   const [proxmoxRealm, setProxmoxRealm] = useState('pam');
   const [proxmoxPort, setProxmoxPort] = useState('8006');
+  
+  // Custom Server credentials (can use SNMP or Prometheus)
+  const [serverPollingType, setServerPollingType] = useState<'snmp' | 'prometheus'>('prometheus');
+  const [prometheusPort, setPrometheusPort] = useState('9100');
+  const [prometheusPath, setPrometheusPath] = useState('/metrics');
+  const [prometheusMetrics, setPrometheusMetrics] = useState<PrometheusMetricConfig[]>([]);
 
   const { data: profiles = [] } = useQuery<CredentialProfile[]>({
     queryKey: ['/api/credential-profiles'],
@@ -140,6 +147,15 @@ export function AddDeviceDialog({
           setProxmoxRealm(creds.proxmoxRealm);
         }
         if (creds.proxmoxPort) setProxmoxPort(creds.proxmoxPort.toString());
+        // Server/Prometheus credentials
+        if (creds.usePrometheus || creds.prometheusPort || creds.prometheusPath) {
+          setServerPollingType('prometheus');
+          if (creds.prometheusPort) setPrometheusPort(creds.prometheusPort.toString());
+          if (creds.prometheusPath) setPrometheusPath(creds.prometheusPath);
+          if (creds.prometheusMetrics) setPrometheusMetrics(creds.prometheusMetrics);
+        } else if (creds.snmpVersion) {
+          setServerPollingType('snmp');
+        }
       } else {
         setCredMode('none');
       }
@@ -166,6 +182,11 @@ export function AddDeviceDialog({
       setProxmoxPassword('');
       setProxmoxRealm('pam');
       setProxmoxPort('8006');
+      // Server/Prometheus defaults
+      setServerPollingType('prometheus');
+      setPrometheusPort('9100');
+      setPrometheusPath('/metrics');
+      setPrometheusMetrics([]);
     }
   }, [editDevice, initialType, open]);
 
@@ -225,6 +246,34 @@ export function AddDeviceDialog({
                 proxmoxPort: parseInt(proxmoxPort) || 8006,
               },
             };
+          }
+        } else if (deviceCategory === 'server') {
+          if (serverPollingType === 'prometheus') {
+            credentialData = {
+              customCredentials: {
+                usePrometheus: true,
+                prometheusPort: parseInt(prometheusPort) || 9100,
+                prometheusPath: prometheusPath || '/metrics',
+                prometheusMetrics: prometheusMetrics.length > 0 ? prometheusMetrics : undefined,
+              },
+            };
+          } else {
+            // SNMP polling for server
+            const snmpCreds: any = {
+              snmpVersion,
+            };
+            
+            if (snmpVersion === '1' || snmpVersion === '2c') {
+              snmpCreds.snmpCommunity = snmpCommunity;
+            } else if (snmpVersion === '3') {
+              snmpCreds.snmpUsername = snmpUsername;
+              snmpCreds.snmpAuthProtocol = snmpAuthProtocol;
+              snmpCreds.snmpAuthKey = snmpAuthKey;
+              snmpCreds.snmpPrivProtocol = snmpPrivProtocol;
+              snmpCreds.snmpPrivKey = snmpPrivKey;
+            }
+            
+            credentialData = { customCredentials: snmpCreds };
           }
         }
       }
@@ -556,6 +605,181 @@ export function AddDeviceDialog({
                         data-testid="input-proxmox-port"
                       />
                     </div>
+                  </div>
+                )}
+
+                {credMode === 'custom' && deviceCategory === 'server' && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Polling Method</Label>
+                      <RadioGroup value={serverPollingType} onValueChange={(v) => setServerPollingType(v as 'snmp' | 'prometheus')} data-testid="radio-server-polling-type">
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="prometheus" id="server-prometheus" data-testid="radio-server-prometheus" />
+                          <Label htmlFor="server-prometheus" className="font-normal">Prometheus (node_exporter)</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <RadioGroupItem value="snmp" id="server-snmp" data-testid="radio-server-snmp" />
+                          <Label htmlFor="server-snmp" className="font-normal">SNMP</Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+
+                    {serverPollingType === 'prometheus' && (
+                      <>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Port</Label>
+                            <Input
+                              type="number"
+                              placeholder="9100"
+                              value={prometheusPort}
+                              onChange={(e) => setPrometheusPort(e.target.value)}
+                              data-testid="input-prometheus-port"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Metrics Path</Label>
+                            <Input
+                              placeholder="/metrics"
+                              value={prometheusPath}
+                              onChange={(e) => setPrometheusPath(e.target.value)}
+                              data-testid="input-prometheus-path"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-3 p-4 border rounded-md">
+                          <h4 className="text-sm font-medium">Extra Metrics to Monitor</h4>
+                          <p className="text-xs text-muted-foreground mb-3">
+                            Select additional metrics to collect (CPU, Memory, Disk are always collected)
+                          </p>
+                          
+                          <div className="grid grid-cols-2 gap-2">
+                            {PROMETHEUS_METRIC_PRESETS.map((preset) => {
+                              const isChecked = prometheusMetrics.some(m => m.id === preset.id);
+                              return (
+                                <div key={preset.id} className="flex items-center space-x-2">
+                                  <Checkbox
+                                    id={`device-metric-${preset.id}`}
+                                    checked={isChecked}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        const clonedPreset = JSON.parse(JSON.stringify(preset));
+                                        setPrometheusMetrics([...prometheusMetrics, clonedPreset]);
+                                      } else {
+                                        setPrometheusMetrics(prometheusMetrics.filter(m => m.id !== preset.id));
+                                      }
+                                    }}
+                                    data-testid={`checkbox-device-metric-${preset.id}`}
+                                  />
+                                  <label 
+                                    htmlFor={`device-metric-${preset.id}`}
+                                    className="text-sm cursor-pointer"
+                                  >
+                                    {preset.label}
+                                  </label>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {serverPollingType === 'snmp' && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>SNMP Version</Label>
+                          <Select value={snmpVersion} onValueChange={(v) => setSnmpVersion(v as any)}>
+                            <SelectTrigger data-testid="select-server-snmp-version">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="1">SNMP v1</SelectItem>
+                              <SelectItem value="2c">SNMP v2c</SelectItem>
+                              <SelectItem value="3">SNMP v3</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {(snmpVersion === '1' || snmpVersion === '2c') && (
+                          <div className="space-y-2">
+                            <Label>Community String</Label>
+                            <Input
+                              placeholder="public"
+                              value={snmpCommunity}
+                              onChange={(e) => setSnmpCommunity(e.target.value)}
+                              data-testid="input-server-snmp-community"
+                            />
+                          </div>
+                        )}
+
+                        {snmpVersion === '3' && (
+                          <>
+                            <div className="space-y-2">
+                              <Label>Username</Label>
+                              <Input
+                                placeholder="snmpuser"
+                                value={snmpUsername}
+                                onChange={(e) => setSnmpUsername(e.target.value)}
+                                autoComplete="off"
+                                data-testid="input-server-snmp-username"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label>Auth Protocol</Label>
+                                <Select value={snmpAuthProtocol} onValueChange={(v) => setSnmpAuthProtocol(v as any)}>
+                                  <SelectTrigger data-testid="select-server-snmp-auth-protocol">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="MD5">MD5</SelectItem>
+                                    <SelectItem value="SHA">SHA</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Auth Key</Label>
+                                <Input
+                                  type="password"
+                                  placeholder="••••••••"
+                                  value={snmpAuthKey}
+                                  onChange={(e) => setSnmpAuthKey(e.target.value)}
+                                  autoComplete="new-password"
+                                  data-testid="input-server-snmp-auth-key"
+                                />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label>Privacy Protocol</Label>
+                                <Select value={snmpPrivProtocol} onValueChange={(v) => setSnmpPrivProtocol(v as any)}>
+                                  <SelectTrigger data-testid="select-server-snmp-priv-protocol">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="DES">DES</SelectItem>
+                                    <SelectItem value="AES">AES</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Privacy Key</Label>
+                                <Input
+                                  type="password"
+                                  placeholder="••••••••"
+                                  value={snmpPrivKey}
+                                  onChange={(e) => setSnmpPrivKey(e.target.value)}
+                                  autoComplete="new-password"
+                                  data-testid="input-server-snmp-priv-key"
+                                />
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
