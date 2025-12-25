@@ -2708,7 +2708,9 @@ function CredentialProfileDialog({
     defaultValues: {
       name: "",
       type: "mikrotik",
-      credentials: {},
+      credentials: {
+        prometheusMetrics: [],
+      },
     },
   });
 
@@ -2717,14 +2719,19 @@ function CredentialProfileDialog({
       if (profile) {
         form.reset({
           name: profile.name,
-          type: profile.type as "mikrotik" | "snmp",
-          credentials: profile.credentials || {},
+          type: profile.type as "mikrotik" | "snmp" | "prometheus" | "proxmox",
+          credentials: {
+            ...profile.credentials,
+            prometheusMetrics: profile.credentials?.prometheusMetrics || [],
+          },
         });
       } else {
         form.reset({
           name: "",
           type: "mikrotik",
-          credentials: {},
+          credentials: {
+            prometheusMetrics: [],
+          },
         });
       }
     }
@@ -4082,7 +4089,10 @@ export default function Settings() {
                           {profile.name}
                         </div>
                         <div className="text-sm text-muted-foreground" data-testid={`text-profile-type-${profile.id}`}>
-                          {profile.type === "mikrotik" ? "Mikrotik Device" : profile.type === "proxmox" ? "Proxmox Device" : "SNMP Device"}
+                          {profile.type === "mikrotik" ? "Mikrotik Device" : 
+                           profile.type === "proxmox" ? "Proxmox Device" : 
+                           profile.type === "prometheus" ? "Prometheus (node_exporter)" : 
+                           "SNMP Device"}
                         </div>
                       </div>
                       <div className="flex gap-2">
