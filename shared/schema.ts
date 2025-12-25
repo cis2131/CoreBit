@@ -62,8 +62,32 @@ export const settings = pgTable("settings", {
 export const notifications = pgTable("notifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
-  url: text("url").notNull(),
-  method: text("method").notNull().default("POST"),
+  type: text("type").notNull().default("webhook").$type<'webhook' | 'telegram' | 'slack' | 'pushover' | 'email'>(),
+  // Legacy webhook fields (kept for backward compatibility)
+  url: text("url"),
+  method: text("method").default("POST"),
+  // Type-specific config stored as JSON
+  config: jsonb("config").$type<{
+    // Webhook config
+    url?: string;
+    method?: string;
+    // Telegram config
+    botToken?: string;
+    chatId?: string;
+    // Slack config
+    webhookUrl?: string;
+    channel?: string; // Optional channel override
+    username?: string; // Optional username override
+    iconEmoji?: string; // Optional icon emoji
+    // Pushover config
+    pushoverUserKey?: string;
+    pushoverAppToken?: string;
+    pushoverDevice?: string;
+    pushoverSound?: string;
+    pushoverPriority?: number;
+    // Email config (future)
+    emailAddress?: string;
+  }>(),
   messageTemplate: text("message_template").notNull(),
   enabled: boolean("enabled").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -417,6 +441,30 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
   createdAt: true,
   updatedAt: true,
 }).extend({
+  type: z.enum(['webhook', 'telegram', 'slack', 'pushover', 'email']).optional(),
+  url: z.string().optional(), // Legacy field for backward compatibility
+  method: z.string().optional(), // Legacy field for backward compatibility
+  config: z.object({
+    // Webhook config
+    url: z.string().optional(),
+    method: z.string().optional(),
+    // Telegram config
+    botToken: z.string().optional(),
+    chatId: z.string().optional(),
+    // Slack config
+    webhookUrl: z.string().optional(),
+    channel: z.string().optional(),
+    username: z.string().optional(),
+    iconEmoji: z.string().optional(),
+    // Pushover config
+    pushoverUserKey: z.string().optional(),
+    pushoverAppToken: z.string().optional(),
+    pushoverDevice: z.string().optional(),
+    pushoverSound: z.string().optional(),
+    pushoverPriority: z.number().min(-2).max(2).optional(),
+    // Email config (future)
+    emailAddress: z.string().email().optional(),
+  }).optional(),
   enabled: z.boolean().optional(),
 });
 
@@ -477,7 +525,7 @@ export const userNotificationChannels = pgTable("user_notification_channels", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  type: text("type").notNull().$type<'webhook' | 'email' | 'telegram' | 'pushover'>(),
+  type: text("type").notNull().$type<'webhook' | 'email' | 'telegram' | 'pushover' | 'slack'>(),
   config: jsonb("config").notNull().$type<{
     // Webhook config
     url?: string;
@@ -488,6 +536,11 @@ export const userNotificationChannels = pgTable("user_notification_channels", {
     // Telegram config
     botToken?: string;
     chatId?: string;
+    // Slack config
+    webhookUrl?: string;
+    channel?: string; // Optional channel override
+    username?: string; // Optional username override
+    iconEmoji?: string; // Optional icon emoji
     // Pushover config
     pushoverUserKey?: string;
     pushoverAppToken?: string;
@@ -597,7 +650,7 @@ export const insertUserNotificationChannelSchema = createInsertSchema(userNotifi
   createdAt: true,
   updatedAt: true,
 }).extend({
-  type: z.enum(['webhook', 'email', 'telegram', 'pushover']),
+  type: z.enum(['webhook', 'email', 'telegram', 'pushover', 'slack']),
   config: z.object({
     url: z.string().optional(),
     method: z.string().optional(),
@@ -605,6 +658,11 @@ export const insertUserNotificationChannelSchema = createInsertSchema(userNotifi
     emailAddress: z.string().email().optional(),
     botToken: z.string().optional(),
     chatId: z.string().optional(),
+    // Slack config
+    webhookUrl: z.string().optional(),
+    channel: z.string().optional(),
+    username: z.string().optional(),
+    iconEmoji: z.string().optional(),
     pushoverUserKey: z.string().optional(),
     pushoverAppToken: z.string().optional(),
     pushoverDevice: z.string().optional(),

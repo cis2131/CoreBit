@@ -102,40 +102,116 @@ function renderMessageTemplate(template: string, device: any, newStatus: string,
     .replace(/\[Status\.New\]/g, newStatus);
 }
 
-// Helper function to send notification via HTTP
+// Helper function to send notification via HTTP (supports multiple types)
 async function sendNotification(notification: any, device: any, newStatus: string, oldStatus?: string) {
   if (!notification.enabled) {
     return;
   }
 
   const message = renderMessageTemplate(notification.messageTemplate, device, newStatus, oldStatus);
+  const config = notification.config || {};
+  const type = notification.type || 'webhook';
   
   try {
-    const url = notification.url;
-    const method = notification.method.toUpperCase();
-    
-    let finalUrl = url;
-    let fetchOptions: RequestInit = { method };
-    
-    if (method === 'GET') {
-      // For GET, append the message to the URL
-      // User should provide URL ending with parameter name and '=' (e.g., ...?text=)
-      // We append the URL-encoded message value
-      finalUrl = `${url}${encodeURIComponent(message)}`;
+    if (type === 'webhook') {
+      // Legacy webhook support or new webhook config
+      const url = config.url || notification.url;
+      const method = ((config.method || notification.method) || 'POST').toUpperCase();
+      
+      if (!url) {
+        console.error(`[Notification] Webhook URL not configured for ${notification.name}`);
+        return;
+      }
+      
+      let finalUrl = url;
+      let fetchOptions: RequestInit = { method };
+      
+      if (method === 'GET') {
+        finalUrl = `${url}${encodeURIComponent(message)}`;
+      } else {
+        fetchOptions.headers = { 'Content-Type': 'text/plain' };
+        fetchOptions.body = message;
+      }
+      
+      const response = await fetch(finalUrl, fetchOptions);
+      if (!response.ok) {
+        console.error(`[Notification] HTTP ${response.status} from ${finalUrl}`);
+      } else {
+        console.log(`[Notification] Webhook sent to ${notification.name}`);
+      }
+    } else if (type === 'telegram' && config.botToken && config.chatId) {
+      const telegramUrl = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
+      const response = await fetch(telegramUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: config.chatId,
+          text: message,
+          parse_mode: 'HTML',
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Notification] Telegram HTTP ${response.status}: ${errorText}`);
+      } else {
+        console.log(`[Notification] Telegram sent to ${notification.name}`);
+      }
+    } else if (type === 'slack' && config.webhookUrl) {
+      const slackPayload: Record<string, any> = {
+        text: message,
+      };
+      if (config.channel) slackPayload.channel = config.channel;
+      if (config.username) slackPayload.username = config.username;
+      if (config.iconEmoji) slackPayload.icon_emoji = config.iconEmoji;
+      
+      const response = await fetch(config.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(slackPayload),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Notification] Slack HTTP ${response.status}: ${errorText}`);
+      } else {
+        console.log(`[Notification] Slack sent to ${notification.name}`);
+      }
+    } else if (type === 'pushover' && config.pushoverUserKey && config.pushoverAppToken) {
+      const title = `CoreBit: ${device.name}`;
+      const pushoverData = new URLSearchParams();
+      pushoverData.append('token', config.pushoverAppToken);
+      pushoverData.append('user', config.pushoverUserKey);
+      pushoverData.append('message', message);
+      pushoverData.append('title', title);
+      
+      if (config.pushoverDevice) pushoverData.append('device', config.pushoverDevice);
+      if (config.pushoverSound) pushoverData.append('sound', config.pushoverSound);
+      if (config.pushoverPriority !== undefined) {
+        pushoverData.append('priority', String(config.pushoverPriority));
+        if (config.pushoverPriority === 2) {
+          pushoverData.append('retry', '60');
+          pushoverData.append('expire', '3600');
+        }
+      }
+      
+      const response = await fetch('https://api.pushover.net/1/messages.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: pushoverData.toString(),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Notification] Pushover HTTP ${response.status}: ${errorText}`);
+      } else {
+        console.log(`[Notification] Pushover sent to ${notification.name}`);
+      }
     } else {
-      // For POST, send the rendered message as the body
-      // User can configure the URL with query params for any additional parameters
-      fetchOptions.headers = { 'Content-Type': 'text/plain' };
-      fetchOptions.body = message;
-    }
-    
-    const response = await fetch(finalUrl, fetchOptions);
-    
-    if (!response.ok) {
-      console.error(`[Notification] HTTP ${response.status} from ${finalUrl}`);
+      console.warn(`[Notification] Unsupported or misconfigured type: ${type}`);
     }
   } catch (error: any) {
-    console.error(`[Notification] Failed to send to ${notification.url}:`, error.message);
+    console.error(`[Notification] Failed to send ${notification.name}:`, error.message);
   }
 }
 
@@ -146,10 +222,10 @@ async function sendUserNotification(channel: UserNotificationChannel, device: an
   }
 
   const config = channel.config;
+  const message = renderMessageTemplate(config.messageTemplate || '[Device.Name] is now [Service.Status]', device, newStatus, oldStatus);
   
   try {
     if (channel.type === 'webhook' && config.url) {
-      const message = renderMessageTemplate(config.messageTemplate || '[Device.Name] is now [Service.Status]', device, newStatus, oldStatus);
       const method = (config.method || 'POST').toUpperCase();
       
       let finalUrl = config.url;
@@ -165,36 +241,74 @@ async function sendUserNotification(channel: UserNotificationChannel, device: an
       const response = await fetch(finalUrl, fetchOptions);
       if (!response.ok) {
         console.error(`[UserNotification] HTTP ${response.status} from ${finalUrl}`);
+      } else {
+        console.log(`[UserNotification] Webhook sent to ${channel.name}`);
+      }
+    } else if (channel.type === 'telegram' && config.botToken && config.chatId) {
+      const telegramUrl = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
+      const response = await fetch(telegramUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: config.chatId,
+          text: message,
+          parse_mode: 'HTML',
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[UserNotification] Telegram HTTP ${response.status}: ${errorText}`);
+      } else {
+        console.log(`[UserNotification] Telegram sent to ${channel.name}`);
+      }
+    } else if (channel.type === 'slack' && config.webhookUrl) {
+      const slackPayload: Record<string, any> = {
+        text: message,
+      };
+      if (config.channel) slackPayload.channel = config.channel;
+      if (config.username) slackPayload.username = config.username;
+      if (config.iconEmoji) slackPayload.icon_emoji = config.iconEmoji;
+      
+      const response = await fetch(config.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(slackPayload),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[UserNotification] Slack HTTP ${response.status}: ${errorText}`);
+      } else {
+        console.log(`[UserNotification] Slack sent to ${channel.name}`);
       }
     } else if (channel.type === 'pushover' && config.pushoverUserKey && config.pushoverAppToken) {
-      const message = renderMessageTemplate(config.messageTemplate || '[Device.Name] is now [Service.Status]', device, newStatus, oldStatus);
       const title = `CoreBit: ${device.name}`;
       
-      const pushoverData: Record<string, string | number> = {
-        token: config.pushoverAppToken,
-        user: config.pushoverUserKey,
-        message: message,
-        title: title,
-      };
+      const pushoverData = new URLSearchParams();
+      pushoverData.append('token', config.pushoverAppToken);
+      pushoverData.append('user', config.pushoverUserKey);
+      pushoverData.append('message', message);
+      pushoverData.append('title', title);
       
       if (config.pushoverDevice) {
-        pushoverData.device = config.pushoverDevice;
+        pushoverData.append('device', config.pushoverDevice);
       }
       if (config.pushoverSound) {
-        pushoverData.sound = config.pushoverSound;
+        pushoverData.append('sound', config.pushoverSound);
       }
       if (config.pushoverPriority !== undefined) {
-        pushoverData.priority = config.pushoverPriority;
+        pushoverData.append('priority', String(config.pushoverPriority));
         if (config.pushoverPriority === 2) {
-          pushoverData.retry = 60;
-          pushoverData.expire = 3600;
+          pushoverData.append('retry', '60');
+          pushoverData.append('expire', '3600');
         }
       }
       
       const response = await fetch('https://api.pushover.net/1/messages.json', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(pushoverData),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: pushoverData.toString(),
       });
       
       if (!response.ok) {
@@ -203,8 +317,9 @@ async function sendUserNotification(channel: UserNotificationChannel, device: an
       } else {
         console.log(`[UserNotification] Pushover notification sent to ${channel.name}`);
       }
+    } else {
+      console.warn(`[UserNotification] Unsupported or misconfigured type: ${channel.type}`);
     }
-    // Future: Add email and telegram support here
   } catch (error: any) {
     console.error(`[UserNotification] Failed to send to ${channel.name}:`, error.message);
   }

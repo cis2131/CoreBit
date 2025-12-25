@@ -15,7 +15,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw, Users, Crown, Shield, Eye, Loader2, UserCog, Calendar, Sun, Moon, Webhook, Mail, MessageSquare, Info, Send, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Edit, ArrowLeft, Bell, BellOff, Download, Upload, Clock, HardDrive, RefreshCw, Users, Crown, Shield, Eye, Loader2, UserCog, Calendar, Sun, Moon, Webhook, Mail, MessageSquare, Hash, Info, Send, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { z } from "zod";
@@ -51,8 +51,32 @@ type CredentialFormData = z.infer<typeof credentialFormSchema>;
 
 const notificationFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  url: z.string().url("Must be a valid URL"),
-  method: z.enum(["GET", "POST"]),
+  type: z.enum(["webhook", "telegram", "slack", "pushover", "email"]),
+  // Legacy webhook fields for backward compatibility
+  url: z.string().optional(),
+  method: z.enum(["GET", "POST"]).optional(),
+  // Type-specific config
+  config: z.object({
+    // Webhook
+    url: z.string().optional(),
+    method: z.string().optional(),
+    // Telegram
+    botToken: z.string().optional(),
+    chatId: z.string().optional(),
+    // Slack
+    webhookUrl: z.string().optional(),
+    channel: z.string().optional(),
+    username: z.string().optional(),
+    iconEmoji: z.string().optional(),
+    // Pushover
+    pushoverUserKey: z.string().optional(),
+    pushoverAppToken: z.string().optional(),
+    pushoverDevice: z.string().optional(),
+    pushoverSound: z.string().optional(),
+    pushoverPriority: z.number().min(-2).max(2).optional(),
+    // Email
+    emailAddress: z.string().optional(),
+  }).optional(),
   messageTemplate: z.string().min(1, "Message template is required"),
   enabled: z.boolean().optional(),
 });
@@ -913,7 +937,7 @@ function UserManagementSection() {
     if (editingChannel) {
       channelForm.reset({
         name: editingChannel.name,
-        type: editingChannel.type as "webhook" | "email" | "telegram" | "pushover",
+        type: editingChannel.type as "webhook" | "email" | "telegram" | "slack" | "pushover",
         enabled: editingChannel.enabled,
         config: {
           url: "",
@@ -1440,6 +1464,7 @@ function UserManagementSection() {
                       {channel.type === 'webhook' && <Webhook className="h-4 w-4 text-blue-500" />}
                       {channel.type === 'email' && <Mail className="h-4 w-4 text-green-500" />}
                       {channel.type === 'telegram' && <MessageSquare className="h-4 w-4 text-sky-500" />}
+                      {channel.type === 'slack' && <Hash className="h-4 w-4 text-pink-500" />}
                       {channel.type === 'pushover' && <Bell className="h-4 w-4 text-purple-500" />}
                       <div>
                         <div className="font-medium text-foreground flex items-center gap-2">
@@ -1535,6 +1560,7 @@ function UserManagementSection() {
                       <SelectContent>
                         <SelectItem value="webhook">Webhook</SelectItem>
                         <SelectItem value="telegram">Telegram</SelectItem>
+                        <SelectItem value="slack">Slack</SelectItem>
                         <SelectItem value="pushover">Pushover</SelectItem>
                         <SelectItem value="email">Email (coming soon)</SelectItem>
                       </SelectContent>
@@ -1611,6 +1637,7 @@ function UserManagementSection() {
                         <FormControl>
                           <Input {...field} value={field.value || ""} placeholder="123456:ABC-DEF..." data-testid="input-channel-bot-token" />
                         </FormControl>
+                        <FormDescription className="text-xs">Get this from @BotFather on Telegram</FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -1623,6 +1650,66 @@ function UserManagementSection() {
                         <FormLabel>Chat ID</FormLabel>
                         <FormControl>
                           <Input {...field} value={field.value || ""} placeholder="-1001234567890" data-testid="input-channel-chat-id" />
+                        </FormControl>
+                        <FormDescription className="text-xs">Group or user chat ID to send messages to</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
+
+              {channelForm.watch("type") === "slack" && (
+                <>
+                  <FormField
+                    control={channelForm.control}
+                    name="config.webhookUrl"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Slack Webhook URL</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value || ""} placeholder="https://hooks.slack.com/services/..." data-testid="input-channel-slack-webhook" />
+                        </FormControl>
+                        <FormDescription className="text-xs">Create an incoming webhook in your Slack workspace settings</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={channelForm.control}
+                    name="config.channel"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Channel Override (optional)</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value || ""} placeholder="#alerts" data-testid="input-channel-slack-channel" />
+                        </FormControl>
+                        <FormDescription className="text-xs">Override the default webhook channel</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={channelForm.control}
+                    name="config.username"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Bot Username (optional)</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value || ""} placeholder="CoreBit" data-testid="input-channel-slack-username" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={channelForm.control}
+                    name="config.iconEmoji"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Icon Emoji (optional)</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value || ""} placeholder=":warning:" data-testid="input-channel-slack-icon" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -1805,7 +1892,7 @@ function UserManagementSection() {
 // User Notification Channels schema
 const userChannelFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  type: z.enum(["webhook", "email", "telegram", "pushover"]),
+  type: z.enum(["webhook", "email", "telegram", "slack", "pushover"]),
   enabled: z.boolean().optional(),
   config: z.object({
     url: z.string().optional(),
@@ -1814,6 +1901,12 @@ const userChannelFormSchema = z.object({
     emailAddress: z.string().email().optional().or(z.literal("")),
     botToken: z.string().optional(),
     chatId: z.string().optional(),
+    // Slack
+    webhookUrl: z.string().optional(),
+    channel: z.string().optional(),
+    username: z.string().optional(),
+    iconEmoji: z.string().optional(),
+    // Pushover
     pushoverUserKey: z.string().optional(),
     pushoverAppToken: z.string().optional(),
     pushoverDevice: z.string().optional(),
@@ -2167,27 +2260,35 @@ function NotificationDialog({
     resolver: zodResolver(notificationFormSchema),
     defaultValues: {
       name: "",
+      type: "webhook",
       url: "",
       method: "POST",
+      config: {},
       messageTemplate: "Device [Device.Name] ([Device.Address]) changed status: [Status.Old] → [Status.New]",
       enabled: true,
     },
   });
 
+  const selectedType = form.watch("type");
+
   useEffect(() => {
     if (notification) {
       form.reset({
         name: notification.name,
-        url: notification.url,
-        method: notification.method as "GET" | "POST",
+        type: (notification.type as any) || "webhook",
+        url: notification.url || "",
+        method: (notification.method as "GET" | "POST") || "POST",
+        config: (notification.config as any) || {},
         messageTemplate: notification.messageTemplate,
         enabled: notification.enabled,
       });
     } else {
       form.reset({
         name: "",
+        type: "webhook",
         url: "",
         method: "POST",
+        config: {},
         messageTemplate: "Device [Device.Name] ([Device.Address]) changed status: [Status.Old] → [Status.New]",
         enabled: true,
       });
@@ -2229,9 +2330,9 @@ function NotificationDialog({
 
   const onSubmit = (data: NotificationFormData) => {
     if (isEdit) {
-      updateMutation.mutate(data);
+      updateMutation.mutate(data as any);
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(data as any);
     }
   };
 
@@ -2258,7 +2359,7 @@ function NotificationDialog({
                 <FormItem>
                   <FormLabel>Notification Name</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="Telegram Alert" data-testid="input-notification-name" />
+                    <Input {...field} placeholder="My Alert" data-testid="input-notification-name" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -2267,50 +2368,234 @@ function NotificationDialog({
 
             <FormField
               control={form.control}
-              name="url"
+              name="type"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>API Endpoint URL</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="https://api.telegram.org/bot..." data-testid="input-notification-url" />
-                  </FormControl>
-                  <FormDescription className="space-y-1">
-                    <div>
-                      <strong>For GET:</strong> End URL with parameter name and = (e.g., <code className="text-xs">...?text=</code>)
-                    </div>
-                    <div>
-                      <strong>For POST:</strong> Message sent as request body. Add other parameters to URL as needed.
-                    </div>
-                    <div className="text-xs mt-1">
-                      Example: <code>https://api.telegram.org/botTOKEN/sendMessage?chat_id=12345&text=</code>
-                    </div>
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="method"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>HTTP Method</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <FormLabel>Type</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
-                      <SelectTrigger data-testid="select-notification-method">
+                      <SelectTrigger data-testid="select-notification-type">
                         <SelectValue />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="GET">GET</SelectItem>
-                      <SelectItem value="POST">POST</SelectItem>
+                      <SelectItem value="webhook">Webhook</SelectItem>
+                      <SelectItem value="telegram">Telegram</SelectItem>
+                      <SelectItem value="slack">Slack</SelectItem>
+                      <SelectItem value="pushover">Pushover</SelectItem>
+                      <SelectItem value="email">Email (coming soon)</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
                 </FormItem>
               )}
             />
+
+            {selectedType === "webhook" && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="config.url"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Webhook URL</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={field.value || ""} placeholder="https://..." data-testid="input-notification-url" />
+                      </FormControl>
+                      <FormDescription className="space-y-1">
+                        <div><strong>For GET:</strong> End URL with parameter name and = (e.g., <code className="text-xs">...?text=</code>)</div>
+                        <div><strong>For POST:</strong> Message sent as request body</div>
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="config.method"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>HTTP Method</FormLabel>
+                      <Select value={field.value || "POST"} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-notification-method">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="GET">GET</SelectItem>
+                          <SelectItem value="POST">POST</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
+
+            {selectedType === "telegram" && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="config.botToken"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Bot Token</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={field.value || ""} placeholder="123456:ABC-DEF..." data-testid="input-telegram-token" />
+                      </FormControl>
+                      <FormDescription>Get this from @BotFather on Telegram</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="config.chatId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Chat ID</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={field.value || ""} placeholder="-1001234567890" data-testid="input-telegram-chat" />
+                      </FormControl>
+                      <FormDescription>Group or user chat ID to send messages to</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
+
+            {selectedType === "slack" && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="config.webhookUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Slack Webhook URL</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={field.value || ""} placeholder="https://hooks.slack.com/services/..." data-testid="input-slack-webhook" />
+                      </FormControl>
+                      <FormDescription>Create an incoming webhook in your Slack workspace settings</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="config.channel"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Channel Override (optional)</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={field.value || ""} placeholder="#alerts" data-testid="input-slack-channel" />
+                      </FormControl>
+                      <FormDescription>Override the default webhook channel</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="config.username"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Bot Username (optional)</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={field.value || ""} placeholder="CoreBit" data-testid="input-slack-username" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="config.iconEmoji"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Icon Emoji (optional)</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={field.value || ""} placeholder=":warning:" data-testid="input-slack-icon" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
+
+            {selectedType === "pushover" && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="config.pushoverUserKey"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>User Key</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={field.value || ""} placeholder="Your Pushover user key" data-testid="input-pushover-user" />
+                      </FormControl>
+                      <FormDescription>Find this on your Pushover dashboard</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="config.pushoverAppToken"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>API Token</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={field.value || ""} placeholder="Your app API token" data-testid="input-pushover-token" />
+                      </FormControl>
+                      <FormDescription>Create an app at pushover.net/apps/build</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="config.pushoverDevice"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Device (optional)</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={field.value || ""} placeholder="Leave empty for all devices" data-testid="input-pushover-device" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="config.pushoverSound"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Sound</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || "pushover"}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-pushover-sound">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="pushover">Pushover (default)</SelectItem>
+                          <SelectItem value="siren">Siren</SelectItem>
+                          <SelectItem value="spacealarm">Space Alarm</SelectItem>
+                          <SelectItem value="mechanical">Mechanical</SelectItem>
+                          <SelectItem value="persistent">Persistent</SelectItem>
+                          <SelectItem value="none">None (silent)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
 
             <FormField
               control={form.control}
@@ -2328,7 +2613,7 @@ function NotificationDialog({
                   </FormControl>
                   <FormDescription className="space-y-1">
                     <div>Available variables:</div>
-                    <div className="font-mono text-xs space-x-2">
+                    <div className="font-mono text-xs space-x-2 flex flex-wrap gap-1">
                       <span>[Device.Name]</span>
                       <span>[Device.Address]</span>
                       <span>[Device.Identity]</span>
