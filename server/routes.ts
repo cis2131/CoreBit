@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probePrometheusInterfaceTraffic, probeMikrotikWithPool, pingDevice, discoverDevice, type DeviceFingerprint, type ProbeType } from "./deviceProbe";
+import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probePrometheusInterfaceTraffic, probeMikrotikWithPool, pingDevice, discoverDevice, discoverPrometheusMetrics, type DeviceFingerprint, type ProbeType } from "./deviceProbe";
 import { mikrotikPool } from "./mikrotikConnectionPool";
 import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, insertUserNotificationChannelSchema, insertDutyUserScheduleSchema, insertDutyShiftConfigSchema, insertIpamPoolSchema, insertIpamAddressSchema, type Device, type Connection, type UserNotificationChannel } from "@shared/schema";
 import { z } from "zod";
@@ -4086,6 +4086,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     setInterval(runTrafficCycle, TRAFFIC_POLLING_INTERVAL);
   }
   
+  // ============ PROMETHEUS METRICS DISCOVERY ============
+  
+  // Discover available Prometheus metrics from a device
+  app.get("/api/devices/:id/prometheus-metrics", requireAuth as any, async (req, res) => {
+    try {
+      const device = await storage.getDevice(req.params.id);
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+      
+      // Only allow discovery for devices that support Prometheus
+      const supportedTypes = ['generic_prometheus', 'server', 'proxmox'];
+      const profile = device.credentialProfileId 
+        ? await storage.getCredentialProfile(device.credentialProfileId) 
+        : null;
+      const hasPrometheusConfig = device.customCredentials?.usePrometheus || 
+        profile?.credentials?.usePrometheus ||
+        supportedTypes.includes(device.type);
+      
+      if (!hasPrometheusConfig) {
+        return res.status(400).json({ error: 'Device does not support Prometheus metrics' });
+      }
+      
+      if (!device.ipAddress) {
+        return res.status(400).json({ error: 'Device has no IP address configured' });
+      }
+      
+      // Merge credentials
+      const credentials = {
+        ...profile?.credentials,
+        ...device.customCredentials
+      };
+      
+      const result = await discoverPrometheusMetrics(device.ipAddress, credentials);
+      
+      // Also update the device's availableMetrics in deviceData
+      const updatedDeviceData = {
+        ...device.deviceData,
+        availableMetrics: result.metrics
+      };
+      await storage.updateDevice(device.id, { deviceData: updatedDeviceData });
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error('Error discovering Prometheus metrics:', error);
+      res.status(500).json({ error: `Failed to discover metrics: ${error.message}` });
+    }
+  });
+
   // ============ PROXMOX VMS ROUTES ============
 
   // Get all VMs for a specific Proxmox host device

@@ -4,6 +4,43 @@ import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Prometheus metric configuration type - used in credential profiles (defaults) and devices (overrides)
+export type PrometheusMetricConfig = {
+  id: string; // Unique identifier for this metric config
+  metricName: string; // Prometheus metric name (e.g., 'node_filesystem_avail_bytes')
+  label: string; // Display label (e.g., 'Disk Available')
+  displayType: 'bar' | 'gauge' | 'number' | 'text' | 'bytes' | 'percentage'; // How to visualize
+  unit?: string; // Optional unit suffix (e.g., 'GB', '%', 'ms')
+  labelFilter?: Record<string, string>; // Optional label filter (e.g., {device: '/dev/sda1'})
+  transform?: 'toGB' | 'toMB' | 'toPercent' | 'divide1000' | 'none'; // Value transformation
+  maxValue?: number; // For bar/gauge - the max value for percentage calculation
+  warningThreshold?: number; // Optional warning threshold
+  criticalThreshold?: number; // Optional critical threshold
+};
+
+// Common Prometheus metrics available for selection
+export const PROMETHEUS_METRIC_PRESETS: PrometheusMetricConfig[] = [
+  // Load averages (gauge metrics - show current value)
+  { id: 'load1', metricName: 'node_load1', label: 'Load (1m)', displayType: 'number' },
+  { id: 'load5', metricName: 'node_load5', label: 'Load (5m)', displayType: 'number' },
+  { id: 'load15', metricName: 'node_load15', label: 'Load (15m)', displayType: 'number' },
+  // Filesystem - available space on root
+  { id: 'fs_root_avail', metricName: 'node_filesystem_avail_bytes', label: 'Root FS Free', displayType: 'bytes', labelFilter: { mountpoint: '/' }, transform: 'toGB' },
+  // Swap - available swap space  
+  { id: 'swap_free', metricName: 'node_memory_SwapFree_bytes', label: 'Swap Free', displayType: 'bytes', transform: 'toGB' },
+  // File descriptors (gauge - currently allocated)
+  { id: 'open_fds', metricName: 'node_filefd_allocated', label: 'Open File Descriptors', displayType: 'number' },
+  // Entropy (gauge - current available)
+  { id: 'entropy', metricName: 'node_entropy_available_bits', label: 'Entropy Available', displayType: 'number' },
+  // TCP connections (gauge - current established)
+  { id: 'tcp_conns', metricName: 'node_netstat_Tcp_CurrEstab', label: 'TCP Connections', displayType: 'number' },
+  // Process counts (gauge - current running/blocked)
+  { id: 'procs_running', metricName: 'node_procs_running', label: 'Running Processes', displayType: 'number' },
+  { id: 'procs_blocked', metricName: 'node_procs_blocked', label: 'Blocked Processes', displayType: 'number' },
+  // Memory pressure indicator  
+  { id: 'mem_available', metricName: 'node_memory_MemAvailable_bytes', label: 'Memory Available', displayType: 'bytes', transform: 'toGB' },
+];
+
 export const userSessions = pgTable("user_sessions", {
   sid: varchar("sid").primaryKey(),
   sess: jsonb("sess").notNull(),
@@ -41,6 +78,7 @@ export const credentialProfiles = pgTable("credential_profiles", {
     prometheusPort?: number; // Default 9100
     prometheusPath?: string; // Default /metrics
     prometheusScheme?: 'http' | 'https';
+    prometheusMetrics?: PrometheusMetricConfig[]; // Extra metrics to collect (profile defaults)
     // Proxmox VE API settings
     proxmoxPort?: number; // Default 8006
     proxmoxApiTokenId?: string; // API token ID (user@realm!tokenid)
@@ -148,6 +186,8 @@ export const devices = pgTable("devices", {
     cpuUsagePct?: number;
     memoryUsagePct?: number;
     diskUsagePct?: number;
+    customMetrics?: Record<string, number | string>; // Collected custom Prometheus metrics (id -> value)
+    availableMetrics?: string[]; // List of available Prometheus metric names discovered from device
   }>(),
   credentialProfileId: varchar("credential_profile_id").references(() => credentialProfiles.id, { onDelete: "set null" }),
   linkedMapId: varchar("linked_map_id").references(() => maps.id, { onDelete: "set null" }), // Link to navigate to another map
@@ -167,6 +207,7 @@ export const devices = pgTable("devices", {
     prometheusPort?: number;
     prometheusPath?: string;
     prometheusScheme?: 'http' | 'https';
+    prometheusMetrics?: PrometheusMetricConfig[]; // Extra metrics to collect (device-specific overrides)
     // Proxmox VE API settings
     proxmoxPort?: number;
     proxmoxApiTokenId?: string;

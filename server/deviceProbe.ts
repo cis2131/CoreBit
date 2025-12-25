@@ -638,6 +638,7 @@ export interface DeviceProbeData {
   memoryUsagePct?: number;
   diskUsagePct?: number;
   discoveredIpAddresses?: DiscoveredIpAddress[]; // IP addresses discovered via /ip/address/print
+  customMetrics?: Record<string, number | string>; // Custom Prometheus metrics collected based on configuration
 }
 
 async function probeMikrotikDevice(
@@ -1455,6 +1456,62 @@ export async function probePrometheusDevice(
             }
           }
           
+          // Collect custom metrics if configured
+          const customMetrics: Record<string, number | string> = {};
+          const configuredMetrics = credentials?.prometheusMetrics || [];
+          
+          for (const metricConfig of configuredMetrics) {
+            try {
+              const metricData = metrics.get(metricConfig.metricName);
+              if (!metricData || metricData.length === 0) continue;
+              
+              // Apply label filter if specified
+              let matchedValue: number | undefined;
+              if (metricConfig.labelFilter && Object.keys(metricConfig.labelFilter).length > 0) {
+                // Find the entry that matches all label filters
+                const matchedEntry = metricData.find(entry => {
+                  return Object.entries(metricConfig.labelFilter!).every(([key, value]) => {
+                    return entry.labels[key] === value;
+                  });
+                });
+                matchedValue = matchedEntry?.value;
+              } else {
+                // No filter - use first value or sum if multiple (for counters)
+                matchedValue = metricData[0]?.value;
+              }
+              
+              if (matchedValue === undefined) continue;
+              
+              // Apply transformation
+              let transformedValue: number | string = matchedValue;
+              switch (metricConfig.transform) {
+                case 'toGB':
+                  transformedValue = matchedValue / (1024 * 1024 * 1024);
+                  break;
+                case 'toMB':
+                  transformedValue = matchedValue / (1024 * 1024);
+                  break;
+                case 'toPercent':
+                  if (metricConfig.maxValue && metricConfig.maxValue > 0) {
+                    transformedValue = (matchedValue / metricConfig.maxValue) * 100;
+                  }
+                  break;
+                case 'divide1000':
+                  transformedValue = matchedValue / 1000;
+                  break;
+              }
+              
+              // Round numeric values
+              if (typeof transformedValue === 'number') {
+                transformedValue = Math.round(transformedValue * 100) / 100;
+              }
+              
+              customMetrics[metricConfig.id] = transformedValue;
+            } catch (e) {
+              // Skip metrics that fail to collect
+            }
+          }
+          
           resolve({
             model,
             systemIdentity,
@@ -1464,7 +1521,104 @@ export async function probePrometheusDevice(
             cpuUsagePct,
             memoryUsagePct,
             diskUsagePct,
+            customMetrics: Object.keys(customMetrics).length > 0 ? customMetrics : undefined,
           });
+        } catch (parseError: any) {
+          reject(new Error(`Parse error: ${parseError.message}`));
+        }
+      });
+    });
+    
+    req.on('error', (err) => {
+      reject(err);
+    });
+    
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Timeout'));
+    });
+  });
+}
+
+// Discover available Prometheus metrics from a device
+// Returns list of metric names that can be configured for monitoring
+export async function discoverPrometheusMetrics(
+  ipAddress: string,
+  credentials?: any,
+  timeoutMs: number = 5000
+): Promise<{ metrics: string[]; metricDetails: Record<string, { type?: string; help?: string; sampleCount: number }> }> {
+  const port = credentials?.prometheusPort || 9100;
+  const path = credentials?.prometheusPath || '/metrics';
+  const scheme = credentials?.prometheusScheme || 'http';
+  const url = `${scheme}://${ipAddress}:${port}${path}`;
+  
+  return new Promise((resolve, reject) => {
+    const httpModule = scheme === 'https' ? https : http;
+    
+    const req = httpModule.get(url, {
+      timeout: timeoutMs,
+      headers: {
+        'Accept': 'text/plain',
+        'User-Agent': 'CoreBit/1.0'
+      },
+      ...(scheme === 'https' ? { rejectUnauthorized: false } : {})
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode}`));
+        return;
+      }
+      
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const lines = data.split('\n');
+          const metricDetails: Record<string, { type?: string; help?: string; sampleCount: number }> = {};
+          let currentMetricHelp: string | undefined;
+          let currentMetricType: string | undefined;
+          
+          for (const line of lines) {
+            // Parse HELP comments
+            const helpMatch = line.match(/^# HELP ([a-zA-Z_:][a-zA-Z0-9_:]*) (.*)$/);
+            if (helpMatch) {
+              const [, name, help] = helpMatch;
+              if (!metricDetails[name]) {
+                metricDetails[name] = { sampleCount: 0 };
+              }
+              metricDetails[name].help = help;
+              continue;
+            }
+            
+            // Parse TYPE comments
+            const typeMatch = line.match(/^# TYPE ([a-zA-Z_:][a-zA-Z0-9_:]*) (.*)$/);
+            if (typeMatch) {
+              const [, name, type] = typeMatch;
+              if (!metricDetails[name]) {
+                metricDetails[name] = { sampleCount: 0 };
+              }
+              metricDetails[name].type = type;
+              continue;
+            }
+            
+            // Skip other comments and empty lines
+            if (line.startsWith('#') || line.trim() === '') continue;
+            
+            // Parse metric line to count samples
+            const labelMatch = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)\{/);
+            const simpleMatch = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)\s+/);
+            
+            const metricName = labelMatch?.[1] || simpleMatch?.[1];
+            if (metricName) {
+              if (!metricDetails[metricName]) {
+                metricDetails[metricName] = { sampleCount: 0 };
+              }
+              metricDetails[metricName].sampleCount++;
+            }
+          }
+          
+          // Return sorted list of metrics and their details
+          const metrics = Object.keys(metricDetails).sort();
+          resolve({ metrics, metricDetails });
         } catch (parseError: any) {
           reject(new Error(`Parse error: ${parseError.message}`));
         }

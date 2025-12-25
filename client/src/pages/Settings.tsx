@@ -20,6 +20,22 @@ import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { z } from "zod";
 import type { CredentialProfile, InsertCredentialProfile, Notification, InsertNotification, Backup, UserNotificationChannel, DutyUserSchedule } from "@shared/schema";
+import { PROMETHEUS_METRIC_PRESETS, type PrometheusMetricConfig } from "@shared/schema";
+import { Checkbox } from "@/components/ui/checkbox";
+
+// Schema for Prometheus metric config
+const prometheusMetricConfigSchema = z.object({
+  id: z.string(),
+  metricName: z.string(),
+  label: z.string(),
+  displayType: z.enum(['bar', 'gauge', 'number', 'text', 'bytes', 'percentage']),
+  unit: z.string().optional(),
+  labelFilter: z.record(z.string()).optional(),
+  transform: z.enum(['toGB', 'toMB', 'toPercent', 'divide1000', 'none']).optional(),
+  maxValue: z.number().optional(),
+  warningThreshold: z.number().optional(),
+  criticalThreshold: z.number().optional(),
+});
 
 const credentialFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -39,6 +55,7 @@ const credentialFormSchema = z.object({
     prometheusPort: z.coerce.number().optional(),
     prometheusPath: z.string().optional(),
     prometheusScheme: z.enum(["http", "https"]).optional(),
+    prometheusMetrics: z.array(prometheusMetricConfigSchema).optional(),
     // Proxmox VE settings
     proxmoxApiTokenId: z.string().optional(),
     proxmoxApiTokenSecret: z.string().optional(),
@@ -3217,6 +3234,53 @@ function CredentialProfileDialog({
                         <FormDescription className="text-xs">
                           Default: /metrics
                         </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="space-y-3 p-4 border rounded-md">
+                  <h4 className="text-sm font-medium">Extra Metrics to Monitor</h4>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Select additional metrics to collect from node_exporter (CPU, Memory, Disk are always collected)
+                  </p>
+                  
+                  <FormField
+                    control={form.control}
+                    name="credentials.prometheusMetrics"
+                    render={({ field }) => (
+                      <FormItem>
+                        <div className="grid grid-cols-2 gap-2">
+                          {PROMETHEUS_METRIC_PRESETS.map((preset) => {
+                            const isChecked = field.value?.some(m => m.id === preset.id) ?? false;
+                            return (
+                              <div key={preset.id} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`metric-${preset.id}`}
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) => {
+                                    const currentMetrics = field.value || [];
+                                    if (checked) {
+                                      // Clone preset to avoid mutating the original
+                                      const clonedPreset = JSON.parse(JSON.stringify(preset));
+                                      field.onChange([...currentMetrics, clonedPreset]);
+                                    } else {
+                                      field.onChange(currentMetrics.filter(m => m.id !== preset.id));
+                                    }
+                                  }}
+                                  data-testid={`checkbox-metric-${preset.id}`}
+                                />
+                                <label 
+                                  htmlFor={`metric-${preset.id}`}
+                                  className="text-sm cursor-pointer"
+                                >
+                                  {preset.label}
+                                </label>
+                              </div>
+                            );
+                          })}
+                        </div>
                         <FormMessage />
                       </FormItem>
                     )}

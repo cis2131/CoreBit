@@ -10,6 +10,8 @@ import {
   type ProxmoxVm,
   type IpamAddress,
   type DeviceInterface,
+  type PrometheusMetricConfig,
+  PROMETHEUS_METRIC_PRESETS,
 } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -822,6 +824,65 @@ export function DevicePropertiesPanel({
                       data-testid="progress-memory"
                     />
                   </div>
+                  
+                  {/* Custom metrics from Prometheus */}
+                  {device.deviceData?.customMetrics && Object.keys(device.deviceData.customMetrics).length > 0 && (
+                    <>
+                      <Separator className="my-3" />
+                      <div className="space-y-3">
+                        {Object.entries(device.deviceData.customMetrics).map(([metricId, value]) => {
+                          const preset = PROMETHEUS_METRIC_PRESETS.find(p => p.id === metricId);
+                          const label = preset?.label || metricId;
+                          const displayType = preset?.displayType || 'number';
+                          const unit = preset?.unit || '';
+                          
+                          // Format the display value (avoid double units)
+                          let displayValue: string;
+                          let displayUnit = '';
+                          if (typeof value === 'number') {
+                            if (displayType === 'bytes') {
+                              displayValue = value.toFixed(2);
+                              displayUnit = ' GB';
+                            } else if (displayType === 'percentage') {
+                              displayValue = value.toFixed(1);
+                              displayUnit = '%';
+                            } else {
+                              displayValue = value.toFixed(2);
+                              displayUnit = unit ? ` ${unit}` : '';
+                            }
+                          } else {
+                            displayValue = String(value);
+                            displayUnit = unit ? ` ${unit}` : '';
+                          }
+                          
+                          // Render based on display type
+                          if (displayType === 'bar' || displayType === 'percentage') {
+                            const numValue = typeof value === 'number' ? value : parseFloat(value) || 0;
+                            return (
+                              <div key={metricId} className="space-y-1">
+                                <div className="flex items-center justify-between text-sm">
+                                  <span className="text-foreground font-medium">{label}</span>
+                                  <span className="font-mono font-semibold text-foreground" data-testid={`text-metric-${metricId}`}>
+                                    {displayValue}{displayUnit}
+                                  </span>
+                                </div>
+                                <Progress value={Math.min(100, numValue)} className="h-2" />
+                              </div>
+                            );
+                          }
+                          
+                          return (
+                            <div key={metricId} className="flex items-center justify-between text-sm">
+                              <span className="text-foreground font-medium">{label}</span>
+                              <span className="font-mono font-semibold text-foreground" data-testid={`text-metric-${metricId}`}>
+                                {displayValue}{displayUnit}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             )}
