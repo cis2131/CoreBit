@@ -60,6 +60,7 @@ export function ConnectionLine({
   bandwidthHistory = [],
 }: ConnectionLineProps) {
   const [isHovered, setIsHovered] = useState(false);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const speed = (connection.linkSpeed || '1G') as keyof typeof linkSpeedStyles;
   const style = linkSpeedStyles[speed] || linkSpeedStyles['1G'];
   const strokeWidth = isSelected ? style.width + 2 : style.width;
@@ -480,7 +481,14 @@ export function ConnectionLine({
                 <div 
                   className="bg-background border border-border rounded px-2 py-1 cursor-pointer hover-elevate"
                   style={{ opacity: 0.95 }}
-                  onMouseEnter={() => setIsHovered(true)}
+                  onMouseEnter={(e) => {
+                    setIsHovered(true);
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setMousePos({ x: rect.left + rect.width / 2, y: rect.top });
+                  }}
+                  onMouseMove={(e) => {
+                    setMousePos({ x: e.clientX, y: e.clientY });
+                  }}
                   onMouseLeave={() => setIsHovered(false)}
                   data-testid={`traffic-stats-${connection.id}`}
                 >
@@ -493,9 +501,12 @@ export function ConnectionLine({
                 </div>
               </HoverCardTrigger>
               <HoverCardContent 
-                className="w-80 p-3" 
+                className="w-80 p-3 z-[100]" 
                 side="top"
-                sideOffset={5}
+                sideOffset={10}
+                align="center"
+                avoidCollisions={true}
+                collisionPadding={10}
               >
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
