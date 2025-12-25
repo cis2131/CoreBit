@@ -348,15 +348,24 @@ export default function NetworkTopology() {
 
     if (editingDevice) {
       // Update existing device (global)
+      // Preserve null values for credentials - null means "clear this field"
+      const updateData: any = {
+        name: deviceData.name,
+        type: deviceData.type,
+        ipAddress: deviceData.ipAddress || undefined,
+      };
+      
+      // Explicitly include credential fields even when null (to clear them)
+      if ('credentialProfileId' in deviceData) {
+        updateData.credentialProfileId = deviceData.credentialProfileId;
+      }
+      if ('customCredentials' in deviceData) {
+        updateData.customCredentials = deviceData.customCredentials;
+      }
+      
       updateDeviceMutation.mutate({
         id: editingDevice.id,
-        data: {
-          name: deviceData.name,
-          type: deviceData.type,
-          ipAddress: deviceData.ipAddress || undefined,
-          credentialProfileId: deviceData.credentialProfileId || undefined,
-          customCredentials: deviceData.customCredentials || undefined,
-        },
+        data: updateData,
       });
       setEditingDevice(null);
     } else {
