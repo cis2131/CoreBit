@@ -5177,6 +5177,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // ============ METRICS HISTORY API ENDPOINTS ============
+  
+  // Get device metrics history with time range filtering
+  app.get("/api/devices/:id/metrics-history", requireAuth as any, async (req, res) => {
+    try {
+      const deviceId = req.params.id;
+      const { since, until } = req.query;
+      
+      // Default to last 24 hours if not specified
+      const sinceDate = since ? new Date(since as string) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const untilDate = until ? new Date(until as string) : undefined;
+      
+      // Validate device exists
+      const device = await storage.getDevice(deviceId);
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+      
+      const history = await storage.getDeviceMetricsHistory(deviceId, sinceDate, untilDate);
+      res.json(history);
+    } catch (error: any) {
+      console.error('Error fetching device metrics history:', error);
+      res.status(500).json({ error: 'Failed to fetch device metrics history' });
+    }
+  });
+  
+  // Get connection bandwidth history with time range filtering
+  app.get("/api/connections/:id/bandwidth-history", requireAuth as any, async (req, res) => {
+    try {
+      const connectionId = req.params.id;
+      const { since, until } = req.query;
+      
+      // Default to last 24 hours if not specified
+      const sinceDate = since ? new Date(since as string) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const untilDate = until ? new Date(until as string) : undefined;
+      
+      const history = await storage.getConnectionBandwidthHistory(connectionId, sinceDate, untilDate);
+      res.json(history);
+    } catch (error: any) {
+      console.error('Error fetching connection bandwidth history:', error);
+      res.status(500).json({ error: 'Failed to fetch connection bandwidth history' });
+    }
+  });
+  
+  // Get aggregated device metrics for quick charts (downsampled for large time ranges)
+  app.get("/api/devices/:id/metrics-history/aggregated", requireAuth as any, async (req, res) => {
+    try {
+      const deviceId = req.params.id;
+      const { since, until, maxPoints = '200' } = req.query;
+      
+      // Default to last 24 hours if not specified
+      const sinceDate = since ? new Date(since as string) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const untilDate = until ? new Date(until as string) : new Date();
+      
+      // Validate device exists
+      const device = await storage.getDevice(deviceId);
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+      
+      const history = await storage.getDeviceMetricsHistory(deviceId, sinceDate, untilDate);
+      
+      // Downsample if too many points
+      const maxPointsNum = parseInt(maxPoints as string, 10) || 200;
+      const downsampled = downsampleTimeSeries(history, maxPointsNum);
+      
+      res.json(downsampled);
+    } catch (error: any) {
+      console.error('Error fetching aggregated device metrics:', error);
+      res.status(500).json({ error: 'Failed to fetch aggregated device metrics' });
+    }
+  });
+  
+  // Get aggregated connection bandwidth for quick charts (downsampled for large time ranges)
+  app.get("/api/connections/:id/bandwidth-history/aggregated", requireAuth as any, async (req, res) => {
+    try {
+      const connectionId = req.params.id;
+      const { since, until, maxPoints = '200' } = req.query;
+      
+      // Default to last 24 hours if not specified
+      const sinceDate = since ? new Date(since as string) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const untilDate = until ? new Date(until as string) : new Date();
+      
+      const history = await storage.getConnectionBandwidthHistory(connectionId, sinceDate, untilDate);
+      
+      // Downsample if too many points
+      const maxPointsNum = parseInt(maxPoints as string, 10) || 200;
+      const downsampled = downsampleTimeSeries(history, maxPointsNum);
+      
+      res.json(downsampled);
+    } catch (error: any) {
+      console.error('Error fetching aggregated bandwidth history:', error);
+      res.status(500).json({ error: 'Failed to fetch aggregated bandwidth history' });
+    }
+  });
+  
+  // Helper function to downsample time series data
+  function downsampleTimeSeries<T extends { timestamp: Date }>(data: T[], maxPoints: number): T[] {
+    if (data.length <= maxPoints) return data;
+    
+    const step = Math.ceil(data.length / maxPoints);
+    const downsampled: T[] = [];
+    
+    for (let i = 0; i < data.length; i += step) {
+      // For each bucket, take the last point (most recent)
+      const bucketEnd = Math.min(i + step, data.length);
+      downsampled.push(data[bucketEnd - 1]);
+    }
+    
+    return downsampled;
+  }
+  
   // Scheduled backup timer
   let scheduledBackupTimer: NodeJS.Timeout | null = null;
   
