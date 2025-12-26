@@ -118,7 +118,15 @@ export function DeviceMetricsChartViewer({
   }, [timeRange]);
 
   const { data: metrics = [], isLoading, refetch } = useQuery<DeviceMetricsHistoryEntry[]>({
-    queryKey: ['/api/devices', deviceId, 'metrics-history/aggregated', { since, maxPoints: 300 }],
+    queryKey: ['/api/devices', deviceId, 'metrics-history', 'aggregated', since],
+    queryFn: async () => {
+      const params = new URLSearchParams({ since, maxPoints: '300' });
+      const res = await fetch(`/api/devices/${deviceId}/metrics-history/aggregated?${params}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`Failed to fetch metrics: ${res.statusText}`);
+      return res.json();
+    },
     enabled: open && !!deviceId,
     refetchInterval: autoRefresh ? 30000 : false,
   });
@@ -345,7 +353,15 @@ export function ConnectionBandwidthChartViewer({
   }, [timeRange]);
 
   const { data: history = [], isLoading, refetch } = useQuery<ConnectionBandwidthHistoryEntry[]>({
-    queryKey: ['/api/connections', connectionId, 'bandwidth-history/aggregated', { since, maxPoints: 300 }],
+    queryKey: ['/api/connections', connectionId, 'bandwidth-history', 'aggregated', since],
+    queryFn: async () => {
+      const params = new URLSearchParams({ since, maxPoints: '300' });
+      const res = await fetch(`/api/connections/${connectionId}/bandwidth-history/aggregated?${params}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`Failed to fetch bandwidth history: ${res.statusText}`);
+      return res.json();
+    },
     enabled: open && !!connectionId,
     refetchInterval: autoRefresh ? 10000 : false,
   });
