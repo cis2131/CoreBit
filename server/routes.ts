@@ -4235,6 +4235,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     setInterval(runTrafficCycle, TRAFFIC_POLLING_INTERVAL);
   }
   
+  // ============ METRICS HISTORY CLEANUP JOB ============
+  
+  const HISTORY_CLEANUP_INTERVAL = 60 * 60 * 1000; // Run every hour
+  const DEFAULT_RETENTION_HOURS = 24;
+  
+  async function runHistoryCleanup() {
+    try {
+      const enableMetricsHistory = (await storage.getSetting('enable_metrics_history')) ?? true;
+      if (!enableMetricsHistory) {
+        // If history is disabled, don't cleanup - user may re-enable and want old data
+        return;
+      }
+      
+      const globalRetentionHours = (await storage.getSetting('metrics_retention_hours')) ?? DEFAULT_RETENTION_HOURS;
+      const now = new Date();
+      
+      // Calculate cutoff time for global retention
+      const globalCutoff = new Date(now.getTime() - globalRetentionHours * 60 * 60 * 1000);
+      
+      // Clean up device metrics history (respects per-device retention override)
+      const allDevices = await storage.getAllDevices();
+      let totalDeviceMetricsDeleted = 0;
+      
+      // Group devices by their effective retention period
+      const devicesByRetention = new Map<number, string[]>();
+      for (const device of allDevices) {
+        const retentionHours = device.metricsRetentionHours ?? globalRetentionHours;
+        if (retentionHours === 0) continue; // Disabled retention - skip cleanup (no data stored anyway)
+        
+        if (!devicesByRetention.has(retentionHours)) {
+          devicesByRetention.set(retentionHours, []);
+        }
+        devicesByRetention.get(retentionHours)!.push(device.id);
+      }
+      
+      // Clean up each retention group
+      for (const [retentionHours, deviceIds] of devicesByRetention) {
+        const cutoff = new Date(now.getTime() - retentionHours * 60 * 60 * 1000);
+        const deleted = await storage.deleteDeviceMetricsHistoryBefore(cutoff, deviceIds);
+        totalDeviceMetricsDeleted += deleted;
+      }
+      
+      // Clean up connection bandwidth history (uses global retention only)
+      const bandwidthDeleted = await storage.deleteConnectionBandwidthHistoryBefore(globalCutoff);
+      
+      if (totalDeviceMetricsDeleted > 0 || bandwidthDeleted > 0) {
+        console.log(`[HistoryCleanup] Deleted ${totalDeviceMetricsDeleted} device metrics, ${bandwidthDeleted} bandwidth samples (retention: ${globalRetentionHours}h)`);
+      }
+    } catch (error: any) {
+      console.error('[HistoryCleanup] Error during cleanup:', error.message);
+    }
+  }
+  
+  // Start cleanup job on interval (first run after 5 minutes to allow system to stabilize)
+  setTimeout(() => {
+    runHistoryCleanup();
+    setInterval(runHistoryCleanup, HISTORY_CLEANUP_INTERVAL);
+  }, 5 * 60 * 1000);
+  
   // ============ PROMETHEUS METRICS DISCOVERY ============
   
   // Discover available Prometheus metrics from a device

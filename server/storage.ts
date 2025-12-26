@@ -79,7 +79,7 @@ import {
   type InsertConnectionBandwidthHistory
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, isNotNull, isNull, or, gt, lt, gte, lte, asc } from "drizzle-orm";
+import { eq, and, desc, isNotNull, isNull, or, gt, lt, gte, lte, asc, inArray } from "drizzle-orm";
 
 // IP utility functions for IPAM pool matching
 function ipToLong(ip: string): number {
@@ -332,11 +332,13 @@ export interface IStorage {
   insertDeviceMetricsHistoryBatch(metrics: InsertDeviceMetricsHistory[]): Promise<number>;
   getDeviceMetricsHistory(deviceId: string, since: Date, until?: Date): Promise<DeviceMetricsHistory[]>;
   deleteOldDeviceMetrics(olderThan: Date): Promise<number>;
+  deleteDeviceMetricsHistoryBefore(cutoff: Date, deviceIds: string[]): Promise<number>;
   
   // Connection Bandwidth History
   insertConnectionBandwidthHistoryBatch(records: InsertConnectionBandwidthHistory[]): Promise<number>;
   getConnectionBandwidthHistory(connectionId: string, since: Date, until?: Date): Promise<ConnectionBandwidthHistory[]>;
   deleteOldConnectionBandwidth(olderThan: Date): Promise<number>;
+  deleteConnectionBandwidthHistoryBefore(cutoff: Date): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1790,6 +1792,25 @@ export class DatabaseStorage implements IStorage {
   async deleteOldConnectionBandwidth(olderThan: Date): Promise<number> {
     const result = await db.delete(connectionBandwidthHistory)
       .where(lt(connectionBandwidthHistory.timestamp, olderThan))
+      .returning();
+    return result.length;
+  }
+
+  async deleteDeviceMetricsHistoryBefore(cutoff: Date, deviceIds: string[]): Promise<number> {
+    if (deviceIds.length === 0) return 0;
+    
+    const result = await db.delete(deviceMetricsHistory)
+      .where(and(
+        lt(deviceMetricsHistory.timestamp, cutoff),
+        inArray(deviceMetricsHistory.deviceId, deviceIds)
+      ))
+      .returning();
+    return result.length;
+  }
+
+  async deleteConnectionBandwidthHistoryBefore(cutoff: Date): Promise<number> {
+    const result = await db.delete(connectionBandwidthHistory)
+      .where(lt(connectionBandwidthHistory.timestamp, cutoff))
       .returning();
     return result.length;
   }
