@@ -47,12 +47,14 @@ import {
   Star,
   Plus,
   Pencil,
+  BarChart3,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { StatusHistoryBar, StatusHistoryModal } from "@/components/StatusHistory";
+import { DeviceMetricsChartViewer } from "@/components/MetricsChartViewer";
 
 interface DevicePropertiesPanelProps {
   device: Device & {
@@ -144,6 +146,8 @@ export function DevicePropertiesPanel({
   const { toast } = useToast();
   const [probing, setProbing] = useState(false);
   const [statusHistoryOpen, setStatusHistoryOpen] = useState(false);
+  const [metricsChartOpen, setMetricsChartOpen] = useState(false);
+  const [metricsChartMetric, setMetricsChartMetric] = useState<'cpu' | 'memory' | 'disk' | 'ping'>('cpu');
   const [timeoutValue, setTimeoutValue] = useState<string>(
     device.probeTimeout?.toString() ?? "",
   );
@@ -779,10 +783,33 @@ export function DevicePropertiesPanel({
             device.deviceData?.memoryUsagePct !== undefined && (
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">System Vitals</CardTitle>
+                  <CardTitle className="text-sm flex items-center justify-between">
+                    <span>System Vitals</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => {
+                        setMetricsChartMetric('cpu');
+                        setMetricsChartOpen(true);
+                      }}
+                      title="View historical metrics"
+                      data-testid="button-view-metrics-chart"
+                    >
+                      <BarChart3 className="h-4 w-4" />
+                    </Button>
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="space-y-2">
+                  <div 
+                    className="space-y-2 cursor-pointer hover-elevate p-2 -m-2 rounded-md transition-colors"
+                    onClick={() => {
+                      setMetricsChartMetric('cpu');
+                      setMetricsChartOpen(true);
+                    }}
+                    title="Click to view CPU history"
+                    data-testid="button-cpu-chart"
+                  >
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
                         <Cpu className="h-4 w-4 text-muted-foreground" />
@@ -803,7 +830,15 @@ export function DevicePropertiesPanel({
                       data-testid="progress-cpu"
                     />
                   </div>
-                  <div className="space-y-2">
+                  <div 
+                    className="space-y-2 cursor-pointer hover-elevate p-2 -m-2 rounded-md transition-colors"
+                    onClick={() => {
+                      setMetricsChartMetric('memory');
+                      setMetricsChartOpen(true);
+                    }}
+                    title="Click to view Memory history"
+                    data-testid="button-memory-chart"
+                  >
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
                         <MemoryStick className="h-4 w-4 text-muted-foreground" />
@@ -1701,6 +1736,14 @@ export function DevicePropertiesPanel({
         deviceName={device.name}
         open={statusHistoryOpen}
         onOpenChange={setStatusHistoryOpen}
+      />
+
+      <DeviceMetricsChartViewer
+        deviceId={device.id}
+        deviceName={device.name}
+        open={metricsChartOpen}
+        onOpenChange={setMetricsChartOpen}
+        initialMetric={metricsChartMetric}
       />
     </div>
   );
