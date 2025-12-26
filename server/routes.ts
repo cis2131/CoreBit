@@ -4097,6 +4097,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error(`[Traffic] FAILED to update connection ${conn.id} linkStats!`);
       } else {
         // Record to history for bandwidth graphs (always record successful samples for consistent graphing)
+        // Debug: Log value of enableBandwidthHistory at call site
+        console.log(`[BandwidthHistory] Calling addTrafficHistoryPoint with enableBandwidthHistory=${enableBandwidthHistory} (type: ${typeof enableBandwidthHistory})`);
         addTrafficHistoryPoint(conn.id, {
           timestamp: Date.now(),
           inBitsPerSec: updatedStats.inBitsPerSec,
@@ -4169,6 +4171,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         outBitsPerSec: point.outBitsPerSec,
         utilizationPct: point.utilizationPct,
       });
+      // Debug: Log when adding to buffer
+      console.log(`[BandwidthHistory] Added to buffer: conn=${connectionId.substring(0,8)}, in=${point.inBitsPerSec}bps, out=${point.outBitsPerSec}bps`);
     }
   }
   
@@ -4210,11 +4214,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await probeConnectionTraffic(allDevices);
       
       // Flush bandwidth history buffer to database
+      // Debug: Log buffer state every cycle temporarily
+      if (trafficCycle % 6 === 0) { // Every minute
+        console.log(`[BandwidthHistory] Cycle #${trafficCycle}: enableBandwidthHistory=${enableBandwidthHistory}, bufferLength=${bandwidthHistoryBuffer.length}`);
+      }
       if (enableBandwidthHistory && bandwidthHistoryBuffer.length > 0) {
         try {
           const insertedCount = await storage.insertConnectionBandwidthHistoryBatch(bandwidthHistoryBuffer);
-          if (insertedCount > 0 && trafficCycle % 30 === 0) {
-            // Log every 30th cycle (5 minutes) to avoid spam
+          if (insertedCount > 0) {
             console.log(`[BandwidthHistory] Stored ${insertedCount} bandwidth samples for cycle #${trafficCycle}`);
           }
         } catch (historyError: any) {

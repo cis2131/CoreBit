@@ -241,20 +241,19 @@ export function DeviceMetricsChartViewer({
             <Button
               variant={autoRefresh ? 'default' : 'outline'}
               size="icon"
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh (30s)'}
-              data-testid="button-auto-refresh"
-            >
-              <RefreshCw className={`h-4 w-4 ${autoRefresh ? 'animate-spin' : ''}`} />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => refetch()}
-              disabled={isLoading}
+              onClick={() => {
+                if (autoRefresh) {
+                  setAutoRefresh(false);
+                } else {
+                  refetch();
+                }
+              }}
+              onDoubleClick={() => setAutoRefresh(!autoRefresh)}
+              disabled={isLoading && !autoRefresh}
+              title={autoRefresh ? 'Click to stop auto-refresh' : 'Click to refresh, double-click for auto-refresh'}
               data-testid="button-refresh"
             >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 ${autoRefresh || isLoading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
         </div>
@@ -428,20 +427,19 @@ export function ConnectionBandwidthChartViewer({
             <Button
               variant={autoRefresh ? 'default' : 'outline'}
               size="icon"
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh (10s)'}
-              data-testid="button-bandwidth-auto-refresh"
-            >
-              <RefreshCw className={`h-4 w-4 ${autoRefresh ? 'animate-spin' : ''}`} />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => refetch()}
-              disabled={isLoading}
+              onClick={() => {
+                if (autoRefresh) {
+                  setAutoRefresh(false);
+                } else {
+                  refetch();
+                }
+              }}
+              onDoubleClick={() => setAutoRefresh(!autoRefresh)}
+              disabled={isLoading && !autoRefresh}
+              title={autoRefresh ? 'Click to stop auto-refresh' : 'Click to refresh, double-click for auto-refresh'}
               data-testid="button-bandwidth-refresh"
             >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 ${autoRefresh || isLoading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
         </div>
