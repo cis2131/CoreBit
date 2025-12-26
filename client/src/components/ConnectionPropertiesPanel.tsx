@@ -533,7 +533,7 @@ export function ConnectionPropertiesPanel({
                   step={5}
                   value={[labelPosition]}
                   onValueChange={(v) => setLabelPosition(v[0])}
-                  className="w-full"
+                  className="w-full [&>span:first-child>span]:bg-transparent"
                 />
                 <p className="text-xs text-muted-foreground">
                   Slide to move the RX/TX label along the connection line.
