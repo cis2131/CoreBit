@@ -224,8 +224,8 @@ export function ConnectionLine({
   // Calculate curve apex (point at t=0.5) for selection indicator and traffic banner
   const curveApex = isCurved ? getPointOnQuadraticBezier(0.5) : { x: (sourcePosition.x + targetPosition.x) / 2, y: (sourcePosition.y + targetPosition.y) / 2 };
   
-  // Calculate label position (uses labelT instead of fixed 0.5)
-  const labelPosition = isCurved 
+  // Calculate traffic label coordinates (uses labelT instead of fixed 0.5)
+  const trafficLabelPoint = isCurved 
     ? getPointOnQuadraticBezier(labelT) 
     : { 
         x: sourcePosition.x + (targetPosition.x - sourcePosition.x) * labelT, 
@@ -478,8 +478,8 @@ export function ConnectionLine({
         return (
           <>
             <foreignObject
-              x={labelPosition.x - 55}
-              y={labelPosition.y - 30}
+              x={trafficLabelPoint.x - 55}
+              y={trafficLabelPoint.y - 30}
               width="110"
               height="45"
               style={{ overflow: 'visible' }}

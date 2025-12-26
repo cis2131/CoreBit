@@ -84,6 +84,7 @@ export function ConnectionPropertiesPanel({
   const [isDynamic, setIsDynamic] = useState(connection.isDynamic || false);
   const [warningThreshold, setWarningThreshold] = useState(connection.warningThresholdPct ?? 70);
   const [criticalThreshold, setCriticalThreshold] = useState(connection.criticalThresholdPct ?? 90);
+  const [labelPosition, setLabelPosition] = useState(connection.labelPosition ?? 50);
   const [saving, setSaving] = useState(false);
   const [resettingIndex, setResettingIndex] = useState(false);
   
@@ -111,6 +112,7 @@ export function ConnectionPropertiesPanel({
     setIsDynamic(connection.isDynamic || false);
     setWarningThreshold(connection.warningThresholdPct ?? 70);
     setCriticalThreshold(connection.criticalThresholdPct ?? 90);
+    setLabelPosition(connection.labelPosition ?? 50);
   }, [
     connection.id,
     connection.linkSpeed,
@@ -123,6 +125,7 @@ export function ConnectionPropertiesPanel({
     connection.isDynamic,
     connection.warningThresholdPct,
     connection.criticalThresholdPct,
+    connection.labelPosition,
   ]);
 
   const sourcePorts = sourceDevice.deviceData?.ports || [];
@@ -149,7 +152,8 @@ export function ConnectionPropertiesPanel({
     flipTrafficDirection !== (connection.flipTrafficDirection || false) ||
     isDynamic !== (connection.isDynamic || false) ||
     warningThreshold !== (connection.warningThresholdPct ?? 70) ||
-    criticalThreshold !== (connection.criticalThresholdPct ?? 90);
+    criticalThreshold !== (connection.criticalThresholdPct ?? 90) ||
+    labelPosition !== (connection.labelPosition ?? 50);
 
   const handleSave = async () => {
     setSaving(true);
@@ -166,6 +170,7 @@ export function ConnectionPropertiesPanel({
         isDynamic,
         warningThresholdPct: warningThreshold,
         criticalThresholdPct: criticalThreshold,
+        labelPosition,
       };
       
       // If enabling dynamic connection, set the type and metadata
@@ -510,6 +515,30 @@ export function ConnectionPropertiesPanel({
                   </p>
                 </div>
               )}
+              
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="label-position">Bandwidth Label Position</Label>
+                  <span className="text-xs text-muted-foreground">
+                    {labelPosition < 50 ? `${50 - labelPosition}% toward source` : 
+                     labelPosition > 50 ? `${labelPosition - 50}% toward target` : 
+                     'Center'}
+                  </span>
+                </div>
+                <Slider
+                  id="label-position"
+                  data-testid="slider-label-position"
+                  min={10}
+                  max={90}
+                  step={5}
+                  value={[labelPosition]}
+                  onValueChange={(v) => setLabelPosition(v[0])}
+                  className="w-full"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Slide to move the RX/TX label along the connection line.
+                </p>
+              </div>
             </CardContent>
           </Card>
 
