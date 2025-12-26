@@ -4146,11 +4146,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const trafficHistory: Map<string, TrafficHistoryPoint[]> = new Map();
   
   // Buffer for collecting bandwidth history to batch insert into database
+  // Note: Schema uses inBytesPerSec/outBytesPerSec (converted from bits)
   let bandwidthHistoryBuffer: Array<{
     connectionId: string;
     timestamp: Date;
-    inBitsPerSec: number;
-    outBitsPerSec: number;
+    inBytesPerSec: number;
+    outBytesPerSec: number;
     utilizationPct: number;
   }> = [];
   
@@ -4169,12 +4170,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Also add to database buffer for persistent storage
+    // Convert bits to bytes for database (schema uses bytes)
     if (addToDbBuffer) {
       bandwidthHistoryBuffer.push({
         connectionId,
         timestamp: new Date(point.timestamp),
-        inBitsPerSec: point.inBitsPerSec,
-        outBitsPerSec: point.outBitsPerSec,
+        inBytesPerSec: Math.round(point.inBitsPerSec / 8),
+        outBytesPerSec: Math.round(point.outBitsPerSec / 8),
         utilizationPct: point.utilizationPct,
       });
       // Debug: Log when adding to buffer
