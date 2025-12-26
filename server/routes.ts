@@ -4102,7 +4102,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           inBitsPerSec: updatedStats.inBitsPerSec,
           outBitsPerSec: updatedStats.outBitsPerSec,
           utilizationPct: updatedStats.utilizationPct,
-        });
+        }, enableBandwidthHistory); // Also add to database buffer if history is enabled
       }
     }
     
@@ -4137,8 +4137,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const TRAFFIC_HISTORY_MAX_POINTS = 30; // 5 minutes of data at 10s intervals
   const trafficHistory: Map<string, TrafficHistoryPoint[]> = new Map();
   
+  // Buffer for collecting bandwidth history to batch insert into database
+  let bandwidthHistoryBuffer: Array<{
+    connectionId: string;
+    timestamp: Date;
+    inBitsPerSec: number;
+    outBitsPerSec: number;
+    utilizationPct: number;
+  }> = [];
+  
   // Helper to add a data point to traffic history
-  function addTrafficHistoryPoint(connectionId: string, point: TrafficHistoryPoint) {
+  function addTrafficHistoryPoint(connectionId: string, point: TrafficHistoryPoint, addToDbBuffer: boolean = false) {
+    // In-memory history for real-time graphs
     let history = trafficHistory.get(connectionId);
     if (!history) {
       history = [];
@@ -4148,6 +4158,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Keep only the last N points
     while (history.length > TRAFFIC_HISTORY_MAX_POINTS) {
       history.shift();
+    }
+    
+    // Also add to database buffer for persistent storage
+    if (addToDbBuffer) {
+      bandwidthHistoryBuffer.push({
+        connectionId,
+        timestamp: new Date(point.timestamp),
+        inBitsPerSec: point.inBitsPerSec,
+        outBitsPerSec: point.outBitsPerSec,
+        utilizationPct: point.utilizationPct,
+      });
     }
   }
   
@@ -4168,6 +4189,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   let trafficCycleCompleted = 0; // Tracks completed cycles (not started)
   let trafficCycle = 0;
   const TRAFFIC_POLLING_INTERVAL = 10000; // 10 seconds
+  let enableBandwidthHistory = true; // Cached setting, updated each cycle
   
   async function runTrafficCycle() {
     if (isPollingTraffic) {
@@ -4178,8 +4200,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     trafficCycle++;
     
     try {
+      // Fetch metrics history setting (controls both device and bandwidth history)
+      enableBandwidthHistory = (await storage.getSetting('enable_metrics_history')) ?? true;
+      
+      // Clear the buffer at start of cycle
+      bandwidthHistoryBuffer = [];
+      
       const allDevices = await storage.getAllDevices();
       await probeConnectionTraffic(allDevices);
+      
+      // Flush bandwidth history buffer to database
+      if (enableBandwidthHistory && bandwidthHistoryBuffer.length > 0) {
+        try {
+          const insertedCount = await storage.insertConnectionBandwidthHistoryBatch(bandwidthHistoryBuffer);
+          if (insertedCount > 0 && trafficCycle % 30 === 0) {
+            // Log every 30th cycle (5 minutes) to avoid spam
+            console.log(`[BandwidthHistory] Stored ${insertedCount} bandwidth samples for cycle #${trafficCycle}`);
+          }
+        } catch (historyError: any) {
+          console.error('[BandwidthHistory] Error storing bandwidth history:', historyError.message);
+        }
+      }
     } catch (error: any) {
       console.error('[Traffic] Error in traffic polling:', error.message);
     } finally {
