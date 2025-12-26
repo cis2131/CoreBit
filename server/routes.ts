@@ -3870,6 +3870,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Process connections in parallel with bounded concurrency
       const queue = [...monitoredConnections];
       const active: Promise<void>[] = [];
+      const allSpawned: Promise<void>[] = []; // Track ALL spawned promises
       let successCount = 0;
       let errorCount = 0;
       let timeoutCount = 0;
@@ -3909,6 +3910,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
           
           active.push(wrappedPromise as Promise<void>);
+          allSpawned.push(wrappedPromise as Promise<void>); // Track for final await
           wrappedPromise.finally(() => {
             const index = active.indexOf(wrappedPromise as Promise<void>);
             if (index > -1) active.splice(index, 1);
@@ -3919,6 +3921,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await Promise.race(active);
         }
       }
+      
+      // CRITICAL: Wait for ALL spawned promises to complete before returning
+      // The loop exits when 'active' is empty, but some promises may still be settling
+      await Promise.allSettled(allSpawned);
       
     } catch (error: any) {
       console.error('[Traffic] Error in traffic monitoring:', error.message);
