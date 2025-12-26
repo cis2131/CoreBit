@@ -1637,7 +1637,7 @@ export async function discoverPrometheusMetrics(
 }
 
 // Import Proxmox API client
-import { ProxmoxApi, detectProxmox, ProxmoxVMInfo } from './proxmoxApi';
+import { ProxmoxApi, detectProxmox, ProxmoxVMInfo, ProxmoxNetworkInterface } from './proxmoxApi';
 
 // Probe Proxmox VE host - fetches host info and VM list
 // Returns device data with Proxmox version, node stats, and VM summary
@@ -1726,6 +1726,60 @@ export async function probeProxmoxDevice(
     }
   }
 
+  // Fetch physical network interfaces for the current node
+  const networkInterfaces: Array<{ name: string; defaultName?: string; status: string; speed?: string }> = [];
+  const nodeToQuery = currentNode || hostInfo.nodes[0]?.node;
+  
+  if (nodeToQuery) {
+    try {
+      const ifaceInfo = await api.getNodeNetworkInterfaces(nodeToQuery);
+      
+      // Add physical interfaces (eth0, eno1, enp0s1, etc.)
+      for (const iface of ifaceInfo.physical) {
+        networkInterfaces.push({
+          name: iface.iface,
+          defaultName: iface.iface,
+          status: iface.active === 1 ? 'up' : 'down',
+          speed: iface.address ? iface.address : undefined
+        });
+      }
+      
+      // Add bond interfaces
+      for (const iface of ifaceInfo.bonds) {
+        const slaves = iface.slaves ? ` (${iface.slaves})` : '';
+        networkInterfaces.push({
+          name: iface.iface,
+          defaultName: iface.iface,
+          status: iface.active === 1 ? 'up' : 'down',
+          speed: iface.address ? `${iface.address}${slaves}` : slaves.trim()
+        });
+      }
+      
+      // Add bridge interfaces (vmbr0, vmbr1, etc.)
+      for (const iface of ifaceInfo.bridges) {
+        const ports = iface.bridge_ports ? ` (${iface.bridge_ports})` : '';
+        networkInterfaces.push({
+          name: iface.iface,
+          defaultName: iface.iface,
+          status: iface.active === 1 ? 'up' : 'down',
+          speed: iface.address ? `${iface.address}${ports}` : ports.trim()
+        });
+      }
+      
+      console.log(`[Proxmox] ${ipAddress}: Found ${ifaceInfo.physical.length} physical, ${ifaceInfo.bonds.length} bond, ${ifaceInfo.bridges.length} bridge interfaces`);
+    } catch (e: any) {
+      console.log(`[Proxmox] ${ipAddress}: Failed to fetch network interfaces: ${e.message}`);
+    }
+  }
+
+  // Add node summary as first port entry
+  const nodePorts = hostInfo.nodes.map(node => ({
+    name: node.node,
+    defaultName: node.node,
+    status: node.status === 'online' ? 'up' : 'down',
+    speed: `${hostInfo.runningVMs}/${hostInfo.totalVMs} VMs`
+  }));
+
   const hostData: DeviceProbeData & { clusterName?: string; currentNode?: string } = {
     model: `Proxmox VE ${hostInfo.version || ''}`.trim(),
     version: hostInfo.version || 'Unknown',
@@ -1734,12 +1788,8 @@ export async function probeProxmoxDevice(
     cpuUsagePct,
     memoryUsagePct,
     diskUsagePct,
-    // Store VM summary in ports array for display
-    ports: hostInfo.nodes.map(node => ({
-      name: node.node,
-      status: node.status === 'online' ? 'up' : 'down',
-      speed: `${hostInfo.runningVMs}/${hostInfo.totalVMs} VMs`
-    })),
+    // Store network interfaces followed by node summary
+    ports: [...networkInterfaces, ...nodePorts],
     // Store cluster info for dynamic connection resolution
     clusterName: hostInfo.clusterName,
     currentNode: currentNode,

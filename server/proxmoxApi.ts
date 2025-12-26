@@ -72,6 +72,20 @@ export interface ProxmoxApiResult<T> {
   error?: string;
 }
 
+export interface ProxmoxNetworkInterface {
+  iface: string;
+  type: string;  // 'eth', 'bond', 'bridge', 'vlan', 'OVSBridge', 'OVSPort', etc.
+  active?: number;  // 1 = active
+  autostart?: number;
+  method?: string;  // 'manual', 'static', 'dhcp'
+  address?: string;  // IPv4 address if configured
+  netmask?: string;
+  gateway?: string;
+  bridge_ports?: string;  // For bridges, lists member ports
+  slaves?: string;  // For bonds, lists member interfaces
+  comments?: string;
+}
+
 export class ProxmoxApi {
   private credentials: ProxmoxCredentials;
   private ticket?: string;
@@ -244,6 +258,53 @@ export class ProxmoxApi {
   async getClusterResources(type?: 'vm' | 'node' | 'storage'): Promise<ProxmoxApiResult<any[]>> {
     const path = type ? `/cluster/resources?type=${type}` : '/cluster/resources';
     return this.makeRequest<any[]>('GET', path);
+  }
+
+  // Get network configuration for a node - includes physical interfaces, bonds, bridges
+  async getNodeNetworkConfig(node: string): Promise<ProxmoxApiResult<ProxmoxNetworkInterface[]>> {
+    return this.makeRequest<ProxmoxNetworkInterface[]>('GET', `/nodes/${node}/network`);
+  }
+
+  // Get all physical and virtual network interfaces for a node
+  async getNodeNetworkInterfaces(node: string): Promise<{
+    physical: ProxmoxNetworkInterface[];
+    bonds: ProxmoxNetworkInterface[];
+    bridges: ProxmoxNetworkInterface[];
+    vlans: ProxmoxNetworkInterface[];
+  }> {
+    const result = await this.getNodeNetworkConfig(node);
+    if (!result.success || !result.data) {
+      return { physical: [], bonds: [], bridges: [], vlans: [] };
+    }
+
+    const physical: ProxmoxNetworkInterface[] = [];
+    const bonds: ProxmoxNetworkInterface[] = [];
+    const bridges: ProxmoxNetworkInterface[] = [];
+    const vlans: ProxmoxNetworkInterface[] = [];
+
+    for (const iface of result.data) {
+      // Skip loopback
+      if (iface.iface === 'lo') continue;
+
+      switch (iface.type) {
+        case 'eth':
+          physical.push(iface);
+          break;
+        case 'bond':
+          bonds.push(iface);
+          break;
+        case 'bridge':
+        case 'OVSBridge':
+          bridges.push(iface);
+          break;
+        case 'vlan':
+        case 'OVSPort':
+          vlans.push(iface);
+          break;
+      }
+    }
+
+    return { physical, bonds, bridges, vlans };
   }
 
   async getAllVMs(filterByNode?: string): Promise<ProxmoxVMInfo[]> {
