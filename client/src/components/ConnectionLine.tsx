@@ -99,6 +99,7 @@ export function ConnectionLine({
   // Calculate curve offset - use manual offset if set, otherwise use auto-offset for duplicate connections
   const curveMode = connection.curveMode || 'straight';
   const manualOffset = connection.curveOffset || 0;
+  const isSpline = curveMode === 'spline';
   const effectiveOffset = curveMode === 'curved' 
     ? (manualOffset || 50) 
     : curveMode === 'auto' 
@@ -123,6 +124,18 @@ export function ConnectionLine({
   const labelMidY = (sourcePosition.y + targetPosition.y) / 2;
 
   const isCurved = effectiveOffset !== 0;
+  
+  // Spline control points for S-curve (cubic bezier)
+  // Creates smooth horizontal exits from both devices
+  const splineControlOffset = Math.min(length * 0.4, 150); // Control point distance
+  const splineCtrl1 = {
+    x: sourcePosition.x + (dx > 0 ? splineControlOffset : -splineControlOffset),
+    y: sourcePosition.y,
+  };
+  const splineCtrl2 = {
+    x: targetPosition.x - (dx > 0 ? splineControlOffset : -splineControlOffset),
+    y: targetPosition.y,
+  };
 
   // Calculate intersection points with device rectangle boundaries
   // Standard device nodes are 320px wide and approximately 130px tall, centered at their position
@@ -217,20 +230,39 @@ export function ConnectionLine({
       y: mt * mt * sourcePosition.y + 2 * mt * t * midY + t * t * targetPosition.y,
     };
   };
+  
+  // Cubic Bézier for spline: P(t) = (1-t)³P0 + 3(1-t)²t*P1 + 3(1-t)t²*P2 + t³P3
+  const getPointOnCubicBezier = (t: number) => {
+    const mt = 1 - t;
+    const mt2 = mt * mt;
+    const mt3 = mt2 * mt;
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return {
+      x: mt3 * sourcePosition.x + 3 * mt2 * t * splineCtrl1.x + 3 * mt * t2 * splineCtrl2.x + t3 * targetPosition.x,
+      y: mt3 * sourcePosition.y + 3 * mt2 * t * splineCtrl1.y + 3 * mt * t2 * splineCtrl2.y + t3 * targetPosition.y,
+    };
+  };
 
   // Calculate label position along the curve (0-100, default 50 for middle)
   const labelT = (connection.labelPosition ?? 50) / 100;
   
   // Calculate curve apex (point at t=0.5) for selection indicator and traffic banner
-  const curveApex = isCurved ? getPointOnQuadraticBezier(0.5) : { x: (sourcePosition.x + targetPosition.x) / 2, y: (sourcePosition.y + targetPosition.y) / 2 };
+  const curveApex = isSpline 
+    ? getPointOnCubicBezier(0.5)
+    : isCurved 
+      ? getPointOnQuadraticBezier(0.5) 
+      : { x: (sourcePosition.x + targetPosition.x) / 2, y: (sourcePosition.y + targetPosition.y) / 2 };
   
   // Calculate traffic label coordinates (uses labelT instead of fixed 0.5)
-  const trafficLabelPoint = isCurved 
-    ? getPointOnQuadraticBezier(labelT) 
-    : { 
-        x: sourcePosition.x + (targetPosition.x - sourcePosition.x) * labelT, 
-        y: sourcePosition.y + (targetPosition.y - sourcePosition.y) * labelT 
-      };
+  const trafficLabelPoint = isSpline
+    ? getPointOnCubicBezier(labelT)
+    : isCurved 
+      ? getPointOnQuadraticBezier(labelT) 
+      : { 
+          x: sourcePosition.x + (targetPosition.x - sourcePosition.x) * labelT, 
+          y: sourcePosition.y + (targetPosition.y - sourcePosition.y) * labelT 
+        };
 
   // Check if a point is inside a device rectangle
   const isInsideDevice = (
@@ -354,7 +386,28 @@ export function ConnectionLine({
       style={{ pointerEvents: 'auto' }}
       data-testid={`connection-line-${connection.id}`}
     >
-      {isCurved ? (
+      {isSpline ? (
+        <>
+          {/* Spline path using cubic bezier for S-curve */}
+          <path
+            d={`M ${sourcePosition.x} ${sourcePosition.y} C ${splineCtrl1.x} ${splineCtrl1.y} ${splineCtrl2.x} ${splineCtrl2.y} ${targetPosition.x} ${targetPosition.y}`}
+            fill="none"
+            stroke={style.color}
+            strokeWidth={strokeWidth}
+            strokeOpacity={0.7}
+            strokeDasharray={style.dashArray}
+            className={`transition-all ${thresholdFlashClass}`}
+          />
+          {/* Invisible hit area for spline path */}
+          <path
+            d={`M ${sourcePosition.x} ${sourcePosition.y} C ${splineCtrl1.x} ${splineCtrl1.y} ${splineCtrl2.x} ${splineCtrl2.y} ${targetPosition.x} ${targetPosition.y}`}
+            fill="none"
+            stroke="transparent"
+            strokeWidth="20"
+            pointerEvents="stroke"
+          />
+        </>
+      ) : isCurved ? (
         <>
           {/* Curved path using quadratic bezier */}
           <path

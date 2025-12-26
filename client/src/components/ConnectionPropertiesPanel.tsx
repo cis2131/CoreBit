@@ -76,21 +76,31 @@ export function ConnectionPropertiesPanel({
   const [monitorInterface, setMonitorInterface] = useState<string>(
     connection.monitorInterface || "none",
   );
-  const [curveMode, setCurveMode] = useState<'straight' | 'curved' | 'auto'>(
-    (connection.curveMode as 'straight' | 'curved' | 'auto') || "straight",
+  const [curveMode, setCurveMode] = useState<"straight" | "curved" | "spline" | "auto">(
+    (connection.curveMode as "straight" | "curved" | "spline" | "auto") || "straight",
   );
   const [curveOffset, setCurveOffset] = useState(connection.curveOffset || 0);
-  const [flipTrafficDirection, setFlipTrafficDirection] = useState(connection.flipTrafficDirection || false);
+  const [flipTrafficDirection, setFlipTrafficDirection] = useState(
+    connection.flipTrafficDirection || false,
+  );
   const [isDynamic, setIsDynamic] = useState(connection.isDynamic || false);
-  const [warningThreshold, setWarningThreshold] = useState(connection.warningThresholdPct ?? 70);
-  const [criticalThreshold, setCriticalThreshold] = useState(connection.criticalThresholdPct ?? 90);
-  const [labelPosition, setLabelPosition] = useState(connection.labelPosition ?? 50);
+  const [warningThreshold, setWarningThreshold] = useState(
+    connection.warningThresholdPct ?? 70,
+  );
+  const [criticalThreshold, setCriticalThreshold] = useState(
+    connection.criticalThresholdPct ?? 90,
+  );
+  const [labelPosition, setLabelPosition] = useState(
+    connection.labelPosition ?? 50,
+  );
   const [saving, setSaving] = useState(false);
   const [resettingIndex, setResettingIndex] = useState(false);
-  
+
   // Check if source device is a VM (matched to a Proxmox VM) for dynamic connection eligibility
-  const isSourceVmDevice = sourceDevice.type === 'generic_prometheus' || sourceDevice.type === 'server';
-  const isTargetProxmoxHost = targetDevice.type === 'proxmox';
+  const isSourceVmDevice =
+    sourceDevice.type === "generic_prometheus" ||
+    sourceDevice.type === "server";
+  const isTargetProxmoxHost = targetDevice.type === "proxmox";
   const canBeDynamicConnection = isSourceVmDevice && isTargetProxmoxHost;
 
   // Fetch traffic history for bandwidth graph (poll every 10 seconds when monitoring is enabled)
@@ -106,7 +116,9 @@ export function ConnectionPropertiesPanel({
     setSourcePort(connection.sourcePort || "none");
     setTargetPort(connection.targetPort || "none");
     setMonitorInterface(connection.monitorInterface || "none");
-    setCurveMode((connection.curveMode as 'straight' | 'curved' | 'auto') || "straight");
+    setCurveMode(
+      (connection.curveMode as "straight" | "curved" | "spline" | "auto") || "straight",
+    );
     setCurveOffset(connection.curveOffset || 0);
     setFlipTrafficDirection(connection.flipTrafficDirection || false);
     setIsDynamic(connection.isDynamic || false);
@@ -147,7 +159,9 @@ export function ConnectionPropertiesPanel({
     sourcePort !== (connection.sourcePort || "none") ||
     targetPort !== (connection.targetPort || "none") ||
     monitorInterface !== (connection.monitorInterface || "none") ||
-    curveMode !== ((connection.curveMode as 'straight' | 'curved' | 'auto') || "straight") ||
+    curveMode !==
+      ((connection.curveMode as "straight" | "curved" | "auto") ||
+        "straight") ||
     curveOffset !== (connection.curveOffset || 0) ||
     flipTrafficDirection !== (connection.flipTrafficDirection || false) ||
     isDynamic !== (connection.isDynamic || false) ||
@@ -172,23 +186,27 @@ export function ConnectionPropertiesPanel({
         criticalThresholdPct: criticalThreshold,
         labelPosition,
       };
-      
+
       // If enabling dynamic connection, set the type and metadata
       if (isDynamic && canBeDynamicConnection) {
-        updatePayload.dynamicType = 'proxmox_vm_host';
+        updatePayload.dynamicType = "proxmox_vm_host";
         updatePayload.dynamicMetadata = {
           vmDeviceId: sourceDevice.id,
-          vmEnd: 'source',
+          vmEnd: "source",
           lastResolvedHostId: targetDevice.id,
           lastResolvedNodeName: null,
-          state: 'pending',
+          state: "pending",
         };
       } else if (!isDynamic) {
         updatePayload.dynamicType = null;
         updatePayload.dynamicMetadata = null;
       }
-      
-      await apiRequest("PATCH", `/api/connections/${connection.id}`, updatePayload);
+
+      await apiRequest(
+        "PATCH",
+        `/api/connections/${connection.id}`,
+        updatePayload,
+      );
       queryClient.invalidateQueries({
         queryKey: ["/api/connections", connection.mapId],
       });
@@ -221,13 +239,17 @@ export function ConnectionPropertiesPanel({
   const handleResetSnmpIndex = async () => {
     setResettingIndex(true);
     try {
-      await apiRequest("POST", `/api/connections/${connection.id}/reset-snmp-index`);
+      await apiRequest(
+        "POST",
+        `/api/connections/${connection.id}/reset-snmp-index`,
+      );
       queryClient.invalidateQueries({
         queryKey: ["/api/connections", connection.mapId],
       });
       toast({
         title: "SNMP index reset",
-        description: "Traffic monitoring will re-discover the interface on next poll.",
+        description:
+          "Traffic monitoring will re-discover the interface on next poll.",
       });
     } catch (error) {
       toast({
@@ -466,13 +488,13 @@ export function ConnectionPropertiesPanel({
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="curve-mode">Line Style</Label>
-                <Select 
-                  value={curveMode} 
+                <Select
+                  value={curveMode}
                   onValueChange={(v) => {
-                    const newMode = v as 'straight' | 'curved' | 'auto';
+                    const newMode = v as "straight" | "curved" | "spline" | "auto";
                     setCurveMode(newMode);
                     // Reset curve offset when switching away from 'curved' mode
-                    if (newMode !== 'curved') {
+                    if (newMode !== "curved") {
                       setCurveOffset(0);
                     } else if (curveOffset === 0) {
                       // Set a default offset when switching to curved mode
@@ -480,25 +502,34 @@ export function ConnectionPropertiesPanel({
                     }
                   }}
                 >
-                  <SelectTrigger id="curve-mode" data-testid="select-curve-mode">
+                  <SelectTrigger
+                    id="curve-mode"
+                    data-testid="select-curve-mode"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="straight">Straight</SelectItem>
                     <SelectItem value="curved">Curved</SelectItem>
-                    <SelectItem value="auto">Auto (for parallel links)</SelectItem>
+                    <SelectItem value="spline">Spline (S-curve)</SelectItem>
+                    <SelectItem value="auto">
+                      Auto (for parallel links)
+                    </SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Use curved lines when multiple connections exist between the same devices.
+                  Use curved lines when multiple connections exist between the
+                  same devices.
                 </p>
               </div>
-              
-              {curveMode === 'curved' && (
+
+              {curveMode === "curved" && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="curve-offset">Curve Intensity</Label>
-                    <span className="text-xs text-muted-foreground">{curveOffset}px</span>
+                    <span className="text-xs text-muted-foreground">
+                      {curveOffset}px
+                    </span>
                   </div>
                   <Slider
                     id="curve-offset"
@@ -515,14 +546,16 @@ export function ConnectionPropertiesPanel({
                   </p>
                 </div>
               )}
-              
+
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="label-position">Bandwidth Label Position</Label>
+                  <Label htmlFor="label-position">Label Position</Label>
                   <span className="text-xs text-muted-foreground">
-                    {labelPosition < 50 ? `${50 - labelPosition}% toward source` : 
-                     labelPosition > 50 ? `${labelPosition - 50}% toward target` : 
-                     'Center'}
+                    {labelPosition < 50
+                      ? `${50 - labelPosition}% toward source`
+                      : labelPosition > 50
+                        ? `${labelPosition - 50}% toward target`
+                        : "Center"}
                   </span>
                 </div>
                 <Slider
@@ -613,13 +646,17 @@ export function ConnectionPropertiesPanel({
                       className="h-6 text-xs"
                       data-testid="button-reset-snmp-index"
                     >
-                      <RefreshCw className={`h-3 w-3 mr-1 ${resettingIndex ? 'animate-spin' : ''}`} />
+                      <RefreshCw
+                        className={`h-3 w-3 mr-1 ${resettingIndex ? "animate-spin" : ""}`}
+                      />
                       {resettingIndex ? "Refreshing..." : "Refresh Index"}
                     </Button>
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
-                      <Label htmlFor="flip-direction" className="text-sm">Flip RX/TX Direction</Label>
+                      <Label htmlFor="flip-direction" className="text-sm">
+                        Flip RX/TX Direction
+                      </Label>
                       <p className="text-xs text-muted-foreground">
                         Swap inbound/outbound if connection was drawn backwards
                       </p>
@@ -631,15 +668,21 @@ export function ConnectionPropertiesPanel({
                       data-testid="switch-flip-traffic"
                     />
                   </div>
-                  
+
                   <div className="space-y-3 pt-3 border-t">
-                    <Label className="text-sm font-medium">Utilization Thresholds</Label>
+                    <Label className="text-sm font-medium">
+                      Utilization Thresholds
+                    </Label>
                     <p className="text-xs text-muted-foreground">
-                      Connection line flashes when utilization exceeds these thresholds
+                      Connection line flashes when utilization exceeds these
+                      thresholds
                     </p>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1.5">
-                        <Label htmlFor="warning-threshold" className="text-xs flex items-center gap-1.5">
+                        <Label
+                          htmlFor="warning-threshold"
+                          className="text-xs flex items-center gap-1.5"
+                        >
                           <span className="w-2 h-2 rounded-full bg-orange-500" />
                           Warning
                         </Label>
@@ -650,18 +693,27 @@ export function ConnectionPropertiesPanel({
                             min={0}
                             max={100}
                             value={warningThreshold}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                            onChange={(
+                              e: React.ChangeEvent<HTMLInputElement>,
+                            ) => {
                               const val = parseInt(e.target.value) || 0;
-                              setWarningThreshold(Math.min(100, Math.max(0, val)));
+                              setWarningThreshold(
+                                Math.min(100, Math.max(0, val)),
+                              );
                             }}
                             className="h-8 w-20"
                             data-testid="input-warning-threshold"
                           />
-                          <span className="text-xs text-muted-foreground">%</span>
+                          <span className="text-xs text-muted-foreground">
+                            %
+                          </span>
                         </div>
                       </div>
                       <div className="space-y-1.5">
-                        <Label htmlFor="critical-threshold" className="text-xs flex items-center gap-1.5">
+                        <Label
+                          htmlFor="critical-threshold"
+                          className="text-xs flex items-center gap-1.5"
+                        >
                           <span className="w-2 h-2 rounded-full bg-red-500" />
                           Critical
                         </Label>
@@ -672,14 +724,20 @@ export function ConnectionPropertiesPanel({
                             min={0}
                             max={100}
                             value={criticalThreshold}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                            onChange={(
+                              e: React.ChangeEvent<HTMLInputElement>,
+                            ) => {
                               const val = parseInt(e.target.value) || 0;
-                              setCriticalThreshold(Math.min(100, Math.max(0, val)));
+                              setCriticalThreshold(
+                                Math.min(100, Math.max(0, val)),
+                              );
                             }}
                             className="h-8 w-20"
                             data-testid="input-critical-threshold"
                           />
-                          <span className="text-xs text-muted-foreground">%</span>
+                          <span className="text-xs text-muted-foreground">
+                            %
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -699,15 +757,20 @@ export function ConnectionPropertiesPanel({
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-2">
                   <RefreshCcw className="h-4 w-4 text-muted-foreground" />
-                  <CardTitle className="text-sm">Dynamic VM Connection</CardTitle>
+                  <CardTitle className="text-sm">
+                    Dynamic VM Connection
+                  </CardTitle>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label htmlFor="is-dynamic" className="text-sm">Auto-update on VM migration</Label>
+                    <Label htmlFor="is-dynamic" className="text-sm">
+                      Auto-update on VM migration
+                    </Label>
                     <p className="text-xs text-muted-foreground">
-                      Automatically update this connection when the VM migrates to a different Proxmox host
+                      Automatically update this connection when the VM migrates
+                      to a different Proxmox host
                     </p>
                   </div>
                   <Switch
@@ -719,13 +782,16 @@ export function ConnectionPropertiesPanel({
                 </div>
                 {isDynamic && (
                   <div className="text-xs text-muted-foreground bg-muted/50 rounded-md p-2">
-                    When enabled, if this VM migrates to another Proxmox cluster node, this connection will automatically point to the new host device.
+                    When enabled, if this VM migrates to another Proxmox cluster
+                    node, this connection will automatically point to the new
+                    host device.
                   </div>
                 )}
                 {connection.dynamicMetadata?.lastResolvedNodeName && (
                   <div className="flex items-center gap-2 text-xs">
                     <Badge variant="outline" className="text-xs">
-                      Last node: {connection.dynamicMetadata.lastResolvedNodeName}
+                      Last node:{" "}
+                      {connection.dynamicMetadata.lastResolvedNodeName}
                     </Badge>
                   </div>
                 )}
@@ -733,205 +799,234 @@ export function ConnectionPropertiesPanel({
             </Card>
           )}
 
-          {connection.linkStats && (() => {
-            // When monitoring on target device, flip RX/TX to show correct direction
-            // from the connection's perspective (source → target)
-            // Also apply manual flip if user toggled the switch
-            const linkStats = connection.linkStats!;
-            const isMonitoringTarget = connection.monitorInterface === 'target';
-            const shouldFlip = isMonitoringTarget !== flipTrafficDirection; // XOR logic
-            const inboundBps = shouldFlip 
-              ? linkStats.outBitsPerSec || 0
-              : linkStats.inBitsPerSec || 0;
-            const outboundBps = shouldFlip
-              ? linkStats.inBitsPerSec || 0
-              : linkStats.outBitsPerSec || 0;
-            
-            return (
-            <Card className={linkStats.isStale ? "opacity-60" : ""}>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Activity className="h-4 w-4 text-muted-foreground" />
-                    <CardTitle className="text-sm">
-                      Traffic Statistics
-                    </CardTitle>
-                  </div>
-                  {linkStats.isStale && (
-                    <Badge
-                      variant="outline"
-                      className="text-xs text-yellow-600 border-yellow-600"
-                    >
-                      <AlertTriangle className="h-3 w-3 mr-1" />
-                      Stale
-                    </Badge>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {inboundBps !== undefined && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
+          {connection.linkStats &&
+            (() => {
+              // When monitoring on target device, flip RX/TX to show correct direction
+              // from the connection's perspective (source → target)
+              // Also apply manual flip if user toggled the switch
+              const linkStats = connection.linkStats!;
+              const isMonitoringTarget =
+                connection.monitorInterface === "target";
+              const shouldFlip = isMonitoringTarget !== flipTrafficDirection; // XOR logic
+              const inboundBps = shouldFlip
+                ? linkStats.outBitsPerSec || 0
+                : linkStats.inBitsPerSec || 0;
+              const outboundBps = shouldFlip
+                ? linkStats.inBitsPerSec || 0
+                : linkStats.outBitsPerSec || 0;
+
+              return (
+                <Card className={linkStats.isStale ? "opacity-60" : ""}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <ArrowDown className="h-4 w-4 text-blue-500" />
-                        <span className="text-foreground font-medium">RX</span>
+                        <Activity className="h-4 w-4 text-muted-foreground" />
+                        <CardTitle className="text-sm">
+                          Traffic Statistics
+                        </CardTitle>
                       </div>
-                      <span
-                        className="font-mono font-semibold text-foreground"
-                        data-testid="text-inbound-traffic"
-                      >
-                        {linkStats.isStale
-                          ? "—"
-                          : formatBitsPerSec(inboundBps)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-                {outboundBps !== undefined && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <ArrowUp className="h-4 w-4 text-green-500" />
-                        <span className="text-foreground font-medium">TX</span>
-                      </div>
-                      <span
-                        className="font-mono font-semibold text-foreground"
-                        data-testid="text-outbound-traffic"
-                      >
-                        {linkStats.isStale
-                          ? "—"
-                          : formatBitsPerSec(outboundBps)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-                {linkStats.utilizationPct !== undefined && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-foreground font-medium">
-                        Utilization
-                      </span>
-                      <span
-                        className="font-mono font-semibold text-foreground"
-                        data-testid="text-utilization"
-                      >
-                        {linkStats.isStale
-                          ? "—"
-                          : `${linkStats.utilizationPct}%`}
-                      </span>
-                    </div>
-                    <Progress
-                      value={
-                        linkStats.isStale
-                          ? 0
-                          : linkStats.utilizationPct
-                      }
-                      className="h-2"
-                      data-testid="progress-utilization"
-                    />
-                  </div>
-                )}
-                {linkStats.lastSampleAt && (
-                  <div className="text-xs text-muted-foreground">
-                    Last updated:{" "}
-                    {new Date(
-                      linkStats.lastSampleAt,
-                    ).toLocaleString()}
-                    {linkStats.isStale && " (no response)"}
-                  </div>
-                )}
-                
-                {trafficHistory.length > 1 && (
-                  <div className="pt-2">
-                    <div className="flex items-center gap-2 mb-2">
-                      <BarChart3 className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground">
-                        Bandwidth (last {Math.round((trafficHistory.length * 10) / 60)} min)
-                      </span>
-                    </div>
-                    <div className="h-24 w-full" data-testid="chart-bandwidth">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart
-                          data={trafficHistory.map((point) => ({
-                            time: new Date(point.timestamp).toLocaleTimeString([], { 
-                              hour: '2-digit', 
-                              minute: '2-digit' 
-                            }),
-                            rx: (shouldFlip ? point.outBitsPerSec : point.inBitsPerSec) / 1000000,
-                            tx: (shouldFlip ? point.inBitsPerSec : point.outBitsPerSec) / 1000000,
-                          }))}
-                          margin={{ top: 5, right: 5, left: 0, bottom: 0 }}
+                      {linkStats.isStale && (
+                        <Badge
+                          variant="outline"
+                          className="text-xs text-yellow-600 border-yellow-600"
                         >
-                          <XAxis 
-                            dataKey="time" 
-                            tick={{ fontSize: 9 }}
-                            tickLine={false}
-                            axisLine={false}
-                            interval="preserveStartEnd"
-                          />
-                          <YAxis 
-                            tick={{ fontSize: 9 }}
-                            tickLine={false}
-                            axisLine={false}
-                            tickFormatter={(value) => {
-                              if (value >= 1000) return `${(value / 1000).toFixed(0)}G`;
-                              if (value >= 1) return `${value.toFixed(0)}M`;
-                              if (value >= 0.001) return `${(value * 1000).toFixed(0)}K`;
-                              return '0';
-                            }}
-                            width={40}
-                          />
-                          <Tooltip
-                            contentStyle={{
-                              fontSize: '11px',
-                              padding: '4px 8px',
-                              borderRadius: '4px',
-                            }}
-                            formatter={(value: number) => {
-                              if (value >= 1000) return [`${(value / 1000).toFixed(2)} Gbps`];
-                              if (value >= 1) return [`${value.toFixed(2)} Mbps`];
-                              if (value >= 0.001) return [`${(value * 1000).toFixed(2)} Kbps`];
-                              return [`${(value * 1000000).toFixed(0)} bps`];
-                            }}
-                            labelFormatter={(label) => `Time: ${label}`}
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="rx"
-                            name="RX"
-                            stroke="#3b82f6"
-                            fill="#3b82f6"
-                            fillOpacity={0.3}
-                            strokeWidth={1.5}
-                          />
-                          <Area
-                            type="monotone"
-                            dataKey="tx"
-                            name="TX"
-                            stroke="#22c55e"
-                            fill="#22c55e"
-                            fillOpacity={0.2}
-                            strokeWidth={1.5}
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
+                          <AlertTriangle className="h-3 w-3 mr-1" />
+                          Stale
+                        </Badge>
+                      )}
                     </div>
-                    <div className="flex justify-center gap-4 mt-1">
-                      <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 rounded-full bg-blue-500" />
-                        <span className="text-xs text-muted-foreground">RX</span>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {inboundBps !== undefined && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <ArrowDown className="h-4 w-4 text-blue-500" />
+                            <span className="text-foreground font-medium">
+                              RX
+                            </span>
+                          </div>
+                          <span
+                            className="font-mono font-semibold text-foreground"
+                            data-testid="text-inbound-traffic"
+                          >
+                            {linkStats.isStale
+                              ? "—"
+                              : formatBitsPerSec(inboundBps)}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 rounded-full bg-green-500" />
-                        <span className="text-xs text-muted-foreground">TX</span>
+                    )}
+                    {outboundBps !== undefined && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2">
+                            <ArrowUp className="h-4 w-4 text-green-500" />
+                            <span className="text-foreground font-medium">
+                              TX
+                            </span>
+                          </div>
+                          <span
+                            className="font-mono font-semibold text-foreground"
+                            data-testid="text-outbound-traffic"
+                          >
+                            {linkStats.isStale
+                              ? "—"
+                              : formatBitsPerSec(outboundBps)}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          );
-          })()}
+                    )}
+                    {linkStats.utilizationPct !== undefined && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-foreground font-medium">
+                            Utilization
+                          </span>
+                          <span
+                            className="font-mono font-semibold text-foreground"
+                            data-testid="text-utilization"
+                          >
+                            {linkStats.isStale
+                              ? "—"
+                              : `${linkStats.utilizationPct}%`}
+                          </span>
+                        </div>
+                        <Progress
+                          value={
+                            linkStats.isStale ? 0 : linkStats.utilizationPct
+                          }
+                          className="h-2"
+                          data-testid="progress-utilization"
+                        />
+                      </div>
+                    )}
+                    {linkStats.lastSampleAt && (
+                      <div className="text-xs text-muted-foreground">
+                        Last updated:{" "}
+                        {new Date(linkStats.lastSampleAt).toLocaleString()}
+                        {linkStats.isStale && " (no response)"}
+                      </div>
+                    )}
+
+                    {trafficHistory.length > 1 && (
+                      <div className="pt-2">
+                        <div className="flex items-center gap-2 mb-2">
+                          <BarChart3 className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">
+                            Bandwidth (last{" "}
+                            {Math.round((trafficHistory.length * 10) / 60)} min)
+                          </span>
+                        </div>
+                        <div
+                          className="h-24 w-full"
+                          data-testid="chart-bandwidth"
+                        >
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart
+                              data={trafficHistory.map((point) => ({
+                                time: new Date(
+                                  point.timestamp,
+                                ).toLocaleTimeString([], {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                }),
+                                rx:
+                                  (shouldFlip
+                                    ? point.outBitsPerSec
+                                    : point.inBitsPerSec) / 1000000,
+                                tx:
+                                  (shouldFlip
+                                    ? point.inBitsPerSec
+                                    : point.outBitsPerSec) / 1000000,
+                              }))}
+                              margin={{ top: 5, right: 5, left: 0, bottom: 0 }}
+                            >
+                              <XAxis
+                                dataKey="time"
+                                tick={{ fontSize: 9 }}
+                                tickLine={false}
+                                axisLine={false}
+                                interval="preserveStartEnd"
+                              />
+                              <YAxis
+                                tick={{ fontSize: 9 }}
+                                tickLine={false}
+                                axisLine={false}
+                                tickFormatter={(value) => {
+                                  if (value >= 1000)
+                                    return `${(value / 1000).toFixed(0)}G`;
+                                  if (value >= 1) return `${value.toFixed(0)}M`;
+                                  if (value >= 0.001)
+                                    return `${(value * 1000).toFixed(0)}K`;
+                                  return "0";
+                                }}
+                                width={40}
+                              />
+                              <Tooltip
+                                contentStyle={{
+                                  fontSize: "11px",
+                                  padding: "4px 8px",
+                                  borderRadius: "4px",
+                                }}
+                                formatter={(value: number) => {
+                                  if (value >= 1000)
+                                    return [
+                                      `${(value / 1000).toFixed(2)} Gbps`,
+                                    ];
+                                  if (value >= 1)
+                                    return [`${value.toFixed(2)} Mbps`];
+                                  if (value >= 0.001)
+                                    return [
+                                      `${(value * 1000).toFixed(2)} Kbps`,
+                                    ];
+                                  return [
+                                    `${(value * 1000000).toFixed(0)} bps`,
+                                  ];
+                                }}
+                                labelFormatter={(label) => `Time: ${label}`}
+                              />
+                              <Area
+                                type="monotone"
+                                dataKey="rx"
+                                name="RX"
+                                stroke="#3b82f6"
+                                fill="#3b82f6"
+                                fillOpacity={0.3}
+                                strokeWidth={1.5}
+                              />
+                              <Area
+                                type="monotone"
+                                dataKey="tx"
+                                name="TX"
+                                stroke="#22c55e"
+                                fill="#22c55e"
+                                fillOpacity={0.2}
+                                strokeWidth={1.5}
+                              />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="flex justify-center gap-4 mt-1">
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 rounded-full bg-blue-500" />
+                            <span className="text-xs text-muted-foreground">
+                              RX
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <div className="w-2 h-2 rounded-full bg-green-500" />
+                            <span className="text-xs text-muted-foreground">
+                              TX
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
         </div>
       </ScrollArea>
 
