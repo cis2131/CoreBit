@@ -218,6 +218,7 @@ export const devices = pgTable("devices", {
   useOnDuty: boolean("use_on_duty").default(false).notNull(), // Also send alerts to on-duty operators (in addition to global channels)
   mutedUntil: timestamp("muted_until"), // Device notifications muted until this time (null = not muted)
   statusChangedAt: timestamp("status_changed_at"), // Timestamp when status last changed (for offline duration display)
+  metricsRetentionHours: integer("metrics_retention_hours"), // Override global retention for this device (null = use global default)
   lastProbeError: text("last_probe_error"), // Last error message from failed probe (for diagnostics)
   pollingInterfaceId: varchar("polling_interface_id"), // FK to deviceInterfaces - which interface to use for polling (added later via ALTER)
   pollingAddressId: varchar("polling_address_id"), // FK to ipamAddresses - which IP address to use for polling (added later via ALTER)
@@ -915,6 +916,42 @@ export interface IpamAddressWithAssignments extends IpamAddress {
   assignments: IpamAddressAssignment[];
 }
 
+// Device metrics history - time-series storage for device vitals
+export const deviceMetricsHistory = pgTable("device_metrics_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  deviceId: varchar("device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  cpuUsagePct: integer("cpu_usage_pct"),
+  memoryUsagePct: integer("memory_usage_pct"),
+  diskUsagePct: integer("disk_usage_pct"),
+  pingRtt: integer("ping_rtt"), // Ping round-trip time in ms
+  uptimeSeconds: integer("uptime_seconds"), // Raw uptime in seconds for tracking
+}, (table) => [
+  index("idx_device_metrics_device_time").on(table.deviceId, table.timestamp),
+  index("idx_device_metrics_timestamp").on(table.timestamp),
+]);
+
+export const insertDeviceMetricsHistorySchema = createInsertSchema(deviceMetricsHistory).omit({
+  id: true,
+});
+
+// Connection bandwidth history - time-series storage for link traffic
+export const connectionBandwidthHistory = pgTable("connection_bandwidth_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  connectionId: varchar("connection_id").notNull().references(() => connections.id, { onDelete: "cascade" }),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  inBytesPerSec: integer("in_bytes_per_sec"),
+  outBytesPerSec: integer("out_bytes_per_sec"),
+  utilizationPct: integer("utilization_pct"),
+}, (table) => [
+  index("idx_bandwidth_connection_time").on(table.connectionId, table.timestamp),
+  index("idx_bandwidth_timestamp").on(table.timestamp),
+]);
+
+export const insertConnectionBandwidthHistorySchema = createInsertSchema(connectionBandwidthHistory).omit({
+  id: true,
+});
+
 // License table for software licensing
 export const licenses = pgTable("licenses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -939,3 +976,8 @@ export const insertLicenseSchema = createInsertSchema(licenses).omit({
 
 export type License = typeof licenses.$inferSelect;
 export type InsertLicense = z.infer<typeof insertLicenseSchema>;
+
+export type DeviceMetricsHistory = typeof deviceMetricsHistory.$inferSelect;
+export type InsertDeviceMetricsHistory = z.infer<typeof insertDeviceMetricsHistorySchema>;
+export type ConnectionBandwidthHistory = typeof connectionBandwidthHistory.$inferSelect;
+export type InsertConnectionBandwidthHistory = z.infer<typeof insertConnectionBandwidthHistorySchema>;
