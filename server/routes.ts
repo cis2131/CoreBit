@@ -4056,24 +4056,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const timeDeltaSec = (counters.timestamp - prevTimestamp) / 1000;
         
         if (timeDeltaSec > 0 && timeDeltaSec < 300) { // Ignore stale samples > 5 minutes
-          // Handle counter wrap (32-bit counters can wrap around)
+          // Handle counter wrap (32-bit counters primarily - 64-bit rarely wraps)
           const MAX_32BIT = 4294967295;
           let inDelta = counters.inOctets - previousStats.previousInOctets;
           let outDelta = counters.outOctets - previousStats.previousOutOctets;
           
-          // Handle wrap-around for 32-bit counters
-          if (inDelta < 0) inDelta += MAX_32BIT;
-          if (outDelta < 0) outDelta += MAX_32BIT;
+          // Detect counter reset vs wrap: if delta is hugely negative, it's likely a reset
+          // For 32-bit: max reasonable negative delta from wrap is -MAX_32BIT
+          // If delta is more negative than we'd expect from wrap + reasonable traffic, skip sample
+          const linkSpeedBps = parseLinkSpeed(conn.linkSpeed || '1G');
+          const maxBytesInInterval = (linkSpeedBps / 8) * timeDeltaSec * 2; // 2x link speed as buffer
           
-          // Calculate rates
-          const rawInRate = inDelta / timeDeltaSec;
-          const rawOutRate = outDelta / timeDeltaSec;
+          // Handle wrap-around for 32-bit counters (common case)
+          // If negative but magnitude is reasonable for a wrap, add MAX_32BIT
+          // If negative and too large (counter reset/reboot), skip this sample
+          let validSample = true;
           
-          // Sanity check: clamp rates to reasonable max (100Gbps = 12.5GB/s)
-          const MAX_RATE = 12500000000; // 100Gbps in bytes/sec
-          if (!isNaN(rawInRate) && !isNaN(rawOutRate) && rawInRate <= MAX_RATE && rawOutRate <= MAX_RATE) {
-            inBytesPerSec = Math.round(rawInRate);
-            outBytesPerSec = Math.round(rawOutRate);
+          if (inDelta < 0) {
+            if (inDelta > -MAX_32BIT && (inDelta + MAX_32BIT) <= maxBytesInInterval * 2) {
+              inDelta += MAX_32BIT; // Normal 32-bit wrap
+            } else {
+              validSample = false; // Counter reset or bogus data
+            }
+          }
+          
+          if (outDelta < 0) {
+            if (outDelta > -MAX_32BIT && (outDelta + MAX_32BIT) <= maxBytesInInterval * 2) {
+              outDelta += MAX_32BIT; // Normal 32-bit wrap
+            } else {
+              validSample = false; // Counter reset or bogus data
+            }
+          }
+          
+          // Additional sanity: deltas should be positive and reasonable
+          if (validSample && inDelta >= 0 && outDelta >= 0) {
+            // Calculate rates
+            const rawInRate = inDelta / timeDeltaSec;
+            const rawOutRate = outDelta / timeDeltaSec;
+            
+            // Sanity check: rates must be non-negative, finite, and within 10x link speed
+            // (allows for burst traffic and some misconfigured link speeds)
+            const maxReasonableRate = (linkSpeedBps / 8) * 10; // 10x configured link speed
+            const globalMaxRate = 100000000000 / 8; // 100Gbps absolute max
+            const effectiveMax = Math.min(maxReasonableRate, globalMaxRate);
+            
+            if (Number.isFinite(rawInRate) && Number.isFinite(rawOutRate) &&
+                rawInRate >= 0 && rawOutRate >= 0 &&
+                rawInRate <= effectiveMax && rawOutRate <= effectiveMax) {
+              inBytesPerSec = Math.round(rawInRate);
+              outBytesPerSec = Math.round(rawOutRate);
+            }
           }
         }
       }
@@ -4172,15 +4204,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Also add to database buffer for persistent storage
     // Convert bits to bytes for database (schema uses bytes)
     if (addToDbBuffer) {
-      bandwidthHistoryBuffer.push({
-        connectionId,
-        timestamp: new Date(point.timestamp),
-        inBytesPerSec: Math.round(point.inBitsPerSec / 8),
-        outBytesPerSec: Math.round(point.outBitsPerSec / 8),
-        utilizationPct: point.utilizationPct,
-      });
-      // Debug: Log when adding to buffer
-      console.log(`[BandwidthHistory] Added to buffer: conn=${connectionId.substring(0,8)}, in=${point.inBitsPerSec}bps, out=${point.outBitsPerSec}bps`);
+      // Final validation: reject invalid values before storing
+      const inBytes = Math.round(point.inBitsPerSec / 8);
+      const outBytes = Math.round(point.outBitsPerSec / 8);
+      const maxStorableRate = 100000000000 / 8; // 100Gbps in bytes
+      
+      // Only store if values are valid: non-negative, finite, and reasonable
+      if (Number.isFinite(inBytes) && Number.isFinite(outBytes) &&
+          inBytes >= 0 && outBytes >= 0 &&
+          inBytes <= maxStorableRate && outBytes <= maxStorableRate &&
+          Number.isFinite(point.utilizationPct) && point.utilizationPct >= 0 && point.utilizationPct <= 100) {
+        bandwidthHistoryBuffer.push({
+          connectionId,
+          timestamp: new Date(point.timestamp),
+          inBytesPerSec: inBytes,
+          outBytesPerSec: outBytes,
+          utilizationPct: point.utilizationPct,
+        });
+        // Debug: Log when adding to buffer
+        console.log(`[BandwidthHistory] Added to buffer: conn=${connectionId.substring(0,8)}, in=${point.inBitsPerSec}bps, out=${point.outBitsPerSec}bps`);
+      } else {
+        console.warn(`[BandwidthHistory] REJECTED invalid sample: conn=${connectionId.substring(0,8)}, in=${point.inBitsPerSec}, out=${point.outBitsPerSec}, util=${point.utilizationPct}`);
+      }
     }
   }
   
