@@ -5228,7 +5228,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const untilDate = until ? new Date(until as string) : undefined;
       
       const history = await storage.getConnectionBandwidthHistory(connectionId, sinceDate, untilDate);
-      res.json(history);
+      
+      // Convert bytes to bits for frontend display (database stores bytes, frontend expects bits)
+      const historyWithBits = history.map(h => ({
+        ...h,
+        inBitsPerSec: (h.inBytesPerSec ?? 0) * 8,
+        outBitsPerSec: (h.outBytesPerSec ?? 0) * 8,
+      }));
+      
+      res.json(historyWithBits);
     } catch (error: any) {
       console.error('Error fetching connection bandwidth history:', error);
       res.status(500).json({ error: 'Failed to fetch connection bandwidth history' });
@@ -5276,9 +5284,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const history = await storage.getConnectionBandwidthHistory(connectionId, sinceDate, untilDate);
       
+      // Convert bytes to bits for frontend display (database stores bytes, frontend expects bits)
+      const historyWithBits = history.map(h => ({
+        ...h,
+        inBitsPerSec: (h.inBytesPerSec ?? 0) * 8,
+        outBitsPerSec: (h.outBytesPerSec ?? 0) * 8,
+      }));
+      
       // Downsample if too many points
       const maxPointsNum = parseInt(maxPoints as string, 10) || 200;
-      const downsampled = downsampleTimeSeries(history, maxPointsNum);
+      const downsampled = downsampleTimeSeries(historyWithBits, maxPointsNum);
       
       res.json(downsampled);
     } catch (error: any) {
