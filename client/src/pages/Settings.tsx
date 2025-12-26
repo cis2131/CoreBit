@@ -892,6 +892,133 @@ function VersionSection() {
   );
 }
 
+function MetricsHistorySection() {
+  const { toast } = useToast();
+  const [isSaving, setIsSaving] = useState(false);
+
+  const { data: retentionSettings, isLoading } = useQuery<{
+    retentionHours: number;
+    enableMetricsHistory: boolean;
+  }>({
+    queryKey: ["/api/settings/metrics-history"],
+  });
+
+  const [retentionHours, setRetentionHours] = useState(24);
+  const [enableMetricsHistory, setEnableMetricsHistory] = useState(true);
+
+  useEffect(() => {
+    if (retentionSettings) {
+      setRetentionHours(retentionSettings.retentionHours ?? 24);
+      setEnableMetricsHistory(retentionSettings.enableMetricsHistory ?? true);
+    }
+  }, [retentionSettings]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await apiRequest("PUT", "/api/settings/metrics-history", {
+        retentionHours,
+        enableMetricsHistory,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/metrics-history"] });
+      toast({ description: "Metrics history settings saved" });
+    } catch (error: any) {
+      toast({ variant: "destructive", description: error.message || "Failed to save settings" });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const retentionPresets = [
+    { label: "1 hour", value: 1 },
+    { label: "6 hours", value: 6 },
+    { label: "12 hours", value: 12 },
+    { label: "24 hours", value: 24 },
+    { label: "48 hours", value: 48 },
+    { label: "72 hours", value: 72 },
+    { label: "7 days", value: 168 },
+  ];
+
+  return (
+    <Card data-testid="card-metrics-history">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Clock className="h-5 w-5" />
+          Metrics History
+        </CardTitle>
+        <CardDescription>
+          Configure how long device metrics and bandwidth data are stored for historical charts
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading settings...
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="enable-metrics-history">Enable Metrics History</Label>
+                <p className="text-sm text-muted-foreground">
+                  Store historical CPU, memory, disk, and bandwidth data
+                </p>
+              </div>
+              <Switch
+                id="enable-metrics-history"
+                checked={enableMetricsHistory}
+                onCheckedChange={setEnableMetricsHistory}
+                data-testid="switch-enable-metrics-history"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Default Retention Period</Label>
+              <p className="text-sm text-muted-foreground">
+                Data older than this will be automatically deleted. Individual devices can override this.
+              </p>
+              <Select
+                value={String(retentionHours)}
+                onValueChange={(val) => setRetentionHours(Number(val))}
+                disabled={!enableMetricsHistory}
+              >
+                <SelectTrigger className="w-48" data-testid="select-retention-hours">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {retentionPresets.map((preset) => (
+                    <SelectItem key={preset.value} value={String(preset.value)}>
+                      {preset.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="pt-2">
+              <Button
+                onClick={handleSave}
+                disabled={isSaving}
+                data-testid="button-save-metrics-settings"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Settings"
+                )}
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 const userFormSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
   password: z.string().min(4, "Password must be at least 4 characters").optional(),
@@ -4201,6 +4328,8 @@ export default function Settings() {
           </Card>
 
           <BackupSection />
+
+          <MetricsHistorySection />
 
           <OnDutyScheduleSection />
 
