@@ -278,13 +278,15 @@ export function ConnectionLine({
     );
   };
 
-  // Find where the curve exits a device rectangle by sampling + binary search
-  const findCurveExitPoint = (
+  // Find where a curve exits a device rectangle by sampling + binary search
+  // Takes a point sampler function to work with any curve type
+  const findCurveExitPointGeneric = (
     devicePos: { x: number; y: number },
     dimensions: { width: number; height: number },
     startT: number,
     endT: number,
-    step: number
+    step: number,
+    getPointAtT: (t: number) => { x: number; y: number }
   ): { x: number; y: number } => {
     // Coarse search: find first point outside the device
     let lastInsideT = startT;
@@ -293,7 +295,7 @@ export function ConnectionLine({
 
     const direction = startT < endT ? 1 : -1;
     for (let t = startT; direction > 0 ? t <= endT : t >= endT; t += step * direction) {
-      const point = getPointOnQuadraticBezier(t);
+      const point = getPointAtT(t);
       if (isInsideDevice(point, devicePos, dimensions)) {
         lastInsideT = t;
       } else {
@@ -305,13 +307,13 @@ export function ConnectionLine({
 
     if (!found) {
       // Curve never exits device, return device edge intersection
-      return getPointOnQuadraticBezier(endT);
+      return getPointAtT(endT);
     }
 
     // Binary search to refine the exit point
     for (let i = 0; i < 10; i++) {
       const midT = (lastInsideT + firstOutsideT) / 2;
-      const point = getPointOnQuadraticBezier(midT);
+      const point = getPointAtT(midT);
       if (isInsideDevice(point, devicePos, dimensions)) {
         lastInsideT = midT;
       } else {
@@ -320,17 +322,32 @@ export function ConnectionLine({
     }
 
     // Return the first point outside (on the curve, just past the edge)
-    return getPointOnQuadraticBezier(firstOutsideT);
+    return getPointAtT(firstOutsideT);
   };
 
   // Calculate indicator positions
   let sourceIndicatorX: number, sourceIndicatorY: number;
   let targetIndicatorX: number, targetIndicatorY: number;
+  
+  // Also track spline edge points for rendering the path from edges
+  let splineSourceEdge = sourcePosition;
+  let splineTargetEdge = targetPosition;
 
-  if (isCurved) {
-    // For curved lines, find where curve exits each device
-    const sourceExit = findCurveExitPoint(sourcePosition, sourceDimensions, 0, 0.5, 0.02);
-    const targetExit = findCurveExitPoint(targetPosition, targetDimensions, 1, 0.5, 0.02);
+  if (isSpline) {
+    // For spline lines, find where cubic bezier exits each device
+    const sourceExit = findCurveExitPointGeneric(sourcePosition, sourceDimensions, 0, 0.5, 0.02, getPointOnCubicBezier);
+    const targetExit = findCurveExitPointGeneric(targetPosition, targetDimensions, 1, 0.5, 0.02, getPointOnCubicBezier);
+    
+    sourceIndicatorX = sourceExit.x;
+    sourceIndicatorY = sourceExit.y;
+    targetIndicatorX = targetExit.x;
+    targetIndicatorY = targetExit.y;
+    splineSourceEdge = sourceExit;
+    splineTargetEdge = targetExit;
+  } else if (isCurved) {
+    // For curved lines, find where quadratic bezier exits each device
+    const sourceExit = findCurveExitPointGeneric(sourcePosition, sourceDimensions, 0, 0.5, 0.02, getPointOnQuadraticBezier);
+    const targetExit = findCurveExitPointGeneric(targetPosition, targetDimensions, 1, 0.5, 0.02, getPointOnQuadraticBezier);
     
     sourceIndicatorX = sourceExit.x;
     sourceIndicatorY = sourceExit.y;
@@ -359,6 +376,16 @@ export function ConnectionLine({
     targetIndicatorX = targetIntersection.x;
     targetIndicatorY = targetIntersection.y;
   }
+  
+  // Recalculate spline control points based on edge positions for cleaner rendering
+  const splineEdgeCtrl1 = {
+    x: splineSourceEdge.x + (dx > 0 ? splineControlOffset * 0.6 : -splineControlOffset * 0.6),
+    y: splineSourceEdge.y,
+  };
+  const splineEdgeCtrl2 = {
+    x: splineTargetEdge.x - (dx > 0 ? splineControlOffset * 0.6 : -splineControlOffset * 0.6),
+    y: splineTargetEdge.y,
+  };
 
   // Get port status colors
   const getPortStatusColor = (device: Device | undefined, portName: string | undefined): string => {
@@ -388,9 +415,9 @@ export function ConnectionLine({
     >
       {isSpline ? (
         <>
-          {/* Spline path using cubic bezier for S-curve */}
+          {/* Spline path using cubic bezier for S-curve - starts/ends at device edges */}
           <path
-            d={`M ${sourcePosition.x} ${sourcePosition.y} C ${splineCtrl1.x} ${splineCtrl1.y} ${splineCtrl2.x} ${splineCtrl2.y} ${targetPosition.x} ${targetPosition.y}`}
+            d={`M ${splineSourceEdge.x} ${splineSourceEdge.y} C ${splineEdgeCtrl1.x} ${splineEdgeCtrl1.y} ${splineEdgeCtrl2.x} ${splineEdgeCtrl2.y} ${splineTargetEdge.x} ${splineTargetEdge.y}`}
             fill="none"
             stroke={style.color}
             strokeWidth={strokeWidth}
@@ -400,7 +427,7 @@ export function ConnectionLine({
           />
           {/* Invisible hit area for spline path */}
           <path
-            d={`M ${sourcePosition.x} ${sourcePosition.y} C ${splineCtrl1.x} ${splineCtrl1.y} ${splineCtrl2.x} ${splineCtrl2.y} ${targetPosition.x} ${targetPosition.y}`}
+            d={`M ${splineSourceEdge.x} ${splineSourceEdge.y} C ${splineEdgeCtrl1.x} ${splineEdgeCtrl1.y} ${splineEdgeCtrl2.x} ${splineEdgeCtrl2.y} ${splineTargetEdge.x} ${splineTargetEdge.y}`}
             fill="none"
             stroke="transparent"
             strokeWidth="20"
