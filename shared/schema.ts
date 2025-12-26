@@ -293,6 +293,7 @@ export const connections = pgTable("connections", {
   }>(),
   warningThresholdPct: integer("warning_threshold_pct").default(70),
   criticalThresholdPct: integer("critical_threshold_pct").default(90),
+  labelPosition: integer("label_position").default(50),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -218,8 +218,19 @@ export function ConnectionLine({
     };
   };
 
+  // Calculate label position along the curve (0-100, default 50 for middle)
+  const labelT = (connection.labelPosition ?? 50) / 100;
+  
   // Calculate curve apex (point at t=0.5) for selection indicator and traffic banner
   const curveApex = isCurved ? getPointOnQuadraticBezier(0.5) : { x: (sourcePosition.x + targetPosition.x) / 2, y: (sourcePosition.y + targetPosition.y) / 2 };
+  
+  // Calculate label position (uses labelT instead of fixed 0.5)
+  const labelPosition = isCurved 
+    ? getPointOnQuadraticBezier(labelT) 
+    : { 
+        x: sourcePosition.x + (targetPosition.x - sourcePosition.x) * labelT, 
+        y: sourcePosition.y + (targetPosition.y - sourcePosition.y) * labelT 
+      };
 
   // Check if a point is inside a device rectangle
   const isInsideDevice = (
@@ -445,7 +456,7 @@ export function ConnectionLine({
         />
       )}
 
-      {/* Traffic stats display when monitoring is enabled - positioned at curve apex */}
+      {/* Traffic stats display when monitoring is enabled - positioned using labelPosition */}
       {connection.monitorInterface && connection.linkStats && (() => {
         const isMonitoringTarget = connection.monitorInterface === 'target';
         const shouldFlip = isMonitoringTarget !== (connection.flipTrafficDirection || false);
@@ -467,8 +478,8 @@ export function ConnectionLine({
         return (
           <>
             <foreignObject
-              x={curveApex.x - 55}
-              y={curveApex.y - 30}
+              x={labelPosition.x - 55}
+              y={labelPosition.y - 30}
               width="110"
               height="45"
               style={{ overflow: 'visible' }}
