@@ -144,6 +144,85 @@ export async function seedDefaultAdmin(): Promise<void> {
   }
 }
 
+/**
+ * Disaster recovery: Reset admin password when ADMIN_RECOVERY_SECRET is set
+ * 
+ * Usage:
+ * 1. Set ADMIN_RECOVERY_SECRET=<your-secret> in .env
+ * 2. Optionally set ADMIN_RECOVERY_PASSWORD=<new-password> for a specific password
+ * 3. Restart the application
+ * 4. Check console logs for the new password (if not set explicitly)
+ * 5. Log in with the new password
+ * 6. IMPORTANT: Remove ADMIN_RECOVERY_SECRET from .env and restart
+ * 
+ * If ADMIN_RECOVERY_PASSWORD is not set, a random 16-character password is generated.
+ */
+export async function checkAdminRecovery(): Promise<void> {
+  const recoverySecret = process.env.ADMIN_RECOVERY_SECRET;
+  
+  if (!recoverySecret) {
+    return; // No recovery requested
+  }
+  
+  // Require at least 8 character secret to prevent accidental triggers
+  if (recoverySecret.length < 8) {
+    console.warn('[Recovery] ADMIN_RECOVERY_SECRET must be at least 8 characters. Skipping recovery.');
+    return;
+  }
+  
+  console.log('[Recovery] ========================================');
+  console.log('[Recovery] ADMIN PASSWORD RECOVERY INITIATED');
+  console.log('[Recovery] ========================================');
+  
+  try {
+    const admin = await storage.getUserByUsername('admin');
+    
+    if (!admin) {
+      // Create admin if doesn't exist
+      const newPassword = process.env.ADMIN_RECOVERY_PASSWORD || generateRandomPassword();
+      const passwordHash = await hashPassword(newPassword);
+      
+      await storage.createUser({
+        username: 'admin',
+        passwordHash,
+        role: 'admin',
+        displayName: 'Administrator',
+      });
+      
+      console.log('[Recovery] Created new admin user');
+      console.log('[Recovery] Username: admin');
+      console.log(`[Recovery] Password: ${newPassword}`);
+    } else {
+      // Reset existing admin password
+      const newPassword = process.env.ADMIN_RECOVERY_PASSWORD || generateRandomPassword();
+      const passwordHash = await hashPassword(newPassword);
+      
+      await storage.updateUser(admin.id, { passwordHash });
+      
+      console.log('[Recovery] Admin password has been reset');
+      console.log('[Recovery] Username: admin');
+      console.log(`[Recovery] Password: ${newPassword}`);
+    }
+    
+    console.log('[Recovery] ========================================');
+    console.log('[Recovery] IMPORTANT: Remove ADMIN_RECOVERY_SECRET');
+    console.log('[Recovery] from your .env file and restart the app!');
+    console.log('[Recovery] ========================================');
+    
+  } catch (error) {
+    console.error('[Recovery] Failed to reset admin password:', error);
+  }
+}
+
+function generateRandomPassword(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let password = '';
+  for (let i = 0; i < 16; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
+}
+
 export function getUserSafeData(user: User): Omit<User, 'passwordHash'> {
   const { passwordHash, ...safeUser } = user;
   return safeUser;

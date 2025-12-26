@@ -86,6 +86,26 @@ The project includes a complete deployment system for production servers:
 
 **Snap-to-Grid:** Default ON (devices snap to 20px grid), hold Shift for free placement.
 
+## Disaster Recovery
+
+**Admin Password Reset:**
+If you're locked out of the admin account, you can reset the password using environment variables:
+
+1. Set `ADMIN_RECOVERY_SECRET=<any-8+-character-secret>` in your `.env` file
+2. Optionally set `ADMIN_RECOVERY_PASSWORD=<your-new-password>` (otherwise a random password is generated)
+3. Restart the application
+4. Check the console logs for the new password (printed on startup)
+5. Log in with the new credentials
+6. **IMPORTANT:** Remove `ADMIN_RECOVERY_SECRET` from `.env` and restart the app
+
+Example `.env` configuration:
+```
+ADMIN_RECOVERY_SECRET=resetmypassword123
+ADMIN_RECOVERY_PASSWORD=MyNewSecurePassword
+```
+
+The recovery feature is only active when `ADMIN_RECOVERY_SECRET` is set. Always remove it after recovery for security.
+
 ## Licensing System
 
 CoreBit uses a tiered licensing model:

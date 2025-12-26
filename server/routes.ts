@@ -17,6 +17,7 @@ import {
   hashPassword, 
   verifyPassword, 
   seedDefaultAdmin,
+  checkAdminRecovery,
   getUserSafeData,
   type AuthenticatedRequest 
 } from "./auth";
@@ -412,6 +413,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Seed default admin user
   await seedDefaultAdmin();
+  
+  // Check for admin password recovery (disaster recovery)
+  await checkAdminRecovery();
 
   // ========== AUTHENTICATION ROUTES ==========
   
