@@ -10,6 +10,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -203,6 +204,9 @@ export function DeviceMetricsChartViewer({
             <Icon className="h-5 w-5" />
             {deviceName} - Metrics History
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Historical metrics chart for {deviceName}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex items-center justify-between gap-4 py-2 flex-shrink-0">
@@ -266,7 +270,7 @@ export function DeviceMetricsChartViewer({
           </div>
         )}
 
-        <div className="flex-1 min-h-[300px]">
+        <div className="h-[350px]">
           {isLoading ? (
             <div className="h-full flex items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -278,7 +282,7 @@ export function DeviceMetricsChartViewer({
               <p className="text-sm mt-1">Metrics are collected during device probing cycles</p>
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={350}>
               <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 30 }}>
                 <defs>
                   <linearGradient id={`gradient-${config.key}`} x1="0" y1="0" x2="0" y2="1">
@@ -390,6 +394,9 @@ export function ConnectionBandwidthChartViewer({
             <Activity className="h-5 w-5" />
             {connectionName} - Bandwidth History
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Bandwidth history chart for {connectionName}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex items-center justify-between gap-4 py-2 flex-shrink-0">
@@ -443,7 +450,7 @@ export function ConnectionBandwidthChartViewer({
           {chartData.length} data points
         </div>
 
-        <div className="flex-1 min-h-[300px]">
+        <div className="h-[350px]">
           {isLoading ? (
             <div className="h-full flex items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -455,7 +462,7 @@ export function ConnectionBandwidthChartViewer({
               <p className="text-sm mt-1">Bandwidth is collected during traffic monitoring cycles</p>
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={350}>
               <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 30 }}>
                 <defs>
                   <linearGradient id="gradientIn" x1="0" y1="0" x2="0" y2="1">
