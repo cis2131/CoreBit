@@ -4213,11 +4213,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allDevices = await storage.getAllDevices();
       await probeConnectionTraffic(allDevices);
       
+      // Debug: Log buffer state EVERY cycle to diagnose storage issue
+      console.log(`[BandwidthHistory] Post-probe: cycle=${trafficCycle}, bufferLength=${bandwidthHistoryBuffer.length}, enableHistory=${enableBandwidthHistory}`);
+      
       // Flush bandwidth history buffer to database
-      // Debug: Log buffer state every cycle temporarily
-      if (trafficCycle % 6 === 0) { // Every minute
-        console.log(`[BandwidthHistory] Cycle #${trafficCycle}: enableBandwidthHistory=${enableBandwidthHistory}, bufferLength=${bandwidthHistoryBuffer.length}`);
-      }
       if (enableBandwidthHistory && bandwidthHistoryBuffer.length > 0) {
         try {
           const insertedCount = await storage.insertConnectionBandwidthHistoryBatch(bandwidthHistoryBuffer);
