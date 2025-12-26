@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import {
@@ -106,6 +106,12 @@ export function DeviceMetricsChartViewer({
   const [timeRange, setTimeRange] = useState<TimeRange>('1h');
   const [selectedMetric, setSelectedMetric] = useState(initialMetric);
   const [autoRefresh, setAutoRefresh] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setSelectedMetric(initialMetric);
+    }
+  }, [open, initialMetric]);
 
   const since = useMemo(() => {
     return new Date(Date.now() - getTimeRangeMs(timeRange)).toISOString();

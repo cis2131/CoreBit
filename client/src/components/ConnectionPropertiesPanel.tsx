@@ -29,6 +29,7 @@ import {
   BarChart3,
   Spline,
   RefreshCcw,
+  ExternalLink,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -42,6 +43,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { ConnectionBandwidthChartViewer } from "@/components/MetricsChartViewer";
 
 interface TrafficHistoryPoint {
   timestamp: number;
@@ -83,6 +85,7 @@ export function ConnectionPropertiesPanel({
   const [flipTrafficDirection, setFlipTrafficDirection] = useState(
     connection.flipTrafficDirection || false,
   );
+  const [bandwidthChartOpen, setBandwidthChartOpen] = useState(false);
   const [isDynamic, setIsDynamic] = useState(connection.isDynamic || false);
   const [warningThreshold, setWarningThreshold] = useState(
     connection.warningThresholdPct ?? 70,
@@ -825,15 +828,27 @@ export function ConnectionPropertiesPanel({
                           Traffic Statistics
                         </CardTitle>
                       </div>
-                      {linkStats.isStale && (
-                        <Badge
-                          variant="outline"
-                          className="text-xs text-yellow-600 border-yellow-600"
+                      <div className="flex items-center gap-2">
+                        {linkStats.isStale && (
+                          <Badge
+                            variant="outline"
+                            className="text-xs text-yellow-600 border-yellow-600"
+                          >
+                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            Stale
+                          </Badge>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => setBandwidthChartOpen(true)}
+                          title="View bandwidth history"
+                          data-testid="button-view-bandwidth-chart"
                         >
-                          <AlertTriangle className="h-3 w-3 mr-1" />
-                          Stale
-                        </Badge>
-                      )}
+                          <ExternalLink className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -1055,6 +1070,13 @@ export function ConnectionPropertiesPanel({
           </Button>
         </div>
       )}
+
+      <ConnectionBandwidthChartViewer
+        connectionId={connection.id}
+        connectionName={`${sourceDevice.name} → ${targetDevice.name}`}
+        open={bandwidthChartOpen}
+        onOpenChange={setBandwidthChartOpen}
+      />
     </div>
   );
 }
