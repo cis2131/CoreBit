@@ -24,6 +24,8 @@ import {
   ipamAddresses,
   ipamAddressAssignments,
   deviceInterfaces,
+  deviceMetricsHistory,
+  connectionBandwidthHistory,
   type Map, 
   type InsertMap,
   type Device,
@@ -70,10 +72,14 @@ import {
   type InsertDeviceInterface,
   type IpamAddressAssignment,
   type InsertIpamAddressAssignment,
-  type IpamAddressWithAssignments
+  type IpamAddressWithAssignments,
+  type DeviceMetricsHistory,
+  type InsertDeviceMetricsHistory,
+  type ConnectionBandwidthHistory,
+  type InsertConnectionBandwidthHistory
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, isNotNull, isNull, or, gt } from "drizzle-orm";
+import { eq, and, desc, isNotNull, isNull, or, gt, lt, gte, lte, asc } from "drizzle-orm";
 
 // IP utility functions for IPAM pool matching
 function ipToLong(ip: string): number {
@@ -321,6 +327,16 @@ export interface IStorage {
   clearIpamAssignmentsForDevice(deviceId: string): Promise<void>;
   upsertAssignment(addressId: string, deviceId: string, interfaceId: string | null, source: 'manual' | 'discovered' | 'sync'): Promise<IpamAddressAssignment>;
   getIpamAddressesWithAssignments(poolId?: string | null): Promise<IpamAddressWithAssignments[]>;
+
+  // Device Metrics History
+  insertDeviceMetricsHistoryBatch(metrics: InsertDeviceMetricsHistory[]): Promise<number>;
+  getDeviceMetricsHistory(deviceId: string, since: Date, until?: Date): Promise<DeviceMetricsHistory[]>;
+  deleteOldDeviceMetrics(olderThan: Date): Promise<number>;
+  
+  // Connection Bandwidth History
+  insertConnectionBandwidthHistoryBatch(records: InsertConnectionBandwidthHistory[]): Promise<number>;
+  getConnectionBandwidthHistory(connectionId: string, since: Date, until?: Date): Promise<ConnectionBandwidthHistory[]>;
+  deleteOldConnectionBandwidth(olderThan: Date): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1685,6 +1701,97 @@ export class DatabaseStorage implements IStorage {
       ...addr,
       assignments: assignmentsByAddress.get(addr.id) || [],
     }));
+  }
+
+  // Device Metrics History
+  async insertDeviceMetricsHistoryBatch(metrics: InsertDeviceMetricsHistory[]): Promise<number> {
+    if (metrics.length === 0) return 0;
+    
+    // Filter out records with no actual metrics data
+    const validMetrics = metrics.filter(m => 
+      m.cpuUsagePct !== undefined || 
+      m.memoryUsagePct !== undefined || 
+      m.diskUsagePct !== undefined ||
+      m.pingRtt !== undefined ||
+      m.uptimeSeconds !== undefined
+    );
+    
+    if (validMetrics.length === 0) return 0;
+    
+    try {
+      await db.insert(deviceMetricsHistory).values(validMetrics);
+      return validMetrics.length;
+    } catch (error: any) {
+      console.error('[MetricsHistory] Batch insert failed:', error.message);
+      return 0;
+    }
+  }
+
+  async getDeviceMetricsHistory(deviceId: string, since: Date, until?: Date): Promise<DeviceMetricsHistory[]> {
+    const conditions = [
+      eq(deviceMetricsHistory.deviceId, deviceId),
+      gte(deviceMetricsHistory.timestamp, since),
+    ];
+    
+    if (until) {
+      conditions.push(lte(deviceMetricsHistory.timestamp, until));
+    }
+    
+    return await db.select()
+      .from(deviceMetricsHistory)
+      .where(and(...conditions))
+      .orderBy(asc(deviceMetricsHistory.timestamp));
+  }
+
+  async deleteOldDeviceMetrics(olderThan: Date): Promise<number> {
+    const result = await db.delete(deviceMetricsHistory)
+      .where(lt(deviceMetricsHistory.timestamp, olderThan))
+      .returning();
+    return result.length;
+  }
+
+  // Connection Bandwidth History
+  async insertConnectionBandwidthHistoryBatch(records: InsertConnectionBandwidthHistory[]): Promise<number> {
+    if (records.length === 0) return 0;
+    
+    // Filter out records with no actual bandwidth data
+    const validRecords = records.filter(r => 
+      r.inBytesPerSec !== undefined || 
+      r.outBytesPerSec !== undefined
+    );
+    
+    if (validRecords.length === 0) return 0;
+    
+    try {
+      await db.insert(connectionBandwidthHistory).values(validRecords);
+      return validRecords.length;
+    } catch (error: any) {
+      console.error('[BandwidthHistory] Batch insert failed:', error.message);
+      return 0;
+    }
+  }
+
+  async getConnectionBandwidthHistory(connectionId: string, since: Date, until?: Date): Promise<ConnectionBandwidthHistory[]> {
+    const conditions = [
+      eq(connectionBandwidthHistory.connectionId, connectionId),
+      gte(connectionBandwidthHistory.timestamp, since),
+    ];
+    
+    if (until) {
+      conditions.push(lte(connectionBandwidthHistory.timestamp, until));
+    }
+    
+    return await db.select()
+      .from(connectionBandwidthHistory)
+      .where(and(...conditions))
+      .orderBy(asc(connectionBandwidthHistory.timestamp));
+  }
+
+  async deleteOldConnectionBandwidth(olderThan: Date): Promise<number> {
+    const result = await db.delete(connectionBandwidthHistory)
+      .where(lt(connectionBandwidthHistory.timestamp, olderThan))
+      .returning();
+    return result.length;
   }
 }
 

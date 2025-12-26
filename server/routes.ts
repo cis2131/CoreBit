@@ -103,6 +103,42 @@ function renderMessageTemplate(template: string, device: any, newStatus: string,
     .replace(/\[Status\.New\]/g, newStatus);
 }
 
+// Helper function to parse uptime string to seconds (reverse of formatUptime)
+// Formats: "5 days, 2:30:45" or "2:30:45" or "5d 2h 30m" or "1w 2d 3h"
+function parseUptimeToSeconds(uptime: string): number | undefined {
+  if (!uptime) return undefined;
+  
+  // Try format: "X days, H:MM:SS" or "H:MM:SS"
+  const daysMatch = uptime.match(/(\d+)\s*days?,?\s*(\d+):(\d+):(\d+)/i);
+  if (daysMatch) {
+    const [, days, hours, minutes, seconds] = daysMatch.map(Number);
+    return days * 86400 + hours * 3600 + minutes * 60 + seconds;
+  }
+  
+  // Try format: "H:MM:SS"
+  const timeMatch = uptime.match(/^(\d+):(\d+):(\d+)$/);
+  if (timeMatch) {
+    const [, hours, minutes, seconds] = timeMatch.map(Number);
+    return hours * 3600 + minutes * 60 + seconds;
+  }
+  
+  // Try format: "Xd Yh Zm" or "Xw Yd Zh"
+  let totalSeconds = 0;
+  const weekMatch = uptime.match(/(\d+)w/i);
+  const dayMatch = uptime.match(/(\d+)d/i);
+  const hourMatch = uptime.match(/(\d+)h/i);
+  const minMatch = uptime.match(/(\d+)m/i);
+  const secMatch = uptime.match(/(\d+)s/i);
+  
+  if (weekMatch) totalSeconds += parseInt(weekMatch[1]) * 604800;
+  if (dayMatch) totalSeconds += parseInt(dayMatch[1]) * 86400;
+  if (hourMatch) totalSeconds += parseInt(hourMatch[1]) * 3600;
+  if (minMatch) totalSeconds += parseInt(minMatch[1]) * 60;
+  if (secMatch) totalSeconds += parseInt(secMatch[1]);
+  
+  return totalSeconds > 0 ? totalSeconds : undefined;
+}
+
 // Helper function to send notification via HTTP (supports multiple types)
 async function sendNotification(notification: any, device: any, newStatus: string, oldStatus?: string) {
   if (!notification.enabled) {
@@ -3571,6 +3607,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           pingFallbackEnabled: typeof pingFallbackSetting === 'boolean' ? pingFallbackSetting : false,
         };
         
+        // Fetch metrics history settings
+        const enableMetricsHistory = await storage.getSetting('enable_metrics_history') ?? true;
+        
         // Update connection pool enabled state and staleness threshold
         mikrotikPool.setEnabled(probingDefaults.mikrotikKeepConnections);
         mikrotikPool.setStalenessThreshold(intervalMs);
@@ -3676,6 +3715,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const timeoutCount = results.filter(r => r.timeout).length;
         const errorCount = results.filter(r => !r.success && !r.timeout && r.error).length;
         const failureRate = totalProbed > 0 ? ((totalProbed - successCount) / totalProbed * 100).toFixed(1) : '0';
+        
+        // Collect and store metrics history for successfully probed devices
+        if (enableMetricsHistory && successCount > 0) {
+          currentPhase = 'storing metrics history';
+          try {
+            const probeTimestamp = new Date();
+            const metricsToInsert: Array<{
+              deviceId: string;
+              timestamp: Date;
+              cpuUsagePct?: number;
+              memoryUsagePct?: number;
+              diskUsagePct?: number;
+              pingRtt?: number;
+              uptimeSeconds?: number;
+            }> = [];
+            
+            // Collect metrics from successfully probed devices
+            for (const result of results) {
+              if (!result.success) continue;
+              
+              const device = result.device;
+              const deviceData = device.deviceData;
+              
+              // Skip if device has retention disabled (metricsRetentionHours === 0)
+              if (device.metricsRetentionHours === 0) continue;
+              
+              // Skip if no metrics data available
+              if (!deviceData) continue;
+              
+              const hasMetrics = 
+                deviceData.cpuUsagePct !== undefined || 
+                deviceData.memoryUsagePct !== undefined || 
+                deviceData.diskUsagePct !== undefined;
+              
+              if (!hasMetrics) continue;
+              
+              // Parse uptime to seconds if present
+              let uptimeSeconds: number | undefined;
+              if (deviceData.uptime) {
+                uptimeSeconds = parseUptimeToSeconds(deviceData.uptime);
+              }
+              
+              metricsToInsert.push({
+                deviceId: device.id,
+                timestamp: probeTimestamp,
+                cpuUsagePct: deviceData.cpuUsagePct,
+                memoryUsagePct: deviceData.memoryUsagePct,
+                diskUsagePct: deviceData.diskUsagePct,
+                pingRtt: result.device.pingRtt,
+                uptimeSeconds,
+              });
+            }
+            
+            // Batch insert all metrics
+            if (metricsToInsert.length > 0) {
+              const insertedCount = await storage.insertDeviceMetricsHistoryBatch(metricsToInsert);
+              if (insertedCount > 0 && probeCycle % 10 === 0) {
+                // Log every 10th cycle to avoid spam
+                console.log(`[MetricsHistory] Stored ${insertedCount} device metrics for cycle #${probeCycle}`);
+              }
+            }
+          } catch (metricsError: any) {
+            console.error('[MetricsHistory] Error storing metrics:', metricsError.message);
+          }
+        }
         
         const elapsed = Date.now() - startTime;
         
