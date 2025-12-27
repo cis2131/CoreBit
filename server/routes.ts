@@ -3827,6 +3827,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 console.log(`[MetricsHistory] Stored ${insertedCount} device metrics for cycle #${probeCycle}`);
               }
             }
+            
+            // Collect and store Prometheus custom metrics history
+            const prometheusMetricsToInsert: Array<{
+              deviceId: string;
+              metricId: string;
+              metricName: string;
+              value: number;
+              rawValue?: number;
+              timestamp: Date;
+            }> = [];
+            
+            for (const result of results) {
+              if (!result.success) continue;
+              
+              const device = result.device;
+              const deviceData = device.deviceData;
+              
+              // Skip if device has retention disabled
+              if (device.metricsRetentionHours === 0) continue;
+              
+              // Skip if no custom metrics data
+              if (!deviceData?.customMetrics || Object.keys(deviceData.customMetrics).length === 0) continue;
+              
+              // Get the prometheus metrics config for this device to map IDs to names
+              const credentials = device.credentials || {};
+              const prometheusMetricsConfig = credentials.prometheusMetrics || [];
+              
+              // Create a map of metric ID to metric name for quick lookup
+              const metricIdToName: Record<string, string> = {};
+              for (const config of prometheusMetricsConfig) {
+                metricIdToName[config.id] = config.metricName;
+              }
+              
+              // Store each custom metric
+              for (const [metricId, value] of Object.entries(deviceData.customMetrics)) {
+                // Only store numeric values
+                if (typeof value !== 'number' || isNaN(value) || !isFinite(value)) continue;
+                
+                // Get the metric name from config, or use the ID as fallback
+                const metricName = metricIdToName[metricId] || metricId;
+                
+                prometheusMetricsToInsert.push({
+                  deviceId: device.id,
+                  metricId,
+                  metricName,
+                  value,
+                  timestamp: probeTimestamp,
+                });
+              }
+            }
+            
+            // Batch insert Prometheus metrics
+            if (prometheusMetricsToInsert.length > 0) {
+              const insertedCount = await storage.insertPrometheusMetricsHistoryBatch(prometheusMetricsToInsert);
+              if (insertedCount > 0 && probeCycle % 10 === 0) {
+                console.log(`[PrometheusMetricsHistory] Stored ${insertedCount} Prometheus metrics for cycle #${probeCycle}`);
+              }
+            }
           } catch (metricsError: any) {
             console.error('[MetricsHistory] Error storing metrics:', metricsError.message);
           }
@@ -4402,8 +4460,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Clean up connection bandwidth history (uses global retention only)
       const bandwidthDeleted = await storage.deleteConnectionBandwidthHistoryBefore(globalCutoff);
       
-      if (totalDeviceMetricsDeleted > 0 || bandwidthDeleted > 0) {
-        console.log(`[HistoryCleanup] Deleted ${totalDeviceMetricsDeleted} device metrics, ${bandwidthDeleted} bandwidth samples (retention: ${globalRetentionHours}h)`);
+      // Clean up Prometheus metrics history (uses global retention only)
+      const prometheusDeleted = await storage.deleteOldPrometheusMetrics(globalCutoff);
+      
+      if (totalDeviceMetricsDeleted > 0 || bandwidthDeleted > 0 || prometheusDeleted > 0) {
+        console.log(`[HistoryCleanup] Deleted ${totalDeviceMetricsDeleted} device metrics, ${bandwidthDeleted} bandwidth samples, ${prometheusDeleted} Prometheus metrics (retention: ${globalRetentionHours}h)`);
       }
     } catch (error: any) {
       console.error('[HistoryCleanup] Error during cleanup:', error.message);
