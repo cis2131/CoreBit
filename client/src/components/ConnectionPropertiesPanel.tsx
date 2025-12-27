@@ -61,7 +61,7 @@ interface ConnectionPropertiesPanelProps {
   canModify?: boolean;
 }
 
-const linkSpeeds = ["WiFi", "1G", "10G", "25G", "40G", "100G"] as const;
+const linkSpeeds = ["WiFi", "1G", "2.5G", "10G", "25G", "40G", "100G", "Custom"] as const;
 
 export function ConnectionPropertiesPanel({
   connection,
@@ -96,6 +96,9 @@ export function ConnectionPropertiesPanel({
   const [labelPosition, setLabelPosition] = useState(
     connection.labelPosition ?? 50,
   );
+  const [customLinkSpeedMbps, setCustomLinkSpeedMbps] = useState<number | null>(
+    connection.customLinkSpeedMbps ?? null,
+  );
   const [saving, setSaving] = useState(false);
   const [resettingIndex, setResettingIndex] = useState(false);
 
@@ -128,6 +131,7 @@ export function ConnectionPropertiesPanel({
     setWarningThreshold(connection.warningThresholdPct ?? 70);
     setCriticalThreshold(connection.criticalThresholdPct ?? 90);
     setLabelPosition(connection.labelPosition ?? 50);
+    setCustomLinkSpeedMbps(connection.customLinkSpeedMbps ?? null);
   }, [
     connection.id,
     connection.linkSpeed,
@@ -141,6 +145,7 @@ export function ConnectionPropertiesPanel({
     connection.warningThresholdPct,
     connection.criticalThresholdPct,
     connection.labelPosition,
+    connection.customLinkSpeedMbps,
   ]);
 
   const sourcePorts = sourceDevice.deviceData?.ports || [];
@@ -170,11 +175,16 @@ export function ConnectionPropertiesPanel({
     isDynamic !== (connection.isDynamic || false) ||
     warningThreshold !== (connection.warningThresholdPct ?? 70) ||
     criticalThreshold !== (connection.criticalThresholdPct ?? 90) ||
-    labelPosition !== (connection.labelPosition ?? 50);
+    labelPosition !== (connection.labelPosition ?? 50) ||
+    customLinkSpeedMbps !== (connection.customLinkSpeedMbps ?? null);
 
   const handleSave = async () => {
     setSaving(true);
     try {
+      // WiFi and Custom links can have thresholds if they have a custom speed set
+      const needsCustomSpeed = linkSpeed === "WiFi" || linkSpeed === "Custom";
+      const hasCustomSpeed = customLinkSpeedMbps && customLinkSpeedMbps > 0;
+      
       // Build update payload
       const updatePayload: Record<string, any> = {
         linkSpeed,
@@ -185,9 +195,10 @@ export function ConnectionPropertiesPanel({
         curveOffset,
         flipTrafficDirection,
         isDynamic,
-        warningThresholdPct: linkSpeed === "WiFi" ? null : warningThreshold,
-        criticalThresholdPct: linkSpeed === "WiFi" ? null : criticalThreshold,
+        warningThresholdPct: (needsCustomSpeed && !hasCustomSpeed) ? null : warningThreshold,
+        criticalThresholdPct: (needsCustomSpeed && !hasCustomSpeed) ? null : criticalThreshold,
         labelPosition,
+        customLinkSpeedMbps: needsCustomSpeed ? customLinkSpeedMbps : null,
       };
 
       // If enabling dynamic connection, set the type and metadata
@@ -672,13 +683,41 @@ export function ConnectionPropertiesPanel({
                     />
                   </div>
 
+                  {/* Custom Speed Input for WiFi and Custom links */}
+                  {(linkSpeed === "WiFi" || linkSpeed === "Custom") && (
+                    <div className="space-y-3 pt-3 border-t">
+                      <Label className="text-sm font-medium">
+                        {linkSpeed === "WiFi" ? "WiFi Max Speed" : "Custom Link Speed"}
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Set the maximum bandwidth for utilization calculations
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min={1}
+                          max={1000000}
+                          value={customLinkSpeedMbps || ""}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                            const val = parseInt(e.target.value);
+                            setCustomLinkSpeedMbps(isNaN(val) ? null : Math.min(1000000, Math.max(1, val)));
+                          }}
+                          placeholder="e.g. 300"
+                          className="h-8 w-24"
+                          data-testid="input-custom-link-speed"
+                        />
+                        <span className="text-xs text-muted-foreground">Mbps</span>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="space-y-3 pt-3 border-t">
                     <Label className="text-sm font-medium">
                       Utilization Thresholds
                     </Label>
-                    {linkSpeed === "WiFi" ? (
+                    {(linkSpeed === "WiFi" || linkSpeed === "Custom") && !customLinkSpeedMbps ? (
                       <p className="text-xs text-muted-foreground">
-                        Thresholds are disabled for WiFi links.
+                        Set a {linkSpeed === "WiFi" ? "WiFi max speed" : "custom link speed"} above to enable thresholds.
                       </p>
                     ) : (
                       <>

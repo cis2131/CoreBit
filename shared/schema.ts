@@ -295,6 +295,7 @@ export const connections = pgTable("connections", {
   warningThresholdPct: integer("warning_threshold_pct").default(70),
   criticalThresholdPct: integer("critical_threshold_pct").default(90),
   labelPosition: integer("label_position").default(50),
+  customLinkSpeedMbps: integer("custom_link_speed_mbps"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -481,7 +482,8 @@ export const insertConnectionSchema = createInsertSchema(connections).omit({
   id: true,
   createdAt: true,
 }).extend({
-  linkSpeed: z.enum(['1G', '10G', '25G', '40G', '100G', 'WiFi']).optional(),
+  linkSpeed: z.enum(['1G', '2.5G', '10G', '25G', '40G', '100G', 'WiFi', 'Custom']).optional(),
+  customLinkSpeedMbps: z.number().int().min(1).max(1000000).nullable().optional(),
   monitorInterface: z.enum(['source', 'target']).nullable().optional(),
   linkStats: z.object({
     inBytesPerSec: z.number().optional(),

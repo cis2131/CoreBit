@@ -4070,7 +4070,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Detect counter reset vs wrap: if delta is hugely negative, it's likely a reset
           // For 32-bit: max reasonable negative delta from wrap is -MAX_32BIT
           // If delta is more negative than we'd expect from wrap + reasonable traffic, skip sample
-          const linkSpeedBps = parseLinkSpeed(conn.linkSpeed || '1G');
+          const linkSpeedBps = parseLinkSpeed(conn.linkSpeed || '1G', conn.customLinkSpeedMbps);
           const maxBytesInInterval = (linkSpeedBps / 8) * timeDeltaSec * 2; // 2x link speed as buffer
           
           // Handle wrap-around for 32-bit counters (common case)
@@ -4117,7 +4117,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Calculate utilization based on link speed
-      const linkSpeedBps = parseLinkSpeed(conn.linkSpeed || '1G');
+      const linkSpeedBps = parseLinkSpeed(conn.linkSpeed || '1G', conn.customLinkSpeedMbps);
       const maxBytesPerSec = linkSpeedBps / 8;
       const utilizationPct = maxBytesPerSec > 0 
         ? Math.min(100, Math.round(((inBytesPerSec + outBytesPerSec) / (2 * maxBytesPerSec)) * 100))
@@ -4156,8 +4156,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
   
   // Parse link speed string to bits per second
-  function parseLinkSpeed(speed: string): number {
-    if (speed === 'WiFi') return 300000000; // Assume 300Mbps for WiFi calculation if not specified
+  function parseLinkSpeed(speed: string, customSpeedMbps?: number | null): number {
+    // WiFi and Custom use the customLinkSpeedMbps field if available
+    if (speed === 'WiFi' || speed === 'Custom') {
+      if (customSpeedMbps && customSpeedMbps > 0) {
+        return customSpeedMbps * 1000000; // Convert Mbps to bps
+      }
+      // Default fallback: 300Mbps for WiFi, 1Gbps for Custom
+      return speed === 'WiFi' ? 300000000 : 1000000000;
+    }
+    
+    // Handle 2.5G specially
+    if (speed === '2.5G') return 2500000000;
+    
     const match = speed.match(/^(\d+)(G|M|K)?$/i);
     if (!match) return 1000000000; // Default 1Gbps
     

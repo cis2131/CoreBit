@@ -42,10 +42,13 @@ const formatBitsPerSec = (bitsPerSec: number): string => {
 
 const linkSpeedStyles = {
   '1G': { width: 2, color: 'hsl(var(--muted-foreground))', dashArray: '' },
+  '2.5G': { width: 2.5, color: '#0ea5e9', dashArray: '' }, // sky blue
   '10G': { width: 3, color: '#14b8a6', dashArray: '' }, // teal
   '25G': { width: 4, color: '#3b82f6', dashArray: '8,4' }, // blue, dashed
   '40G': { width: 5, color: '#a855f7', dashArray: '' }, // purple
   '100G': { width: 6, color: 'hsl(var(--primary))', dashArray: '' }, // primary
+  'WiFi': { width: 2, color: '#f59e0b', dashArray: '4,4' }, // amber, dotted pattern
+  'Custom': { width: 2, color: '#ec4899', dashArray: '6,3' }, // pink, dashed
 };
 
 export function ConnectionLine({
