@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Device, type CredentialProfile, PROMETHEUS_METRIC_PRESETS, type PrometheusMetricConfig } from '@shared/schema';
 import { apiRequest } from '@/lib/queryClient';
-import { Search, Loader2, Plus, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react';
+import { Search, Loader2, Plus, ChevronDown, ChevronUp, ChevronRight, X } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -121,6 +121,12 @@ export function AddDeviceDialog({
   const [newMetricLabel, setNewMetricLabel] = useState('');
   const [newMetricDisplayType, setNewMetricDisplayType] = useState<'number' | 'bytes' | 'percentage' | 'bar' | 'text'>('number');
   const [newMetricUnit, setNewMetricUnit] = useState('');
+  
+  // State for editing an existing metric
+  const [editingMetricId, setEditingMetricId] = useState<string | null>(null);
+  const [editMetricLabel, setEditMetricLabel] = useState('');
+  const [editMetricDisplayType, setEditMetricDisplayType] = useState<'number' | 'bytes' | 'percentage' | 'bar' | 'text'>('number');
+  const [editMetricUnit, setEditMetricUnit] = useState('');
 
   const { data: profiles = [] } = useQuery<CredentialProfile[]>({
     queryKey: ['/api/credential-profiles'],
@@ -328,6 +334,36 @@ export function AddDeviceDialog({
   // Remove a metric from the list
   const handleRemoveMetric = (metricId: string) => {
     setPrometheusMetrics(prometheusMetrics.filter(m => m.id !== metricId));
+    if (editingMetricId === metricId) {
+      setEditingMetricId(null);
+    }
+  };
+  
+  // Start editing a metric
+  const handleStartEditMetric = (metric: PrometheusMetricConfig) => {
+    setEditingMetricId(metric.id);
+    setEditMetricLabel(metric.label);
+    // Handle gauge as number for editing purposes
+    const displayType = metric.displayType === 'gauge' ? 'number' : (metric.displayType || 'number');
+    setEditMetricDisplayType(displayType as 'number' | 'bytes' | 'percentage' | 'bar' | 'text');
+    setEditMetricUnit(metric.unit || '');
+  };
+  
+  // Save edited metric
+  const handleSaveEditMetric = () => {
+    if (!editingMetricId) return;
+    
+    setPrometheusMetrics(prometheusMetrics.map(m => 
+      m.id === editingMetricId 
+        ? { ...m, label: editMetricLabel, displayType: editMetricDisplayType, unit: editMetricUnit || undefined }
+        : m
+    ));
+    setEditingMetricId(null);
+  };
+  
+  // Cancel editing
+  const handleCancelEditMetric = () => {
+    setEditingMetricId(null);
   };
 
   const handleSubmit = () => {
@@ -1182,18 +1218,97 @@ export function AddDeviceDialog({
                                 {prometheusMetrics
                                   .filter(m => !PROMETHEUS_METRIC_PRESETS.some(p => p.id === m.id))
                                   .map(m => (
-                                    <Badge 
-                                      key={m.id} 
-                                      variant="secondary" 
-                                      className="cursor-pointer"
-                                      onClick={() => handleRemoveMetric(m.id)}
-                                      title="Click to remove"
-                                    >
-                                      {m.label} ×
-                                    </Badge>
+                                    <div key={m.id} className="flex items-center gap-0.5">
+                                      <Badge 
+                                        variant="secondary" 
+                                        className="cursor-pointer pr-1"
+                                        onClick={() => handleStartEditMetric(m)}
+                                        title="Click to edit"
+                                        data-testid={`badge-metric-${m.id}`}
+                                      >
+                                        {m.label}
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-4 w-4 ml-1 hover:bg-destructive/20"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleRemoveMetric(m.id);
+                                          }}
+                                          title="Remove"
+                                          data-testid={`button-remove-metric-${m.id}`}
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </Button>
+                                      </Badge>
+                                    </div>
                                   ))
                                 }
                               </div>
+                              
+                              {/* Edit form for selected metric */}
+                              {editingMetricId && prometheusMetrics.some(m => m.id === editingMetricId && !PROMETHEUS_METRIC_PRESETS.some(p => p.id === m.id)) && (
+                                <div className="mt-3 p-3 border rounded-md space-y-3 bg-muted/50">
+                                  <div className="flex items-center justify-between">
+                                    <h6 className="text-sm font-medium">Edit Metric</h6>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label className="text-xs">Display Label</Label>
+                                    <Input
+                                      value={editMetricLabel}
+                                      onChange={(e) => setEditMetricLabel(e.target.value)}
+                                      placeholder="Enter display label"
+                                      data-testid="input-edit-metric-label"
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div className="space-y-2">
+                                      <Label className="text-xs">Display Type</Label>
+                                      <Select value={editMetricDisplayType} onValueChange={(v) => setEditMetricDisplayType(v as any)}>
+                                        <SelectTrigger data-testid="select-edit-metric-display-type">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="number">Number</SelectItem>
+                                          <SelectItem value="bytes">Bytes</SelectItem>
+                                          <SelectItem value="percentage">Percentage</SelectItem>
+                                          <SelectItem value="bar">Progress Bar</SelectItem>
+                                          <SelectItem value="text">Text</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                      <Label className="text-xs">Unit (optional)</Label>
+                                      <Input
+                                        value={editMetricUnit}
+                                        onChange={(e) => setEditMetricUnit(e.target.value)}
+                                        placeholder="e.g., MB, %"
+                                        data-testid="input-edit-metric-unit"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={handleSaveEditMetric}
+                                      data-testid="button-save-edit-metric"
+                                    >
+                                      Save
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={handleCancelEditMetric}
+                                      data-testid="button-cancel-edit-metric"
+                                    >
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
