@@ -882,10 +882,17 @@ export function DevicePropertiesPanel({
                       </div>
                       <div className="space-y-3">
                         {Object.entries(device.deviceData.customMetrics).map(([metricId, value]) => {
-                          const preset = PROMETHEUS_METRIC_PRESETS.find(p => p.id === metricId);
-                          const label = preset?.label || metricId;
-                          const displayType = preset?.displayType || 'number';
-                          const unit = preset?.unit || '';
+                          // Look up metric config from device credentials (custom or profile)
+                          const customMetricsConfig = (device.customCredentials as any)?.prometheusMetrics || [];
+                          const profileMetricsConfig = (credentialProfile?.credentials as any)?.prometheusMetrics || [];
+                          const metricsConfig = customMetricsConfig.length > 0 ? customMetricsConfig : profileMetricsConfig;
+                          const metricConfig = metricsConfig.find((m: any) => m.id === metricId);
+                          
+                          // Fall back to presets if not found in device config
+                          const preset = !metricConfig ? PROMETHEUS_METRIC_PRESETS.find(p => p.id === metricId) : null;
+                          const label = metricConfig?.displayName || preset?.label || metricId;
+                          const displayType = metricConfig?.displayType || preset?.displayType || 'number';
+                          const unit = metricConfig?.unit || preset?.unit || '';
                           
                           // Format the display value (avoid double units)
                           let displayValue: string;
