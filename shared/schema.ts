@@ -404,7 +404,7 @@ const prometheusMetricConfigSchema = z.object({
   id: z.string(),
   metricName: z.string(),
   label: z.string(),
-  displayType: z.enum(['bar', 'gauge', 'number', 'text', 'bytes', 'percentage']),
+  displayType: z.enum(['bar', 'gauge', 'number', 'text', 'bytes', 'percentage', 'boolean']),
   unit: z.string().optional(),
   labelFilter: z.record(z.string()).optional(),
   labelSelector: z.string().optional(),
