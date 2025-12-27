@@ -119,13 +119,13 @@ export function AddDeviceDialog({
   const [addingMetric, setAddingMetric] = useState<string | null>(null);
   const [addingLabelString, setAddingLabelString] = useState<string>('');
   const [newMetricLabel, setNewMetricLabel] = useState('');
-  const [newMetricDisplayType, setNewMetricDisplayType] = useState<'number' | 'bytes' | 'percentage' | 'bar' | 'text'>('number');
+  const [newMetricDisplayType, setNewMetricDisplayType] = useState<'number' | 'bytes' | 'percentage' | 'bar' | 'text' | 'boolean'>('number');
   const [newMetricUnit, setNewMetricUnit] = useState('');
   
   // State for editing an existing metric
   const [editingMetricId, setEditingMetricId] = useState<string | null>(null);
   const [editMetricLabel, setEditMetricLabel] = useState('');
-  const [editMetricDisplayType, setEditMetricDisplayType] = useState<'number' | 'bytes' | 'percentage' | 'bar' | 'text'>('number');
+  const [editMetricDisplayType, setEditMetricDisplayType] = useState<'number' | 'bytes' | 'percentage' | 'bar' | 'text' | 'boolean'>('number');
   const [editMetricUnit, setEditMetricUnit] = useState('');
 
   const { data: profiles = [] } = useQuery<CredentialProfile[]>({
@@ -345,7 +345,7 @@ export function AddDeviceDialog({
     setEditMetricLabel(metric.label);
     // Handle gauge as number for editing purposes
     const displayType = metric.displayType === 'gauge' ? 'number' : (metric.displayType || 'number');
-    setEditMetricDisplayType(displayType as 'number' | 'bytes' | 'percentage' | 'bar' | 'text');
+    setEditMetricDisplayType(displayType as 'number' | 'bytes' | 'percentage' | 'bar' | 'text' | 'boolean');
     setEditMetricUnit(metric.unit || '');
   };
   
