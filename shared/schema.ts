@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, jsonb, boolean, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, jsonb, boolean, index, uniqueIndex, doublePrecision } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -954,6 +954,20 @@ export const insertConnectionBandwidthHistorySchema = createInsertSchema(connect
   id: true,
 });
 
+// Prometheus custom metrics history - time-series storage for selected scan metrics
+export const prometheusMetricsHistory = pgTable("prometheus_metrics_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  deviceId: varchar("device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
+  metricId: text("metric_id").notNull(), // The metric config ID (e.g., 'load1', 'fs_root_avail')
+  metricName: text("metric_name").notNull(), // Prometheus metric name for reference
+  value: doublePrecision("value").notNull(), // The metric value (already transformed)
+  rawValue: doublePrecision("raw_value"), // Original untransformed value (optional, for debugging)
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+}, (table) => [
+  index("idx_prom_metrics_device_metric_time").on(table.deviceId, table.metricId, table.timestamp),
+  index("idx_prom_metrics_timestamp").on(table.timestamp),
+]);
+
 // License table for software licensing
 export const licenses = pgTable("licenses", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -983,3 +997,9 @@ export type DeviceMetricsHistory = typeof deviceMetricsHistory.$inferSelect;
 export type InsertDeviceMetricsHistory = z.infer<typeof insertDeviceMetricsHistorySchema>;
 export type ConnectionBandwidthHistory = typeof connectionBandwidthHistory.$inferSelect;
 export type InsertConnectionBandwidthHistory = z.infer<typeof insertConnectionBandwidthHistorySchema>;
+
+export const insertPrometheusMetricsHistorySchema = createInsertSchema(prometheusMetricsHistory).omit({
+  id: true,
+});
+export type PrometheusMetricsHistory = typeof prometheusMetricsHistory.$inferSelect;
+export type InsertPrometheusMetricsHistory = z.infer<typeof insertPrometheusMetricsHistorySchema>;
