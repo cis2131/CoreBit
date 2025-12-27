@@ -39,19 +39,26 @@ function calculateRate(cacheKey: string, currentValue: number): number | null {
   const now = Date.now();
   const prev = rateCache.get(cacheKey);
   
-  // Update cache with current value
-  rateCache.set(cacheKey, { value: currentValue, timestamp: now });
-  
-  // If no previous value, return null (will show as "calculating...")
-  if (!prev) return null;
+  // If no previous value, store current and return null (will show as "calculating...")
+  if (!prev) {
+    rateCache.set(cacheKey, { value: currentValue, timestamp: now });
+    return null;
+  }
   
   // Calculate time delta in seconds
   const timeDeltaSec = (now - prev.timestamp) / 1000;
-  if (timeDeltaSec <= 0) return null;
   
   // Calculate value delta (handle counter wraps by treating negative as 0)
   const valueDelta = currentValue - prev.value;
-  if (valueDelta < 0) return 0; // Counter wrapped or reset
+  
+  // Update cache with current value AFTER reading previous
+  rateCache.set(cacheKey, { value: currentValue, timestamp: now });
+  
+  // Ensure valid time delta
+  if (timeDeltaSec <= 0) return null;
+  
+  // Handle counter wrap/reset
+  if (valueDelta < 0) return 0;
   
   // Return rate per second
   return valueDelta / timeDeltaSec;
