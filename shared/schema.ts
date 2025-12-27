@@ -481,7 +481,7 @@ export const insertConnectionSchema = createInsertSchema(connections).omit({
   id: true,
   createdAt: true,
 }).extend({
-  linkSpeed: z.enum(['1G', '10G', '25G', '40G', '100G']).optional(),
+  linkSpeed: z.enum(['1G', '10G', '25G', '40G', '100G', 'WiFi']).optional(),
   monitorInterface: z.enum(['source', 'target']).nullable().optional(),
   linkStats: z.object({
     inBytesPerSec: z.number().optional(),
