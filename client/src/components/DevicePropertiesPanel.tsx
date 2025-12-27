@@ -897,13 +897,23 @@ export function DevicePropertiesPanel({
                           const displayType = metricConfig?.displayType || preset?.displayType || 'number';
                           const unit = metricConfig?.unit || preset?.unit || '';
                           
+                          // Format bytes to human-readable format
+                          const formatBytes = (bytes: number): string => {
+                            if (bytes === 0) return '0 B';
+                            const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+                            const k = 1024;
+                            const i = Math.floor(Math.log(bytes) / Math.log(k));
+                            const unitIndex = Math.min(i, units.length - 1);
+                            return `${(bytes / Math.pow(k, unitIndex)).toFixed(2)} ${units[unitIndex]}`;
+                          };
+                          
                           // Format the display value (avoid double units)
                           let displayValue: string;
                           let displayUnit = '';
                           if (typeof value === 'number') {
                             if (displayType === 'bytes') {
-                              displayValue = value.toFixed(2);
-                              displayUnit = ' GB';
+                              displayValue = formatBytes(value);
+                              displayUnit = '';
                             } else if (displayType === 'percentage') {
                               displayValue = value.toFixed(1);
                               displayUnit = '%';
