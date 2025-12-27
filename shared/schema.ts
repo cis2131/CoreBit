@@ -19,6 +19,19 @@ export type PrometheusMetricConfig = {
   criticalThreshold?: number; // Optional critical threshold
 };
 
+// SNMP metric configuration type - used for custom SNMP OID monitoring
+export type SNMPMetricConfig = {
+  id: string; // Unique identifier for this metric config (hash of OID)
+  oid: string; // SNMP OID to query (e.g., '1.3.6.1.2.1.1.3.0' for sysUpTime)
+  label: string; // Display label (e.g., 'System Uptime')
+  displayType: 'number' | 'bytes' | 'percentage' | 'bar' | 'text' | 'boolean' | 'rate'; // How to visualize
+  unit?: string; // Optional unit suffix (e.g., 'ms', 'packets')
+  valueType?: 'counter' | 'gauge' | 'integer' | 'string'; // SNMP value type hint
+  transform?: 'divide100' | 'divide1000' | 'toSeconds' | 'none'; // Value transformation (e.g., timeticks to seconds)
+  warningThreshold?: number; // Optional warning threshold
+  criticalThreshold?: number; // Optional critical threshold
+};
+
 // Common Prometheus metrics available for selection
 export const PROMETHEUS_METRIC_PRESETS: PrometheusMetricConfig[] = [
   // Load averages (gauge metrics - show current value)
@@ -86,6 +99,8 @@ export const credentialProfiles = pgTable("credential_profiles", {
     proxmoxApiTokenSecret?: string; // API token secret
     proxmoxVerifySsl?: boolean; // Default false (self-signed certs common)
     proxmoxRealm?: string; // Default 'pam'
+    // SNMP custom metrics
+    snmpMetrics?: SNMPMetricConfig[]; // Custom SNMP OIDs to monitor (profile defaults)
   }>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -215,6 +230,8 @@ export const devices = pgTable("devices", {
     proxmoxApiTokenSecret?: string;
     proxmoxVerifySsl?: boolean;
     proxmoxRealm?: string;
+    // SNMP custom metrics
+    snmpMetrics?: SNMPMetricConfig[]; // Custom SNMP OIDs to monitor (device-specific overrides)
   }>(),
   useOnDuty: boolean("use_on_duty").default(false).notNull(), // Also send alerts to on-duty operators (in addition to global channels)
   mutedUntil: timestamp("muted_until"), // Device notifications muted until this time (null = not muted)
@@ -414,6 +431,19 @@ const prometheusMetricConfigSchema = z.object({
   criticalThreshold: z.number().optional(),
 });
 
+// Zod schema for SNMPMetricConfig
+const snmpMetricConfigSchema = z.object({
+  id: z.string(),
+  oid: z.string(),
+  label: z.string(),
+  displayType: z.enum(['number', 'bytes', 'percentage', 'bar', 'text', 'boolean', 'rate']),
+  unit: z.string().optional(),
+  valueType: z.enum(['counter', 'gauge', 'integer', 'string']).optional(),
+  transform: z.enum(['divide100', 'divide1000', 'toSeconds', 'none']).optional(),
+  warningThreshold: z.number().optional(),
+  criticalThreshold: z.number().optional(),
+});
+
 const credentialsSchema = z.object({
   username: z.string().optional(),
   password: z.string().optional(),
@@ -437,6 +467,8 @@ const credentialsSchema = z.object({
   proxmoxApiTokenSecret: z.string().optional(),
   proxmoxVerifySsl: z.boolean().optional(),
   proxmoxRealm: z.string().optional(),
+  // SNMP custom metrics
+  snmpMetrics: z.array(snmpMetricConfigSchema).optional(),
 });
 
 export const insertCredentialProfileSchema = createInsertSchema(credentialProfiles).omit({
