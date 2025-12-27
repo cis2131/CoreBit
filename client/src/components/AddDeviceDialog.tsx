@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { Device, type CredentialProfile, PROMETHEUS_METRIC_PRESETS, type PrometheusMetricConfig } from '@shared/schema';
+import { Device, type CredentialProfile, PROMETHEUS_METRIC_PRESETS, type PrometheusMetricConfig, type SNMPMetricConfig } from '@shared/schema';
 import { apiRequest } from '@/lib/queryClient';
 import { Search, Loader2, Plus, ChevronDown, ChevronUp, ChevronRight, X } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -127,6 +127,33 @@ export function AddDeviceDialog({
   const [editMetricLabel, setEditMetricLabel] = useState('');
   const [editMetricDisplayType, setEditMetricDisplayType] = useState<'number' | 'bytes' | 'percentage' | 'bar' | 'text' | 'boolean' | 'rate'>('number');
   const [editMetricUnit, setEditMetricUnit] = useState('');
+  
+  // SNMP metrics state
+  const [snmpMetrics, setSnmpMetrics] = useState<SNMPMetricConfig[]>([]);
+  const [snmpDiscoveryOpen, setSnmpDiscoveryOpen] = useState(false);
+  const [discoveredSnmpOids, setDiscoveredSnmpOids] = useState<{
+    oids: Array<{
+      oid: string;
+      name?: string;
+      value: string | number;
+      valueType: string;
+      isScalar: boolean;
+      baseOid?: string;
+      index?: string;
+    }>;
+  } | null>(null);
+  const [snmpOidSearch, setSnmpOidSearch] = useState('');
+  const [isSnmpDiscovering, setIsSnmpDiscovering] = useState(false);
+  const [snmpDiscoveryError, setSnmpDiscoveryError] = useState<string | null>(null);
+  const [snmpBaseOid, setSnmpBaseOid] = useState('1.3.6.1.2.1');
+  const [addingSnmpOid, setAddingSnmpOid] = useState<string | null>(null);
+  const [newSnmpLabel, setNewSnmpLabel] = useState('');
+  const [newSnmpDisplayType, setNewSnmpDisplayType] = useState<'number' | 'bytes' | 'percentage' | 'bar' | 'text' | 'boolean' | 'rate'>('number');
+  const [newSnmpUnit, setNewSnmpUnit] = useState('');
+  const [editingSnmpMetricId, setEditingSnmpMetricId] = useState<string | null>(null);
+  const [editSnmpLabel, setEditSnmpLabel] = useState('');
+  const [editSnmpDisplayType, setEditSnmpDisplayType] = useState<'number' | 'bytes' | 'percentage' | 'bar' | 'text' | 'boolean' | 'rate'>('number');
+  const [editSnmpUnit, setEditSnmpUnit] = useState('');
 
   const { data: profiles = [] } = useQuery<CredentialProfile[]>({
     queryKey: ['/api/credential-profiles'],
@@ -227,6 +254,13 @@ export function AddDeviceDialog({
       setMetricSearch('');
       setDiscoveryError(null);
       setAddingMetric(null);
+      // Reset SNMP discovery state
+      setSnmpMetrics([]);
+      setSnmpDiscoveryOpen(false);
+      setDiscoveredSnmpOids(null);
+      setSnmpOidSearch('');
+      setSnmpDiscoveryError(null);
+      setAddingSnmpOid(null);
     }
   }, [editDevice, initialType, open]);
 
@@ -273,6 +307,53 @@ export function AddDeviceDialog({
       setDiscoveryError(error.message || 'Failed to discover metrics');
     } finally {
       setIsDiscovering(false);
+    }
+  };
+
+  // Discover SNMP OIDs from a device
+  const handleDiscoverSnmpMetrics = async () => {
+    if (!editDevice?.id && !ipAddress.trim()) {
+      setSnmpDiscoveryError('Please enter an IP address first');
+      return;
+    }
+    
+    setIsSnmpDiscovering(true);
+    setSnmpDiscoveryError(null);
+    
+    try {
+      if (editDevice?.id) {
+        // Use the existing device endpoint
+        const response = await fetch(`/api/devices/${editDevice.id}/snmp-metrics?baseOid=${encodeURIComponent(snmpBaseOid)}`);
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to discover SNMP OIDs');
+        }
+        const data = await response.json();
+        setDiscoveredSnmpOids(data);
+      } else {
+        // For new devices, use ad-hoc discovery endpoint
+        const response = await fetch('/api/discover-snmp-metrics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ipAddress: ipAddress.trim(),
+            snmpCommunity: snmpCommunity || 'public',
+            snmpVersion: snmpVersion || '2c',
+            baseOid: snmpBaseOid
+          })
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to discover SNMP OIDs');
+        }
+        const data = await response.json();
+        setDiscoveredSnmpOids(data);
+      }
+      setSnmpDiscoveryOpen(true);
+    } catch (error: any) {
+      setSnmpDiscoveryError(error.message || 'Failed to discover SNMP OIDs');
+    } finally {
+      setIsSnmpDiscovering(false);
     }
   };
 
@@ -365,6 +446,76 @@ export function AddDeviceDialog({
   const handleCancelEditMetric = () => {
     setEditingMetricId(null);
   };
+  
+  // Add a discovered SNMP OID to the metrics list
+  const handleAddDiscoveredSnmpOid = (oid: string, name?: string, valueType?: string) => {
+    // Check if already added
+    if (snmpMetrics.some(m => m.oid === oid)) {
+      return; // Already added
+    }
+    
+    // Generate default label from OID name or OID itself
+    const defaultLabel = name || oid.split('.').slice(-4).join('.');
+    
+    // Determine default display type based on value type
+    let defaultDisplayType: 'number' | 'bytes' | 'percentage' | 'bar' | 'text' | 'boolean' | 'rate' = 'number';
+    if (valueType === 'counter') {
+      defaultDisplayType = 'rate'; // Counters are best shown as rate
+    } else if (valueType === 'string') {
+      defaultDisplayType = 'text';
+    }
+    
+    // Generate unique ID
+    const uniqueId = `snmp_${simpleHash(oid)}`;
+    
+    const newMetric: SNMPMetricConfig = {
+      id: uniqueId,
+      oid,
+      label: newSnmpLabel || defaultLabel,
+      displayType: newSnmpDisplayType || defaultDisplayType,
+      unit: newSnmpUnit || undefined,
+      valueType: (valueType as 'counter' | 'gauge' | 'integer' | 'string') || undefined
+    };
+    
+    setSnmpMetrics([...snmpMetrics, newMetric]);
+    setAddingSnmpOid(null);
+    setNewSnmpLabel('');
+    setNewSnmpDisplayType('number');
+    setNewSnmpUnit('');
+  };
+  
+  // Remove an SNMP metric
+  const handleRemoveSnmpMetric = (metricId: string) => {
+    setSnmpMetrics(snmpMetrics.filter(m => m.id !== metricId));
+    if (editingSnmpMetricId === metricId) {
+      setEditingSnmpMetricId(null);
+    }
+  };
+  
+  // Start editing an SNMP metric
+  const handleStartEditSnmpMetric = (metric: SNMPMetricConfig) => {
+    setEditingSnmpMetricId(metric.id);
+    setEditSnmpLabel(metric.label);
+    setEditSnmpDisplayType(metric.displayType);
+    setEditSnmpUnit(metric.unit || '');
+  };
+  
+  // Save edited SNMP metric
+  const handleSaveEditSnmpMetric = () => {
+    if (!editingSnmpMetricId) return;
+    
+    setSnmpMetrics(snmpMetrics.map(m => 
+      m.id === editingSnmpMetricId 
+        ? { ...m, label: editSnmpLabel, displayType: editSnmpDisplayType, unit: editSnmpUnit || undefined }
+        : m
+    ));
+    setEditingSnmpMetricId(null);
+  };
+  
+  // Cancel editing SNMP metric
+  const handleCancelEditSnmpMetric = () => {
+    setEditingSnmpMetricId(null);
+  };
 
   const handleSubmit = () => {
     if (name.trim()) {
@@ -402,6 +553,11 @@ export function AddDeviceDialog({
             snmpCreds.snmpAuthKey = snmpAuthKey;
             snmpCreds.snmpPrivProtocol = snmpPrivProtocol;
             snmpCreds.snmpPrivKey = snmpPrivKey;
+          }
+          
+          // Add custom SNMP metrics if configured
+          if (snmpMetrics.length > 0) {
+            snmpCreds.snmpMetrics = snmpMetrics;
           }
           
           credentialData = { credentialProfileId: null, customCredentials: snmpCreds };
@@ -694,6 +850,244 @@ export function AddDeviceDialog({
                         </div>
                       </>
                     )}
+                    
+                    {/* Custom SNMP Metrics Section */}
+                    <Separator className="my-4" />
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="font-medium">Custom SNMP Metrics</Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleDiscoverSnmpMetrics}
+                          disabled={isSnmpDiscovering || !ipAddress.trim()}
+                          data-testid="button-discover-snmp"
+                        >
+                          {isSnmpDiscovering ? (
+                            <>
+                              <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                              Discovering...
+                            </>
+                          ) : (
+                            <>
+                              <Search className="mr-2 h-3 w-3" />
+                              Discover OIDs
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                      
+                      {snmpDiscoveryError && (
+                        <div className="text-sm text-destructive">{snmpDiscoveryError}</div>
+                      )}
+                      
+                      {/* Show selected SNMP metrics */}
+                      {snmpMetrics.length > 0 && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">Selected Metrics:</Label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {snmpMetrics.map(m => (
+                              editingSnmpMetricId === m.id ? (
+                                <div key={m.id} className="flex items-center gap-2 p-2 border rounded-md bg-muted/30 w-full">
+                                  <Input
+                                    value={editSnmpLabel}
+                                    onChange={(e) => setEditSnmpLabel(e.target.value)}
+                                    className="h-7 text-xs flex-1"
+                                    placeholder="Label"
+                                    data-testid={`input-edit-snmp-label-${m.id}`}
+                                  />
+                                  <Select value={editSnmpDisplayType} onValueChange={(v) => setEditSnmpDisplayType(v as any)}>
+                                    <SelectTrigger className="h-7 text-xs w-24" data-testid={`select-edit-snmp-display-${m.id}`}>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="number">Number</SelectItem>
+                                      <SelectItem value="bytes">Bytes</SelectItem>
+                                      <SelectItem value="percentage">Percentage</SelectItem>
+                                      <SelectItem value="bar">Bar</SelectItem>
+                                      <SelectItem value="text">Text</SelectItem>
+                                      <SelectItem value="boolean">Boolean</SelectItem>
+                                      <SelectItem value="rate">Rate</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <Input
+                                    value={editSnmpUnit}
+                                    onChange={(e) => setEditSnmpUnit(e.target.value)}
+                                    className="h-7 text-xs w-16"
+                                    placeholder="Unit"
+                                    data-testid={`input-edit-snmp-unit-${m.id}`}
+                                  />
+                                  <Button size="sm" variant="ghost" className="h-7 px-2" onClick={handleSaveEditSnmpMetric} data-testid={`button-save-snmp-${m.id}`}>Save</Button>
+                                  <Button size="sm" variant="ghost" className="h-7 px-2" onClick={handleCancelEditSnmpMetric} data-testid={`button-cancel-snmp-${m.id}`}>Cancel</Button>
+                                </div>
+                              ) : (
+                                <Badge
+                                  key={m.id}
+                                  variant="secondary"
+                                  className="cursor-pointer hover-elevate group"
+                                  onClick={() => handleStartEditSnmpMetric(m)}
+                                  data-testid={`badge-snmp-metric-${m.id}`}
+                                >
+                                  <span>{m.label}</span>
+                                  <span className="text-muted-foreground ml-1 text-xs">({m.displayType})</span>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleRemoveSnmpMetric(m.id); }}
+                                    className="ml-1.5 opacity-60 hover:opacity-100"
+                                    data-testid={`button-remove-snmp-${m.id}`}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </Badge>
+                              )
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* SNMP Discovery Panel */}
+                      <Collapsible open={snmpDiscoveryOpen} onOpenChange={setSnmpDiscoveryOpen}>
+                        <CollapsibleContent className="space-y-3 pt-2">
+                          <div className="flex items-center gap-2">
+                            <Input
+                              placeholder="Base OID (e.g., 1.3.6.1.2.1)"
+                              value={snmpBaseOid}
+                              onChange={(e) => setSnmpBaseOid(e.target.value)}
+                              className="text-xs h-8"
+                              data-testid="input-snmp-base-oid"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={handleDiscoverSnmpMetrics}
+                              disabled={isSnmpDiscovering}
+                              data-testid="button-refresh-snmp"
+                            >
+                              Refresh
+                            </Button>
+                          </div>
+                          
+                          <Input
+                            placeholder="Search OIDs..."
+                            value={snmpOidSearch}
+                            onChange={(e) => setSnmpOidSearch(e.target.value)}
+                            className="text-xs h-8"
+                            data-testid="input-search-snmp-oids"
+                          />
+                          
+                          {discoveredSnmpOids && (
+                            <ScrollArea className="h-[200px] border rounded-md p-2">
+                              <div className="space-y-1">
+                                {discoveredSnmpOids.oids
+                                  .filter(o => {
+                                    const search = snmpOidSearch.toLowerCase();
+                                    return !search || 
+                                      o.oid.includes(search) || 
+                                      (o.name && o.name.toLowerCase().includes(search)) ||
+                                      String(o.value).toLowerCase().includes(search);
+                                  })
+                                  .slice(0, 100)
+                                  .map(o => {
+                                    const isSelected = snmpMetrics.some(m => m.oid === o.oid);
+                                    const isAdding = addingSnmpOid === o.oid;
+                                    
+                                    if (isAdding) {
+                                      return (
+                                        <div key={o.oid} className="p-2 border rounded-md bg-muted/30 space-y-2">
+                                          <div className="text-xs font-mono text-muted-foreground truncate">{o.oid}</div>
+                                          <div className="grid grid-cols-3 gap-2">
+                                            <Input
+                                              value={newSnmpLabel}
+                                              onChange={(e) => setNewSnmpLabel(e.target.value)}
+                                              className="h-7 text-xs"
+                                              placeholder={o.name || 'Label'}
+                                              data-testid={`input-new-snmp-label-${o.oid}`}
+                                            />
+                                            <Select value={newSnmpDisplayType} onValueChange={(v) => setNewSnmpDisplayType(v as any)}>
+                                              <SelectTrigger className="h-7 text-xs" data-testid={`select-new-snmp-display-${o.oid}`}>
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="number">Number</SelectItem>
+                                                <SelectItem value="bytes">Bytes</SelectItem>
+                                                <SelectItem value="percentage">Percentage</SelectItem>
+                                                <SelectItem value="bar">Bar</SelectItem>
+                                                <SelectItem value="text">Text</SelectItem>
+                                                <SelectItem value="boolean">Boolean</SelectItem>
+                                                <SelectItem value="rate">Rate</SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                            <Input
+                                              value={newSnmpUnit}
+                                              onChange={(e) => setNewSnmpUnit(e.target.value)}
+                                              className="h-7 text-xs"
+                                              placeholder="Unit"
+                                              data-testid={`input-new-snmp-unit-${o.oid}`}
+                                            />
+                                          </div>
+                                          <div className="flex gap-2">
+                                            <Button 
+                                              size="sm" 
+                                              variant="default" 
+                                              className="h-7 text-xs"
+                                              onClick={() => handleAddDiscoveredSnmpOid(o.oid, o.name, o.valueType)}
+                                              data-testid={`button-confirm-snmp-${o.oid}`}
+                                            >
+                                              Add
+                                            </Button>
+                                            <Button 
+                                              size="sm" 
+                                              variant="ghost" 
+                                              className="h-7 text-xs"
+                                              onClick={() => setAddingSnmpOid(null)}
+                                              data-testid={`button-cancel-add-snmp-${o.oid}`}
+                                            >
+                                              Cancel
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                    
+                                    return (
+                                      <div
+                                        key={o.oid}
+                                        className={`flex items-center justify-between p-2 rounded-md text-xs hover-elevate cursor-pointer ${isSelected ? 'bg-primary/10' : ''}`}
+                                        onClick={() => !isSelected && setAddingSnmpOid(o.oid)}
+                                        data-testid={`row-snmp-oid-${o.oid}`}
+                                      >
+                                        <div className="flex-1 min-w-0">
+                                          <div className="font-mono truncate text-foreground">
+                                            {o.name ? <span className="text-primary">{o.name}</span> : o.oid}
+                                          </div>
+                                          <div className="text-muted-foreground truncate">
+                                            {o.name && <span className="mr-2">{o.oid}</span>}
+                                            <span className="text-muted-foreground/70">[{o.valueType}]</span>
+                                            <span className="ml-2">= {String(o.value).slice(0, 40)}{String(o.value).length > 40 ? '...' : ''}</span>
+                                          </div>
+                                        </div>
+                                        {isSelected ? (
+                                          <Badge variant="outline" className="ml-2 shrink-0">Added</Badge>
+                                        ) : (
+                                          <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" data-testid={`button-add-snmp-${o.oid}`}>
+                                            <Plus className="h-3 w-3" />
+                                          </Button>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                {discoveredSnmpOids.oids.length > 100 && (
+                                  <div className="text-xs text-muted-foreground text-center py-2">
+                                    Showing first 100 of {discoveredSnmpOids.oids.length} OIDs. Use search to filter.
+                                  </div>
+                                )}
+                              </div>
+                            </ScrollArea>
+                          )}
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </div>
                   </div>
                 )}
 
