@@ -5275,10 +5275,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const history = await storage.getConnectionBandwidthHistory(connectionId, sinceDate, untilDate);
       
       // Convert bytes to bits for frontend display (database stores bytes, frontend expects bits)
+      // Respect flipTrafficDirection if set on the connection
+      const connection = await storage.getConnection(connectionId);
+      const flip = connection?.flipTrafficDirection ?? false;
+      
       const historyWithBits = history.map(h => ({
         ...h,
-        inBitsPerSec: (h.inBytesPerSec ?? 0) * 8,
-        outBitsPerSec: (h.outBytesPerSec ?? 0) * 8,
+        inBitsPerSec: (flip ? (h.outBytesPerSec ?? 0) : (h.inBytesPerSec ?? 0)) * 8,
+        outBitsPerSec: (flip ? (h.inBytesPerSec ?? 0) : (h.outBytesPerSec ?? 0)) * 8,
       }));
       
       res.json(historyWithBits);
@@ -5330,10 +5334,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const history = await storage.getConnectionBandwidthHistory(connectionId, sinceDate, untilDate);
       
       // Convert bytes to bits for frontend display (database stores bytes, frontend expects bits)
+      // Respect flipTrafficDirection if set on the connection
+      const connection = await storage.getConnection(connectionId);
+      const flip = connection?.flipTrafficDirection ?? false;
+      
       const historyWithBits = history.map(h => ({
         ...h,
-        inBitsPerSec: (h.inBytesPerSec ?? 0) * 8,
-        outBitsPerSec: (h.outBytesPerSec ?? 0) * 8,
+        inBitsPerSec: (flip ? (h.outBytesPerSec ?? 0) : (h.inBytesPerSec ?? 0)) * 8,
+        outBitsPerSec: (flip ? (h.inBytesPerSec ?? 0) : (h.outBytesPerSec ?? 0)) * 8,
       }));
       
       // Downsample if too many points
