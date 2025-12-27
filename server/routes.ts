@@ -4151,6 +4151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Parse link speed string to bits per second
   function parseLinkSpeed(speed: string): number {
+    if (speed === 'WiFi') return 300000000; // Assume 300Mbps for WiFi calculation if not specified
     const match = speed.match(/^(\d+)(G|M|K)?$/i);
     if (!match) return 1000000000; // Default 1Gbps
     

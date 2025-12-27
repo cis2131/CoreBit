@@ -61,7 +61,7 @@ interface ConnectionPropertiesPanelProps {
   canModify?: boolean;
 }
 
-const linkSpeeds = ["1G", "10G", "25G", "40G", "100G"] as const;
+const linkSpeeds = ["WiFi", "1G", "10G", "25G", "40G", "100G"] as const;
 
 export function ConnectionPropertiesPanel({
   connection,
@@ -676,78 +676,86 @@ export function ConnectionPropertiesPanel({
                     <Label className="text-sm font-medium">
                       Utilization Thresholds
                     </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Connection line flashes when utilization exceeds these
-                      thresholds
-                    </p>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <Label
-                          htmlFor="warning-threshold"
-                          className="text-xs flex items-center gap-1.5"
-                        >
-                          <span className="w-2 h-2 rounded-full bg-orange-500" />
-                          Warning
-                        </Label>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            id="warning-threshold"
-                            type="number"
-                            min={0}
-                            max={100}
-                            value={warningThreshold}
-                            onChange={(
-                              e: React.ChangeEvent<HTMLInputElement>,
-                            ) => {
-                              const val = parseInt(e.target.value) || 0;
-                              setWarningThreshold(
-                                Math.min(100, Math.max(0, val)),
-                              );
-                            }}
-                            className="h-8 w-20"
-                            data-testid="input-warning-threshold"
-                          />
-                          <span className="text-xs text-muted-foreground">
-                            %
-                          </span>
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label
-                          htmlFor="critical-threshold"
-                          className="text-xs flex items-center gap-1.5"
-                        >
-                          <span className="w-2 h-2 rounded-full bg-red-500" />
-                          Critical
-                        </Label>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            id="critical-threshold"
-                            type="number"
-                            min={0}
-                            max={100}
-                            value={criticalThreshold}
-                            onChange={(
-                              e: React.ChangeEvent<HTMLInputElement>,
-                            ) => {
-                              const val = parseInt(e.target.value) || 0;
-                              setCriticalThreshold(
-                                Math.min(100, Math.max(0, val)),
-                              );
-                            }}
-                            className="h-8 w-20"
-                            data-testid="input-critical-threshold"
-                          />
-                          <span className="text-xs text-muted-foreground">
-                            %
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    {warningThreshold >= criticalThreshold && (
-                      <p className="text-xs text-destructive">
-                        Warning threshold should be less than critical threshold
+                    {linkSpeed === "WiFi" ? (
+                      <p className="text-xs text-muted-foreground">
+                        Thresholds are disabled for WiFi links.
                       </p>
+                    ) : (
+                      <>
+                        <p className="text-xs text-muted-foreground">
+                          Connection line flashes when utilization exceeds these
+                          thresholds
+                        </p>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <Label
+                              htmlFor="warning-threshold"
+                              className="text-xs flex items-center gap-1.5"
+                            >
+                              <span className="w-2 h-2 rounded-full bg-orange-500" />
+                              Warning
+                            </Label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                id="warning-threshold"
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={warningThreshold}
+                                onChange={(
+                                  e: React.ChangeEvent<HTMLInputElement>,
+                                ) => {
+                                  const val = parseInt(e.target.value) || 0;
+                                  setWarningThreshold(
+                                    Math.min(100, Math.max(0, val)),
+                                  );
+                                }}
+                                className="h-8 w-20"
+                                data-testid="input-warning-threshold"
+                              />
+                              <span className="text-xs text-muted-foreground">
+                                %
+                              </span>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label
+                              htmlFor="critical-threshold"
+                              className="text-xs flex items-center gap-1.5"
+                            >
+                              <span className="w-2 h-2 rounded-full bg-red-500" />
+                              Critical
+                            </Label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                id="critical-threshold"
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={criticalThreshold}
+                                onChange={(
+                                  e: React.ChangeEvent<HTMLInputElement>,
+                                ) => {
+                                  const val = parseInt(e.target.value) || 0;
+                                  setCriticalThreshold(
+                                    Math.min(100, Math.max(0, val)),
+                                  );
+                                }}
+                                className="h-8 w-20"
+                                data-testid="input-critical-threshold"
+                              />
+                              <span className="text-xs text-muted-foreground">
+                                %
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        {warningThreshold >= criticalThreshold && (
+                          <p className="text-xs text-destructive">
+                            Warning threshold should be less than critical threshold
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
