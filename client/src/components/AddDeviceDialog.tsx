@@ -1093,6 +1093,7 @@ export function AddDeviceDialog({
                                                                   <SelectItem value="percentage">Percentage</SelectItem>
                                                                   <SelectItem value="bar">Progress Bar</SelectItem>
                                                                   <SelectItem value="text">Text</SelectItem>
+                                                                  <SelectItem value="boolean">Boolean (Yes/No)</SelectItem>
                                                                 </SelectContent>
                                                               </Select>
                                                             </div>
@@ -1161,6 +1162,7 @@ export function AddDeviceDialog({
                                                         <SelectItem value="percentage">Percentage</SelectItem>
                                                         <SelectItem value="bar">Progress Bar</SelectItem>
                                                         <SelectItem value="text">Text</SelectItem>
+                                                        <SelectItem value="boolean">Boolean (Yes/No)</SelectItem>
                                                       </SelectContent>
                                                     </Select>
                                                   </div>
@@ -1275,6 +1277,7 @@ export function AddDeviceDialog({
                                           <SelectItem value="percentage">Percentage</SelectItem>
                                           <SelectItem value="bar">Progress Bar</SelectItem>
                                           <SelectItem value="text">Text</SelectItem>
+                                          <SelectItem value="boolean">Boolean (Yes/No)</SelectItem>
                                         </SelectContent>
                                       </Select>
                                     </div>

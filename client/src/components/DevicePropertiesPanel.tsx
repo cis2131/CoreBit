@@ -48,6 +48,8 @@ import {
   Plus,
   Pencil,
   BarChart3,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -935,6 +937,36 @@ export function DevicePropertiesPanel({
                                   </span>
                                 </div>
                                 <Progress value={Math.min(100, numValue)} className="h-2" />
+                              </div>
+                            );
+                          }
+                          
+                          // Boolean display type - show icon for true/false
+                          if (displayType === 'boolean') {
+                            const numValue = typeof value === 'number' ? value : parseFloat(value) || 0;
+                            const isTrue = numValue !== 0;
+                            return (
+                              <div 
+                                key={metricId} 
+                                className="flex items-center justify-between text-sm cursor-pointer hover-elevate p-2 -m-2 rounded-md transition-colors"
+                                onClick={() => {
+                                  setPrometheusChartMetricId(metricId);
+                                  setPrometheusChartOpen(true);
+                                }}
+                                title={`Click to view ${label} history`}
+                                data-testid={`button-metric-${metricId}-chart`}
+                              >
+                                <span className="text-foreground font-medium">{label}</span>
+                                <div className="flex items-center gap-1.5" data-testid={`text-metric-${metricId}`}>
+                                  {isTrue ? (
+                                    <CheckCircle2 className="h-4 w-4 text-green-500 dark:text-green-400" />
+                                  ) : (
+                                    <XCircle className="h-4 w-4 text-red-500 dark:text-red-400" />
+                                  )}
+                                  <span className={`font-medium ${isTrue ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                    {isTrue ? 'Yes' : 'No'}
+                                  </span>
+                                </div>
                               </div>
                             );
                           }
