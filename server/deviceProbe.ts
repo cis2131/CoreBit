@@ -1756,6 +1756,217 @@ export async function discoverPrometheusMetrics(
   });
 }
 
+// Discovered SNMP OID with metadata
+export interface DiscoveredSnmpOid {
+  oid: string; // Full OID string (e.g., '1.3.6.1.2.1.1.3.0')
+  name?: string; // Textual name if known from common MIBs
+  value: string | number; // Sample value
+  valueType: 'counter' | 'gauge' | 'integer' | 'string' | 'timeticks' | 'ipAddress' | 'oid' | 'opaque'; // SNMP value type
+  isScalar: boolean; // True if ends in .0 (scalar OID)
+  baseOid?: string; // Base OID for table entries (e.g., '1.3.6.1.2.1.2.2.1.2' for ifDescr)
+  index?: string; // Index within table (e.g., '1', '2', '3')
+}
+
+// Common SNMP OID name mappings
+const COMMON_OID_NAMES: Record<string, string> = {
+  '1.3.6.1.2.1.1.1': 'sysDescr',
+  '1.3.6.1.2.1.1.2': 'sysObjectID',
+  '1.3.6.1.2.1.1.3': 'sysUpTime',
+  '1.3.6.1.2.1.1.4': 'sysContact',
+  '1.3.6.1.2.1.1.5': 'sysName',
+  '1.3.6.1.2.1.1.6': 'sysLocation',
+  '1.3.6.1.2.1.1.7': 'sysServices',
+  '1.3.6.1.2.1.2.1': 'ifNumber',
+  '1.3.6.1.2.1.2.2.1.1': 'ifIndex',
+  '1.3.6.1.2.1.2.2.1.2': 'ifDescr',
+  '1.3.6.1.2.1.2.2.1.3': 'ifType',
+  '1.3.6.1.2.1.2.2.1.4': 'ifMtu',
+  '1.3.6.1.2.1.2.2.1.5': 'ifSpeed',
+  '1.3.6.1.2.1.2.2.1.6': 'ifPhysAddress',
+  '1.3.6.1.2.1.2.2.1.7': 'ifAdminStatus',
+  '1.3.6.1.2.1.2.2.1.8': 'ifOperStatus',
+  '1.3.6.1.2.1.2.2.1.10': 'ifInOctets',
+  '1.3.6.1.2.1.2.2.1.11': 'ifInUcastPkts',
+  '1.3.6.1.2.1.2.2.1.13': 'ifInDiscards',
+  '1.3.6.1.2.1.2.2.1.14': 'ifInErrors',
+  '1.3.6.1.2.1.2.2.1.16': 'ifOutOctets',
+  '1.3.6.1.2.1.2.2.1.17': 'ifOutUcastPkts',
+  '1.3.6.1.2.1.2.2.1.19': 'ifOutDiscards',
+  '1.3.6.1.2.1.2.2.1.20': 'ifOutErrors',
+  '1.3.6.1.2.1.4.1': 'ipForwarding',
+  '1.3.6.1.2.1.4.3': 'ipInReceives',
+  '1.3.6.1.2.1.4.10': 'ipInDelivers',
+  '1.3.6.1.2.1.4.20.1.1': 'ipAdEntAddr',
+  '1.3.6.1.2.1.4.20.1.2': 'ipAdEntIfIndex',
+  '1.3.6.1.2.1.4.20.1.3': 'ipAdEntNetMask',
+  '1.3.6.1.2.1.25.1.1': 'hrSystemUptime',
+  '1.3.6.1.2.1.25.2.3.1.3': 'hrStorageDescr',
+  '1.3.6.1.2.1.25.2.3.1.5': 'hrStorageSize',
+  '1.3.6.1.2.1.25.2.3.1.6': 'hrStorageUsed',
+  '1.3.6.1.2.1.25.3.3.1.2': 'hrProcessorLoad',
+  '1.3.6.1.4.1.9.2.1.57': 'avgBusy5',
+  '1.3.6.1.4.1.9.2.1.58': 'avgBusy1',
+  '1.3.6.1.4.1.9.9.109.1.1.1.1.3': 'cpmCPUTotal5sec',
+  '1.3.6.1.4.1.9.9.109.1.1.1.1.4': 'cpmCPUTotal1min',
+  '1.3.6.1.4.1.9.9.109.1.1.1.1.5': 'cpmCPUTotal5min',
+};
+
+// Get textual name for an OID
+function getOidName(oid: string): string | undefined {
+  // Check for exact match
+  if (COMMON_OID_NAMES[oid]) {
+    return COMMON_OID_NAMES[oid];
+  }
+  
+  // Check if this is a table entry (remove last index component)
+  const parts = oid.split('.');
+  if (parts.length > 1) {
+    const baseOid = parts.slice(0, -1).join('.');
+    if (COMMON_OID_NAMES[baseOid]) {
+      return `${COMMON_OID_NAMES[baseOid]}.${parts[parts.length - 1]}`;
+    }
+  }
+  
+  return undefined;
+}
+
+// Determine SNMP value type from varbind
+function getSnmpValueType(vb: any): DiscoveredSnmpOid['valueType'] {
+  const type = vb.type;
+  switch (type) {
+    case 65: // Counter32
+    case 70: // Counter64
+      return 'counter';
+    case 66: // Gauge32
+    case 67: // Unsigned32
+      return 'gauge';
+    case 2: // Integer
+      return 'integer';
+    case 4: // OctetString
+      return 'string';
+    case 67: // TimeTicks
+    case 0x43: // TimeTicks (alternative)
+      return 'timeticks';
+    case 64: // IpAddress
+      return 'ipAddress';
+    case 6: // ObjectID
+      return 'oid';
+    default:
+      return 'opaque';
+  }
+}
+
+// Discover available SNMP OIDs from a device using subtree walk
+// baseOid: The OID subtree to walk (e.g., '1.3.6.1.2.1' for standard MIB-II)
+export async function discoverSnmpMetrics(
+  ipAddress: string,
+  credentials?: any,
+  baseOid: string = '1.3.6.1.2.1', // Default to MIB-II
+  timeoutMs: number = 30000,
+  maxResults: number = 500
+): Promise<{ oids: DiscoveredSnmpOid[] }> {
+  return new Promise((resolve, reject) => {
+    const snmpVersion = credentials?.snmpVersion || '2c';
+    const community = credentials?.snmpCommunity || 'public';
+    
+    const version = snmpVersion === '1' ? snmp.Version1 : snmp.Version2c;
+    
+    const session = snmp.createSession(ipAddress, community, {
+      port: 161,
+      retries: 1,
+      timeout: 10000,
+      version,
+    });
+    
+    const oids: DiscoveredSnmpOid[] = [];
+    let resolved = false;
+    
+    const cleanup = (error?: string) => {
+      if (resolved) return;
+      resolved = true;
+      try { session.close(); } catch (e) {}
+      if (error) {
+        reject(new Error(error));
+      } else {
+        resolve({ oids });
+      }
+    };
+    
+    // Timeout for entire walk
+    const walkTimeout = setTimeout(() => {
+      cleanup('SNMP walk timeout');
+    }, timeoutMs);
+    
+    session.on('error', (err: any) => {
+      clearTimeout(walkTimeout);
+      cleanup(`SNMP error: ${err.message || err}`);
+    });
+    
+    session.subtree(baseOid, 1, (varbinds: any[]) => {
+      for (const vb of varbinds) {
+        if (snmp.isVarbindError(vb)) continue;
+        if (oids.length >= maxResults) {
+          clearTimeout(walkTimeout);
+          cleanup();
+          return;
+        }
+        
+        const oid = vb.oid;
+        const valueType = getSnmpValueType(vb);
+        const name = getOidName(oid);
+        
+        // Parse value based on type
+        let value: string | number;
+        if (valueType === 'string') {
+          value = sanitizeSnmpString(vb.value);
+        } else if (valueType === 'counter' || valueType === 'gauge' || valueType === 'integer' || valueType === 'timeticks') {
+          value = typeof vb.value === 'number' ? vb.value : parseInt(String(vb.value), 10) || 0;
+        } else if (valueType === 'ipAddress' && Buffer.isBuffer(vb.value)) {
+          value = Array.from(vb.value).join('.');
+        } else {
+          value = String(vb.value);
+        }
+        
+        // Determine if scalar (ends in .0)
+        const isScalar = oid.endsWith('.0');
+        
+        // Parse base OID and index for table entries
+        let baseOidPart: string | undefined;
+        let index: string | undefined;
+        if (!isScalar) {
+          const parts = oid.split('.');
+          // Assume last component is index
+          index = parts.pop();
+          baseOidPart = parts.join('.');
+        }
+        
+        oids.push({
+          oid,
+          name,
+          value,
+          valueType,
+          isScalar,
+          baseOid: baseOidPart,
+          index,
+        });
+      }
+    }, (error: any) => {
+      clearTimeout(walkTimeout);
+      if (error) {
+        const errMsg = error.message || String(error);
+        // "End of MIB" is normal - just means walk is complete
+        if (errMsg.includes('End of MIB') || errMsg.includes('endOfMibView')) {
+          cleanup();
+        } else {
+          cleanup(`SNMP walk error: ${errMsg}`);
+        }
+      } else {
+        cleanup();
+      }
+    });
+  });
+}
+
 // Import Proxmox API client
 import { ProxmoxApi, detectProxmox, ProxmoxVMInfo, ProxmoxNetworkInterface } from './proxmoxApi';
 

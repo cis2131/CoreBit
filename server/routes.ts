@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probePrometheusInterfaceTraffic, probeMikrotikWithPool, pingDevice, discoverDevice, discoverPrometheusMetrics, type DeviceFingerprint, type ProbeType } from "./deviceProbe";
+import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probePrometheusInterfaceTraffic, probeMikrotikWithPool, pingDevice, discoverDevice, discoverPrometheusMetrics, discoverSnmpMetrics, type DeviceFingerprint, type ProbeType } from "./deviceProbe";
 import { mikrotikPool } from "./mikrotikConnectionPool";
 import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, insertUserNotificationChannelSchema, insertDutyUserScheduleSchema, insertDutyShiftConfigSchema, insertIpamPoolSchema, insertIpamAddressSchema, type Device, type Connection, type UserNotificationChannel } from "@shared/schema";
 import { z } from "zod";
@@ -4546,6 +4546,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error('Error discovering Prometheus metrics:', error);
       res.status(500).json({ error: `Failed to discover metrics: ${error.message}` });
+    }
+  });
+
+  // ============ SNMP METRICS DISCOVERY ============
+  
+  // Discover available SNMP OIDs from a device
+  app.get("/api/devices/:id/snmp-metrics", requireAuth as any, async (req, res) => {
+    try {
+      const device = await storage.getDevice(req.params.id);
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+      
+      // Only allow discovery for devices that support SNMP
+      const snmpTypes = ['generic_snmp', 'switch', 'mikrotik_router', 'mikrotik_switch', 'access_point'];
+      const profile = device.credentialProfileId 
+        ? await storage.getCredentialProfile(device.credentialProfileId) 
+        : null;
+      const hasSnmpConfig = device.customCredentials?.snmpCommunity || 
+        profile?.credentials?.snmpCommunity ||
+        snmpTypes.includes(device.type);
+      
+      if (!hasSnmpConfig) {
+        return res.status(400).json({ error: 'Device does not support SNMP' });
+      }
+      
+      if (!device.ipAddress) {
+        return res.status(400).json({ error: 'Device has no IP address configured' });
+      }
+      
+      // Merge credentials
+      const credentials = {
+        ...profile?.credentials,
+        ...device.customCredentials
+      };
+      
+      // Optional baseOid parameter for targeted walk
+      const baseOid = req.query.baseOid as string || '1.3.6.1.2.1';
+      const maxResults = parseInt(req.query.maxResults as string) || 500;
+      
+      const result = await discoverSnmpMetrics(device.ipAddress, credentials, baseOid, 30000, maxResults);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error('Error discovering SNMP metrics:', error);
+      res.status(500).json({ error: `Failed to discover SNMP metrics: ${error.message}` });
+    }
+  });
+
+  // Ad-hoc SNMP metrics discovery (for new devices before creation)
+  app.post("/api/discover-snmp-metrics", requireAuth as any, async (req, res) => {
+    try {
+      const { ipAddress, snmpCommunity, snmpVersion, baseOid, maxResults } = req.body;
+      
+      if (!ipAddress) {
+        return res.status(400).json({ error: 'IP address is required' });
+      }
+      
+      const credentials = {
+        snmpCommunity: snmpCommunity || 'public',
+        snmpVersion: snmpVersion || '2c'
+      };
+      
+      const result = await discoverSnmpMetrics(
+        ipAddress, 
+        credentials, 
+        baseOid || '1.3.6.1.2.1',
+        30000,
+        maxResults || 500
+      );
+      res.json(result);
+    } catch (error: any) {
+      console.error('Error discovering SNMP metrics:', error);
+      res.status(500).json({ error: `Failed to discover SNMP metrics: ${error.message}` });
     }
   });
 
