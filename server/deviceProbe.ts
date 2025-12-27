@@ -30,6 +30,33 @@ const interfaceCache: Map<string, {
 const INTERFACE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const INTERFACE_COLLECT_TIMEOUT_MS = 60000; // 60 seconds for background collection
 
+// Rate calculation cache: stores previous counter values for rate calculation
+// Key: "${deviceIP}:${metricId}", Value: { value, timestamp }
+const rateCache: Map<string, { value: number; timestamp: number }> = new Map();
+
+// Calculate rate from current value and cached previous value
+function calculateRate(cacheKey: string, currentValue: number): number | null {
+  const now = Date.now();
+  const prev = rateCache.get(cacheKey);
+  
+  // Update cache with current value
+  rateCache.set(cacheKey, { value: currentValue, timestamp: now });
+  
+  // If no previous value, return null (will show as "calculating...")
+  if (!prev) return null;
+  
+  // Calculate time delta in seconds
+  const timeDeltaSec = (now - prev.timestamp) / 1000;
+  if (timeDeltaSec <= 0) return null;
+  
+  // Calculate value delta (handle counter wraps by treating negative as 0)
+  const valueDelta = currentValue - prev.value;
+  if (valueDelta < 0) return 0; // Counter wrapped or reset
+  
+  // Return rate per second
+  return valueDelta / timeDeltaSec;
+}
+
 // Check if cached interface data is fresh
 function getCachedInterfaces(ipAddress: string): any[] | null {
   const cached = interfaceCache.get(ipAddress);
@@ -1509,6 +1536,20 @@ export async function probePrometheusDevice(
               }
               
               if (matchedValue === undefined) continue;
+              
+              // For rate display type, calculate rate from counter value
+              if (metricConfig.displayType === 'rate') {
+                const cacheKey = `${ipAddress}:${metricConfig.id}`;
+                const rateValue = calculateRate(cacheKey, matchedValue);
+                if (rateValue !== null) {
+                  // Round to 2 decimal places
+                  customMetrics[metricConfig.id] = Math.round(rateValue * 100) / 100;
+                } else {
+                  // First sample - show "calculating" state with -1 flag
+                  customMetrics[metricConfig.id] = -999999; // Special value to indicate "calculating"
+                }
+                continue; // Skip normal transformations for rate metrics
+              }
               
               // Apply transformation
               let transformedValue: number | string = matchedValue;
