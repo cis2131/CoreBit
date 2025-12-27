@@ -346,7 +346,7 @@ export function DeviceMetricsChartViewer({
 interface PrometheusMetricConfig {
   id: string;
   metricName: string;
-  displayName: string;
+  label: string;  // Display name for the metric (matches AddDeviceDialog field name)
   unit?: string;
   transform?: string;
 }
@@ -485,7 +485,7 @@ export function PrometheusMetricsChartViewer({
                           className="w-2 h-2 rounded-full" 
                           style={{ backgroundColor: PROMETHEUS_METRIC_COLORS[idx % PROMETHEUS_METRIC_COLORS.length] }}
                         />
-                        {metric.displayName || metric.id}
+                        {metric.label || metric.id}
                         {metric.unit && <span className="text-muted-foreground">({metric.unit})</span>}
                       </div>
                     </SelectItem>
@@ -543,7 +543,7 @@ export function PrometheusMetricsChartViewer({
               ) : !hasData ? (
                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
                   <Timer className="h-12 w-12 mb-4 opacity-50" />
-                  <p>No data available for "{selectedMetric?.displayName || selectedMetricId}"</p>
+                  <p>No data available for "{selectedMetric?.label || selectedMetricId}"</p>
                   <p className="text-sm mt-1">Data is collected during device probing cycles</p>
                 </div>
               ) : (
@@ -580,7 +580,7 @@ export function PrometheusMetricsChartViewer({
                                 {format(new Date(data.timestamp), 'PPpp')}
                               </p>
                               <p className="font-medium" style={{ color: metricColor }}>
-                                {selectedMetric?.displayName || selectedMetricId}: {formatValue(data.value)}
+                                {selectedMetric?.label || selectedMetricId}: {formatValue(data.value)}
                               </p>
                             </div>
                           );

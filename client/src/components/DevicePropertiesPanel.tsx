@@ -890,7 +890,8 @@ export function DevicePropertiesPanel({
                           
                           // Fall back to presets if not found in device config
                           const preset = !metricConfig ? PROMETHEUS_METRIC_PRESETS.find(p => p.id === metricId) : null;
-                          const label = metricConfig?.displayName || preset?.label || metricId;
+                          // Use 'label' from device config (field name used in AddDeviceDialog)
+                          const label = metricConfig?.label || preset?.label || metricId;
                           const displayType = metricConfig?.displayType || preset?.displayType || 'number';
                           const unit = metricConfig?.unit || preset?.unit || '';
                           
