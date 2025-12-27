@@ -885,10 +885,20 @@ export function DevicePropertiesPanel({
                       <div className="space-y-3">
                         {Object.entries(device.deviceData.customMetrics).map(([metricId, value]) => {
                           // Look up metric config from device credentials (custom or profile)
-                          const customMetricsConfig = (device.customCredentials as any)?.prometheusMetrics || [];
-                          const profileMetricsConfig = (credentialProfile?.credentials as any)?.prometheusMetrics || [];
-                          const metricsConfig = customMetricsConfig.length > 0 ? customMetricsConfig : profileMetricsConfig;
-                          const metricConfig = metricsConfig.find((m: any) => m.id === metricId);
+                          // Check both Prometheus and SNMP metrics
+                          const customPrometheusConfig = (device.customCredentials as any)?.prometheusMetrics || [];
+                          const customSnmpConfig = (device.customCredentials as any)?.snmpMetrics || [];
+                          const profilePrometheusConfig = (credentialProfile?.credentials as any)?.prometheusMetrics || [];
+                          const profileSnmpConfig = (credentialProfile?.credentials as any)?.snmpMetrics || [];
+                          
+                          // Combine all configs and find matching metric
+                          const allConfigs = [
+                            ...customPrometheusConfig, 
+                            ...customSnmpConfig,
+                            ...profilePrometheusConfig,
+                            ...profileSnmpConfig
+                          ];
+                          const metricConfig = allConfigs.find((m: any) => m.id === metricId);
                           
                           // Fall back to presets if not found in device config
                           const preset = !metricConfig ? PROMETHEUS_METRIC_PRESETS.find(p => p.id === metricId) : null;
@@ -1864,14 +1874,18 @@ export function DevicePropertiesPanel({
         open={prometheusChartOpen}
         onOpenChange={setPrometheusChartOpen}
         prometheusMetrics={(() => {
-          // Merge prometheusMetrics from profile (base) and custom credentials (override)
-          // Custom credentials take precedence for metrics with the same ID
-          const profileMetrics = (credentialProfile?.credentials as any)?.prometheusMetrics || [];
-          const customMetrics = (device.customCredentials as any)?.prometheusMetrics || [];
+          // Merge metrics from profile (base) and custom credentials (override)
+          // Include both Prometheus and SNMP custom metrics
+          const profilePrometheusMetrics = (credentialProfile?.credentials as any)?.prometheusMetrics || [];
+          const customPrometheusMetrics = (device.customCredentials as any)?.prometheusMetrics || [];
+          const profileSnmpMetrics = (credentialProfile?.credentials as any)?.snmpMetrics || [];
+          const customSnmpMetrics = (device.customCredentials as any)?.snmpMetrics || [];
           
-          // If custom has metrics, use those. Otherwise use profile metrics.
-          // (Prometheus metrics are replaced entirely, not merged per-metric)
-          return customMetrics.length > 0 ? customMetrics : profileMetrics;
+          // Combine Prometheus and SNMP metrics
+          const prometheusMetrics = customPrometheusMetrics.length > 0 ? customPrometheusMetrics : profilePrometheusMetrics;
+          const snmpMetrics = customSnmpMetrics.length > 0 ? customSnmpMetrics : profileSnmpMetrics;
+          
+          return [...prometheusMetrics, ...snmpMetrics];
         })()}
         initialMetricId={prometheusChartMetricId}
       />

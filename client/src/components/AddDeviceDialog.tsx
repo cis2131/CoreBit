@@ -197,6 +197,7 @@ export function AddDeviceDialog({
         if (creds.snmpAuthKey) setSnmpAuthKey(creds.snmpAuthKey);
         if (creds.snmpPrivProtocol) setSnmpPrivProtocol(creds.snmpPrivProtocol);
         if (creds.snmpPrivKey) setSnmpPrivKey(creds.snmpPrivKey);
+        if (creds.snmpMetrics) setSnmpMetrics(creds.snmpMetrics);
         if (creds.proxmoxApiTokenId) {
           setProxmoxAuthType('token');
           setProxmoxApiTokenId(creds.proxmoxApiTokenId);

@@ -1245,22 +1245,125 @@ async function probeSnmpDevice(
             ports = [{ name: 'eth0', status: 'up', speed: undefined }];
           }
 
-          closeSession();
+          // Collect custom SNMP metrics if configured
+          const configuredSnmpMetrics = credentials?.snmpMetrics || [];
           
-          resolve({
-            model: sysDescr.substring(0, 100),
-            systemIdentity: sysName,
-            version: 'SNMP',
-            uptime: sysUpTime,
-            ports: ports.length > 0 ? ports : [{
-              name: 'eth0',
-              status: 'up',
-              speed: '1Gbps',
-            }],
-            cpuUsagePct,
-            memoryUsagePct,
-            diskUsagePct,
-          });
+          if (configuredSnmpMetrics.length > 0) {
+            // Create a new session for custom metrics (reusing existing session may have closed)
+            let customSession: any;
+            if (snmpVersion === '3') {
+              const user = {
+                name: credentials?.snmpUsername || 'snmpuser',
+                level: snmp.SecurityLevel.authPriv,
+                authProtocol: credentials?.snmpAuthProtocol === 'MD5' ? snmp.AuthProtocols.md5 : snmp.AuthProtocols.sha,
+                authKey: credentials?.snmpAuthKey || '',
+                privProtocol: credentials?.snmpPrivProtocol === 'DES' ? snmp.PrivProtocols.des : snmp.PrivProtocols.aes,
+                privKey: credentials?.snmpPrivKey || '',
+              };
+              customSession = snmp.createV3Session(ipAddress, user, {
+                port: 161,
+                retries: 0,
+                timeout: 4000,
+              });
+            } else {
+              const version = snmpVersion === '1' ? snmp.Version1 : snmp.Version2c;
+              customSession = snmp.createSession(ipAddress, community, {
+                port: 161,
+                retries: 0,
+                timeout: 4000,
+                version,
+              });
+            }
+            
+            const customOids = configuredSnmpMetrics.map((m: any) => m.oid);
+            
+            customSession.get(customOids, (customError: any, customVarbinds: any[]) => {
+              const customMetrics: Record<string, number | string> = {};
+              
+              if (!customError && customVarbinds) {
+                customVarbinds.forEach((vb, idx) => {
+                  if (!snmp.isVarbindError(vb)) {
+                    const metricConfig = configuredSnmpMetrics[idx];
+                    let rawValue = vb.value;
+                    
+                    // Convert Buffer to string if needed
+                    if (Buffer.isBuffer(rawValue)) {
+                      rawValue = rawValue.toString('utf8').replace(/\x00/g, '').trim();
+                    }
+                    
+                    // Handle different display types
+                    if (metricConfig.displayType === 'text') {
+                      customMetrics[metricConfig.id] = String(rawValue);
+                    } else if (metricConfig.displayType === 'boolean') {
+                      const numVal = Number(rawValue);
+                      // Treat non-zero as true, or check for string values like "true"/"yes"
+                      const boolVal = numVal !== 0 || String(rawValue).toLowerCase() === 'true' || String(rawValue).toLowerCase() === 'yes';
+                      customMetrics[metricConfig.id] = boolVal ? 1 : 0;
+                    } else if (metricConfig.displayType === 'rate') {
+                      // Calculate rate (change per second) for counter values
+                      const numVal = Number(rawValue);
+                      if (!isNaN(numVal)) {
+                        const cacheKey = `snmp_${ipAddress}_${metricConfig.oid}`;
+                        const rateValue = calculateRate(cacheKey, numVal);
+                        if (rateValue !== null) {
+                          customMetrics[metricConfig.id] = Math.round(rateValue * 100) / 100;
+                        } else {
+                          customMetrics[metricConfig.id] = -999999; // Calculating state
+                        }
+                      }
+                    } else {
+                      // Number, bytes, percentage, bar - all stored as numbers
+                      const numVal = Number(rawValue);
+                      if (!isNaN(numVal)) {
+                        customMetrics[metricConfig.id] = Math.round(numVal * 100) / 100;
+                      }
+                    }
+                  }
+                });
+              }
+              
+              try {
+                customSession.close();
+              } catch (e) {
+                // Ignore close errors
+              }
+              
+              closeSession();
+              
+              resolve({
+                model: sysDescr.substring(0, 100),
+                systemIdentity: sysName,
+                version: 'SNMP',
+                uptime: sysUpTime,
+                ports: ports.length > 0 ? ports : [{
+                  name: 'eth0',
+                  status: 'up',
+                  speed: '1Gbps',
+                }],
+                cpuUsagePct,
+                memoryUsagePct,
+                diskUsagePct,
+                customMetrics: Object.keys(customMetrics).length > 0 ? customMetrics : undefined,
+              });
+            });
+          } else {
+            closeSession();
+            
+            resolve({
+              model: sysDescr.substring(0, 100),
+              systemIdentity: sysName,
+              version: 'SNMP',
+              uptime: sysUpTime,
+              ports: ports.length > 0 ? ports : [{
+                name: 'eth0',
+                status: 'up',
+                speed: '1Gbps',
+              }],
+              cpuUsagePct,
+              memoryUsagePct,
+              diskUsagePct,
+            });
+          }
         });
       });
     });
