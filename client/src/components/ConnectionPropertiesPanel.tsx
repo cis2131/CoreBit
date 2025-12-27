@@ -224,6 +224,13 @@ export function ConnectionPropertiesPanel({
       queryClient.invalidateQueries({
         queryKey: ["/api/connections", connection.mapId],
       });
+      // Also invalidate bandwidth history cache so flip direction takes effect
+      queryClient.invalidateQueries({
+        queryKey: ["/api/connections", connection.id, "bandwidth-history"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/connections", connection.id, "traffic-history"],
+      });
       toast({
         title: "Connection updated",
         description: "Connection properties have been saved.",
