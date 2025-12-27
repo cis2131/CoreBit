@@ -9,7 +9,7 @@ export type PrometheusMetricConfig = {
   id: string; // Unique identifier for this metric config
   metricName: string; // Prometheus metric name (e.g., 'node_filesystem_avail_bytes')
   label: string; // Display label (e.g., 'Disk Available')
-  displayType: 'bar' | 'gauge' | 'number' | 'text' | 'bytes' | 'percentage' | 'boolean'; // How to visualize
+  displayType: 'bar' | 'gauge' | 'number' | 'text' | 'bytes' | 'percentage' | 'boolean' | 'rate'; // How to visualize ('rate' for counter metrics - shows change/second)
   unit?: string; // Optional unit suffix (e.g., 'GB', '%', 'ms')
   labelFilter?: Record<string, string>; // Optional label filter (e.g., {device: '/dev/sda1'})
   labelSelector?: string; // Full label selector string (e.g., '{chip="platform_coretemp_0",sensor="temp1"}')
@@ -404,7 +404,7 @@ const prometheusMetricConfigSchema = z.object({
   id: z.string(),
   metricName: z.string(),
   label: z.string(),
-  displayType: z.enum(['bar', 'gauge', 'number', 'text', 'bytes', 'percentage', 'boolean']),
+  displayType: z.enum(['bar', 'gauge', 'number', 'text', 'bytes', 'percentage', 'boolean', 'rate']),
   unit: z.string().optional(),
   labelFilter: z.record(z.string()).optional(),
   labelSelector: z.string().optional(),
