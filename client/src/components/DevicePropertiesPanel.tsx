@@ -54,7 +54,7 @@ import { Label } from "@/components/ui/label";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { StatusHistoryBar, StatusHistoryModal } from "@/components/StatusHistory";
-import { DeviceMetricsChartViewer } from "@/components/MetricsChartViewer";
+import { DeviceMetricsChartViewer, PrometheusMetricsChartViewer } from "@/components/MetricsChartViewer";
 
 interface DevicePropertiesPanelProps {
   device: Device & {
@@ -148,6 +148,8 @@ export function DevicePropertiesPanel({
   const [statusHistoryOpen, setStatusHistoryOpen] = useState(false);
   const [metricsChartOpen, setMetricsChartOpen] = useState(false);
   const [metricsChartMetric, setMetricsChartMetric] = useState<'cpu' | 'memory' | 'disk' | 'ping'>('cpu');
+  const [prometheusChartOpen, setPrometheusChartOpen] = useState(false);
+  const [prometheusChartMetricId, setPrometheusChartMetricId] = useState<string>('');
   const [timeoutValue, setTimeoutValue] = useState<string>(
     device.probeTimeout?.toString() ?? "",
   );
@@ -864,6 +866,20 @@ export function DevicePropertiesPanel({
                   {device.deviceData?.customMetrics && Object.keys(device.deviceData.customMetrics).length > 0 && (
                     <>
                       <Separator className="my-3" />
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs text-muted-foreground font-medium">Custom Metrics</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs gap-1"
+                          onClick={() => setPrometheusChartOpen(true)}
+                          title="View custom metrics history"
+                          data-testid="button-prometheus-history"
+                        >
+                          <BarChart3 className="h-3 w-3" />
+                          History
+                        </Button>
+                      </div>
                       <div className="space-y-3">
                         {Object.entries(device.deviceData.customMetrics).map(([metricId, value]) => {
                           const preset = PROMETHEUS_METRIC_PRESETS.find(p => p.id === metricId);
@@ -894,7 +910,16 @@ export function DevicePropertiesPanel({
                           if (displayType === 'bar' || displayType === 'percentage') {
                             const numValue = typeof value === 'number' ? value : parseFloat(value) || 0;
                             return (
-                              <div key={metricId} className="space-y-1">
+                              <div 
+                                key={metricId} 
+                                className="space-y-1 cursor-pointer hover-elevate p-2 -m-2 rounded-md transition-colors"
+                                onClick={() => {
+                                  setPrometheusChartMetricId(metricId);
+                                  setPrometheusChartOpen(true);
+                                }}
+                                title={`Click to view ${label} history`}
+                                data-testid={`button-metric-${metricId}-chart`}
+                              >
                                 <div className="flex items-center justify-between text-sm">
                                   <span className="text-foreground font-medium">{label}</span>
                                   <span className="font-mono font-semibold text-foreground" data-testid={`text-metric-${metricId}`}>
@@ -907,7 +932,16 @@ export function DevicePropertiesPanel({
                           }
                           
                           return (
-                            <div key={metricId} className="flex items-center justify-between text-sm">
+                            <div 
+                              key={metricId} 
+                              className="flex items-center justify-between text-sm cursor-pointer hover-elevate p-2 -m-2 rounded-md transition-colors"
+                              onClick={() => {
+                                setPrometheusChartMetricId(metricId);
+                                setPrometheusChartOpen(true);
+                              }}
+                              title={`Click to view ${label} history`}
+                              data-testid={`button-metric-${metricId}-chart`}
+                            >
                               <span className="text-foreground font-medium">{label}</span>
                               <span className="font-mono font-semibold text-foreground" data-testid={`text-metric-${metricId}`}>
                                 {displayValue}{displayUnit}
@@ -1744,6 +1778,24 @@ export function DevicePropertiesPanel({
         open={metricsChartOpen}
         onOpenChange={setMetricsChartOpen}
         initialMetric={metricsChartMetric}
+      />
+
+      <PrometheusMetricsChartViewer
+        deviceId={device.id}
+        deviceName={device.name}
+        open={prometheusChartOpen}
+        onOpenChange={setPrometheusChartOpen}
+        prometheusMetrics={(() => {
+          // Merge prometheusMetrics from profile (base) and custom credentials (override)
+          // Custom credentials take precedence for metrics with the same ID
+          const profileMetrics = (credentialProfile?.credentials as any)?.prometheusMetrics || [];
+          const customMetrics = (device.customCredentials as any)?.prometheusMetrics || [];
+          
+          // If custom has metrics, use those. Otherwise use profile metrics.
+          // (Prometheus metrics are replaced entirely, not merged per-metric)
+          return customMetrics.length > 0 ? customMetrics : profileMetrics;
+        })()}
+        initialMetricId={prometheusChartMetricId}
       />
     </div>
   );

@@ -342,6 +342,271 @@ export function DeviceMetricsChartViewer({
   );
 }
 
+// Types for Prometheus metrics
+interface PrometheusMetricConfig {
+  id: string;
+  metricName: string;
+  displayName: string;
+  unit?: string;
+  transform?: string;
+}
+
+interface PrometheusMetricsHistoryEntry {
+  id: string;
+  deviceId: string;
+  metricId: string;
+  metricName: string;
+  value: number;
+  rawValue?: number;
+  timestamp: string;
+}
+
+interface PrometheusMetricsChartViewerProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  deviceId: string;
+  deviceName: string;
+  prometheusMetrics?: PrometheusMetricConfig[];
+  initialMetricId?: string;
+}
+
+const PROMETHEUS_METRIC_COLORS = [
+  '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#06b6d4', '#84cc16'
+];
+
+export function PrometheusMetricsChartViewer({
+  open,
+  onOpenChange,
+  deviceId,
+  deviceName,
+  prometheusMetrics = [],
+  initialMetricId,
+}: PrometheusMetricsChartViewerProps) {
+  const [timeRange, setTimeRange] = useState<TimeRange>('1h');
+  const [selectedMetricId, setSelectedMetricId] = useState<string>(initialMetricId || prometheusMetrics[0]?.id || '');
+  const [autoRefresh, setAutoRefresh] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      if (initialMetricId && prometheusMetrics.some(m => m.id === initialMetricId)) {
+        setSelectedMetricId(initialMetricId);
+      } else if (prometheusMetrics.length > 0 && !prometheusMetrics.some(m => m.id === selectedMetricId)) {
+        setSelectedMetricId(prometheusMetrics[0].id);
+      }
+    }
+  }, [open, initialMetricId, prometheusMetrics, selectedMetricId]);
+
+  const selectedMetric = prometheusMetrics.find(m => m.id === selectedMetricId);
+  const metricColor = PROMETHEUS_METRIC_COLORS[prometheusMetrics.findIndex(m => m.id === selectedMetricId) % PROMETHEUS_METRIC_COLORS.length];
+
+  const since = useMemo(() => {
+    return new Date(Date.now() - getTimeRangeMs(timeRange)).toISOString();
+  }, [timeRange]);
+
+  const { data: history = [], isLoading, refetch } = useQuery<PrometheusMetricsHistoryEntry[]>({
+    queryKey: ['/api/devices', deviceId, 'prometheus-metrics', 'history', 'aggregated', selectedMetricId, since],
+    queryFn: async () => {
+      if (!selectedMetricId) return [];
+      const params = new URLSearchParams({ since, metricId: selectedMetricId, maxPoints: '300' });
+      const res = await fetch(`/api/devices/${deviceId}/prometheus-metrics/history/aggregated?${params}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`Failed to fetch Prometheus metrics: ${res.statusText}`);
+      return res.json();
+    },
+    enabled: open && !!deviceId && !!selectedMetricId,
+    refetchInterval: autoRefresh ? 30000 : false,
+  });
+
+  const chartData = useMemo(() => {
+    return history.map(h => ({
+      time: formatTimestamp(h.timestamp, timeRange),
+      timestamp: h.timestamp,
+      value: h.value,
+    }));
+  }, [history, timeRange]);
+
+  const hasData = chartData.length > 0;
+
+  const latestValue = chartData.length > 0 ? chartData[chartData.length - 1].value : null;
+
+  const formatValue = (value: number): string => {
+    if (selectedMetric?.unit === 'bytes') {
+      if (value >= 1073741824) return `${(value / 1073741824).toFixed(2)} GB`;
+      if (value >= 1048576) return `${(value / 1048576).toFixed(2)} MB`;
+      if (value >= 1024) return `${(value / 1024).toFixed(2)} KB`;
+      return `${value.toFixed(0)} B`;
+    }
+    if (selectedMetric?.unit === '%') {
+      return `${value.toFixed(1)}%`;
+    }
+    if (selectedMetric?.unit === 'seconds') {
+      if (value >= 86400) return `${(value / 86400).toFixed(1)} days`;
+      if (value >= 3600) return `${(value / 3600).toFixed(1)} hours`;
+      if (value >= 60) return `${(value / 60).toFixed(1)} min`;
+      return `${value.toFixed(1)} sec`;
+    }
+    // Default: just format the number
+    if (Number.isInteger(value)) return value.toString();
+    return value.toFixed(2);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogHeader className="flex-shrink-0">
+          <DialogTitle className="flex items-center gap-2">
+            <Activity className="h-5 w-5" />
+            {deviceName} - Custom Metrics History
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Historical custom Prometheus metrics chart for {deviceName}
+          </DialogDescription>
+        </DialogHeader>
+
+        {prometheusMetrics.length === 0 ? (
+          <div className="h-[200px] flex flex-col items-center justify-center text-muted-foreground">
+            <Activity className="h-12 w-12 mb-4 opacity-50" />
+            <p>No custom metrics configured for this device</p>
+            <p className="text-sm mt-1">Add Prometheus metrics in the device credentials</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-4 py-2 flex-shrink-0">
+              <Select value={selectedMetricId} onValueChange={setSelectedMetricId}>
+                <SelectTrigger className="w-[250px]" data-testid="select-prometheus-metric">
+                  <SelectValue placeholder="Select a metric" />
+                </SelectTrigger>
+                <SelectContent>
+                  {prometheusMetrics.map((metric, idx) => (
+                    <SelectItem key={metric.id} value={metric.id}>
+                      <div className="flex items-center gap-2">
+                        <div 
+                          className="w-2 h-2 rounded-full" 
+                          style={{ backgroundColor: PROMETHEUS_METRIC_COLORS[idx % PROMETHEUS_METRIC_COLORS.length] }}
+                        />
+                        {metric.displayName || metric.id}
+                        {metric.unit && <span className="text-muted-foreground">({metric.unit})</span>}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <div className="flex items-center gap-2">
+                <Select value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
+                  <SelectTrigger className="w-32" data-testid="select-prometheus-time-range">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIME_RANGE_OPTIONS.map(opt => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant={autoRefresh ? 'default' : 'outline'}
+                  size="icon"
+                  onClick={() => {
+                    if (autoRefresh) {
+                      setAutoRefresh(false);
+                    } else {
+                      refetch();
+                    }
+                  }}
+                  onDoubleClick={() => setAutoRefresh(!autoRefresh)}
+                  disabled={isLoading && !autoRefresh}
+                  title={autoRefresh ? 'Click to stop auto-refresh' : 'Click to refresh, double-click for auto-refresh'}
+                  data-testid="button-prometheus-refresh"
+                >
+                  <RefreshCw className={`h-4 w-4 ${autoRefresh || isLoading ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
+            </div>
+
+            {latestValue !== null && latestValue !== undefined && (
+              <div className="flex items-center gap-2 pb-2 flex-shrink-0">
+                <Badge variant="secondary" className="text-lg px-3 py-1">
+                  Current: {formatValue(latestValue)}
+                </Badge>
+                <span className="text-sm text-muted-foreground">
+                  {chartData.length} data points
+                </span>
+              </div>
+            )}
+
+            <div className="h-[350px]">
+              {isLoading ? (
+                <div className="h-full flex items-center justify-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : !hasData ? (
+                <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
+                  <Timer className="h-12 w-12 mb-4 opacity-50" />
+                  <p>No data available for "{selectedMetric?.displayName || selectedMetricId}"</p>
+                  <p className="text-sm mt-1">Data is collected during device probing cycles</p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={350}>
+                  <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 30 }}>
+                    <defs>
+                      <linearGradient id="gradientPrometheus" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={metricColor} stopOpacity={0.4}/>
+                        <stop offset="95%" stopColor={metricColor} stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
+                    <XAxis 
+                      dataKey="time" 
+                      tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                      tickLine={false}
+                      axisLine={{ stroke: 'hsl(var(--border))' }}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis 
+                      tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                      tickLine={false}
+                      axisLine={{ stroke: 'hsl(var(--border))' }}
+                      tickFormatter={(value) => formatValue(value)}
+                      width={80}
+                    />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div className="bg-popover border rounded-lg p-3 shadow-lg">
+                              <p className="text-xs text-muted-foreground mb-1">
+                                {format(new Date(data.timestamp), 'PPpp')}
+                              </p>
+                              <p className="font-medium" style={{ color: metricColor }}>
+                                {selectedMetric?.displayName || selectedMetricId}: {formatValue(data.value)}
+                              </p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke={metricColor}
+                      strokeWidth={2}
+                      fill="url(#gradientPrometheus)"
+                      connectNulls
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ConnectionBandwidthChartViewer({
   open,
   onOpenChange,
