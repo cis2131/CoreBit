@@ -385,16 +385,20 @@ export function PrometheusMetricsChartViewer({
   const [timeRange, setTimeRange] = useState<TimeRange>('1h');
   const [selectedMetricId, setSelectedMetricId] = useState<string>(initialMetricId || prometheusMetrics[0]?.id || '');
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [prevOpen, setPrevOpen] = useState(false);
 
+  // Only reset selectedMetricId when dialog opens (not on every render)
   useEffect(() => {
-    if (open) {
+    if (open && !prevOpen) {
+      // Dialog just opened - set initial metric
       if (initialMetricId && prometheusMetrics.some(m => m.id === initialMetricId)) {
         setSelectedMetricId(initialMetricId);
-      } else if (prometheusMetrics.length > 0 && !prometheusMetrics.some(m => m.id === selectedMetricId)) {
+      } else if (prometheusMetrics.length > 0) {
         setSelectedMetricId(prometheusMetrics[0].id);
       }
     }
-  }, [open, initialMetricId, prometheusMetrics, selectedMetricId]);
+    setPrevOpen(open);
+  }, [open, prevOpen, initialMetricId, prometheusMetrics]);
 
   const selectedMetric = prometheusMetrics.find(m => m.id === selectedMetricId);
   const metricColor = PROMETHEUS_METRIC_COLORS[prometheusMetrics.findIndex(m => m.id === selectedMetricId) % PROMETHEUS_METRIC_COLORS.length];
