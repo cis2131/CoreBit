@@ -26,6 +26,7 @@ import {
   deviceInterfaces,
   deviceMetricsHistory,
   connectionBandwidthHistory,
+  prometheusMetricsHistory,
   type Map, 
   type InsertMap,
   type Device,
@@ -76,7 +77,9 @@ import {
   type DeviceMetricsHistory,
   type InsertDeviceMetricsHistory,
   type ConnectionBandwidthHistory,
-  type InsertConnectionBandwidthHistory
+  type InsertConnectionBandwidthHistory,
+  type PrometheusMetricsHistory,
+  type InsertPrometheusMetricsHistory
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNotNull, isNull, or, gt, lt, gte, lte, asc, inArray } from "drizzle-orm";
@@ -340,6 +343,12 @@ export interface IStorage {
   getConnectionBandwidthHistory(connectionId: string, since: Date, until?: Date): Promise<ConnectionBandwidthHistory[]>;
   deleteOldConnectionBandwidth(olderThan: Date): Promise<number>;
   deleteConnectionBandwidthHistoryBefore(cutoff: Date): Promise<number>;
+  
+  // Prometheus Metrics History
+  insertPrometheusMetricsHistoryBatch(records: InsertPrometheusMetricsHistory[]): Promise<number>;
+  getPrometheusMetricsHistory(deviceId: string, metricId: string, since: Date, until?: Date): Promise<PrometheusMetricsHistory[]>;
+  getPrometheusMetricsHistoryAllMetrics(deviceId: string, since: Date, until?: Date): Promise<PrometheusMetricsHistory[]>;
+  deleteOldPrometheusMetrics(olderThan: Date): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1884,6 +1893,69 @@ export class DatabaseStorage implements IStorage {
   async deleteConnectionBandwidthHistoryBefore(cutoff: Date): Promise<number> {
     const result = await db.delete(connectionBandwidthHistory)
       .where(lt(connectionBandwidthHistory.timestamp, cutoff))
+      .returning();
+    return result.length;
+  }
+
+  // Prometheus Metrics History
+  async insertPrometheusMetricsHistoryBatch(records: InsertPrometheusMetricsHistory[]): Promise<number> {
+    if (records.length === 0) return 0;
+    
+    // Filter out records with invalid values
+    const validRecords = records.filter(r => 
+      r.value !== undefined && 
+      r.value !== null && 
+      !isNaN(r.value) &&
+      isFinite(r.value)
+    );
+    
+    if (validRecords.length === 0) return 0;
+    
+    try {
+      await db.insert(prometheusMetricsHistory).values(validRecords);
+      return validRecords.length;
+    } catch (error: any) {
+      console.error('[PrometheusMetricsHistory] Batch insert failed:', error.message);
+      return 0;
+    }
+  }
+
+  async getPrometheusMetricsHistory(deviceId: string, metricId: string, since: Date, until?: Date): Promise<PrometheusMetricsHistory[]> {
+    const conditions = [
+      eq(prometheusMetricsHistory.deviceId, deviceId),
+      eq(prometheusMetricsHistory.metricId, metricId),
+      gte(prometheusMetricsHistory.timestamp, since),
+    ];
+    
+    if (until) {
+      conditions.push(lte(prometheusMetricsHistory.timestamp, until));
+    }
+    
+    return await db.select()
+      .from(prometheusMetricsHistory)
+      .where(and(...conditions))
+      .orderBy(asc(prometheusMetricsHistory.timestamp));
+  }
+
+  async getPrometheusMetricsHistoryAllMetrics(deviceId: string, since: Date, until?: Date): Promise<PrometheusMetricsHistory[]> {
+    const conditions = [
+      eq(prometheusMetricsHistory.deviceId, deviceId),
+      gte(prometheusMetricsHistory.timestamp, since),
+    ];
+    
+    if (until) {
+      conditions.push(lte(prometheusMetricsHistory.timestamp, until));
+    }
+    
+    return await db.select()
+      .from(prometheusMetricsHistory)
+      .where(and(...conditions))
+      .orderBy(asc(prometheusMetricsHistory.timestamp));
+  }
+
+  async deleteOldPrometheusMetrics(olderThan: Date): Promise<number> {
+    const result = await db.delete(prometheusMetricsHistory)
+      .where(lt(prometheusMetricsHistory.timestamp, olderThan))
       .returning();
     return result.length;
   }
