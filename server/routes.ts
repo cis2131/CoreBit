@@ -5479,6 +5479,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // ============ PROMETHEUS METRICS HISTORY API ENDPOINTS ============
+  
+  // Get Prometheus metrics history for a device (all metrics)
+  app.get("/api/devices/:id/prometheus-metrics/history", requireAuth as any, async (req, res) => {
+    try {
+      const deviceId = req.params.id;
+      const { since, until, metricId } = req.query;
+      
+      // Default to last 24 hours if not specified
+      const sinceDate = since ? new Date(since as string) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const untilDate = until ? new Date(until as string) : undefined;
+      
+      // Validate device exists
+      const device = await storage.getDevice(deviceId);
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+      
+      let history;
+      if (metricId) {
+        // Get specific metric history
+        history = await storage.getPrometheusMetricsHistory(deviceId, metricId as string, sinceDate, untilDate);
+      } else {
+        // Get all metrics history
+        history = await storage.getPrometheusMetricsHistoryAllMetrics(deviceId, sinceDate, untilDate);
+      }
+      
+      res.json(history);
+    } catch (error: any) {
+      console.error('Error fetching Prometheus metrics history:', error);
+      res.status(500).json({ error: 'Failed to fetch Prometheus metrics history' });
+    }
+  });
+  
+  // Get aggregated Prometheus metrics history (downsampled for large time ranges)
+  app.get("/api/devices/:id/prometheus-metrics/history/aggregated", requireAuth as any, async (req, res) => {
+    try {
+      const deviceId = req.params.id;
+      const { since, until, metricId, maxPoints = '200' } = req.query;
+      
+      // Default to last 24 hours if not specified
+      const sinceDate = since ? new Date(since as string) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const untilDate = until ? new Date(until as string) : new Date();
+      
+      // Validate device exists
+      const device = await storage.getDevice(deviceId);
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+      
+      if (!metricId) {
+        return res.status(400).json({ error: 'metricId query parameter is required for aggregated history' });
+      }
+      
+      const history = await storage.getPrometheusMetricsHistory(deviceId, metricId as string, sinceDate, untilDate);
+      
+      // Downsample if too many points
+      const maxPointsNum = parseInt(maxPoints as string, 10) || 200;
+      const downsampled = downsampleTimeSeries(history, maxPointsNum);
+      
+      res.json(downsampled);
+    } catch (error: any) {
+      console.error('Error fetching aggregated Prometheus metrics history:', error);
+      res.status(500).json({ error: 'Failed to fetch aggregated Prometheus metrics history' });
+    }
+  });
+  
   // Helper function to downsample time series data
   function downsampleTimeSeries<T extends { timestamp: Date }>(data: T[], maxPoints: number): T[] {
     if (data.length <= maxPoints) return data;
