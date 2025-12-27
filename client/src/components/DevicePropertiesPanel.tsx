@@ -981,6 +981,34 @@ export function DevicePropertiesPanel({
                             );
                           }
                           
+                          // Rate display type - show rate per second
+                          if (displayType === 'rate') {
+                            const numValue = typeof value === 'number' ? value : parseFloat(value) || 0;
+                            const isCalculating = numValue === -999999;
+                            const rateUnit = unit || '/s';
+                            return (
+                              <div 
+                                key={metricId} 
+                                className="flex items-center justify-between text-sm cursor-pointer hover-elevate p-2 -m-2 rounded-md transition-colors"
+                                onClick={() => {
+                                  setPrometheusChartMetricId(metricId);
+                                  setPrometheusChartOpen(true);
+                                }}
+                                title={`Click to view ${label} history`}
+                                data-testid={`button-metric-${metricId}-chart`}
+                              >
+                                <span className="text-foreground font-medium">{label}</span>
+                                <span className="font-mono font-semibold text-foreground" data-testid={`text-metric-${metricId}`}>
+                                  {isCalculating ? (
+                                    <span className="text-muted-foreground italic">calculating...</span>
+                                  ) : (
+                                    `${numValue.toFixed(2)}${rateUnit}`
+                                  )}
+                                </span>
+                              </div>
+                            );
+                          }
+                          
                           return (
                             <div 
                               key={metricId} 
