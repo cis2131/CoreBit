@@ -41,6 +41,14 @@ The application is built with a client-server architecture.
     -   **SNMP:** For Mikrotik, generic SNMP devices. Uses stored SNMP interface indexes for fast OID construction.
     -   **Prometheus/node_exporter:** For Linux servers running node_exporter. Uses `node_network_receive_bytes_total` and `node_network_transmit_bytes_total` metrics.
     -   Automatically detects which method to use based on device type (`generic_prometheus`) or credentials.
+-   **Prometheus Metrics Historical Monitoring:** Stores and visualizes historical data for custom Prometheus metrics:
+    -   `prometheus_metrics_history` table stores time-series data with composite index on (deviceId, metricId, timestamp)
+    -   Custom metrics collected during each probe cycle are automatically stored
+    -   PrometheusMetricsChartViewer component provides interactive charts with time range selection (1h, 3h, 6h, 12h, 24h)
+    -   Auto-refresh every 30 seconds for real-time monitoring
+    -   Metric-specific formatting (percentages for load metrics, bytes/seconds for network metrics)
+    -   Retention policy respects global metricsRetentionHours setting
+    -   Click on any custom metric in DevicePropertiesPanel to view its historical chart
 -   **Backup & Restore:** Provides manual and scheduled backups with configurable retention policies. Supports downloading, uploading, and restoring full application data, including devices, maps, connections, credentials, and settings. Backup files are JSON-formatted and stored locally.
 -   **On-Duty Notification System:** Simplified shift-based notification system with direct user-to-shift assignments:
     -   Two shifts: Day and Night, with configurable start/end times and timezone
