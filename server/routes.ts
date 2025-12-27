@@ -1454,6 +1454,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (data.monitorInterface === null) {
         data.monitorSnmpIndex = null;
       }
+
+      // Ensure WiFi link speed doesn't have thresholds in the DB if null is passed
+      if (data.linkSpeed === "WiFi") {
+        data.warningThresholdPct = null;
+        data.criticalThresholdPct = null;
+      }
       
       const connection = await storage.updateConnection(req.params.id, data);
       

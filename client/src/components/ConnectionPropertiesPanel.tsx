@@ -87,10 +87,10 @@ export function ConnectionPropertiesPanel({
   );
   const [bandwidthChartOpen, setBandwidthChartOpen] = useState(false);
   const [isDynamic, setIsDynamic] = useState(connection.isDynamic || false);
-  const [warningThreshold, setWarningThreshold] = useState(
+  const [warningThreshold, setWarningThreshold] = useState<number | null>(
     connection.warningThresholdPct ?? 70,
   );
-  const [criticalThreshold, setCriticalThreshold] = useState(
+  const [criticalThreshold, setCriticalThreshold] = useState<number | null>(
     connection.criticalThresholdPct ?? 90,
   );
   const [labelPosition, setLabelPosition] = useState(
@@ -185,8 +185,8 @@ export function ConnectionPropertiesPanel({
         curveOffset,
         flipTrafficDirection,
         isDynamic,
-        warningThresholdPct: warningThreshold,
-        criticalThresholdPct: criticalThreshold,
+        warningThresholdPct: linkSpeed === "WiFi" ? null : warningThreshold,
+        criticalThresholdPct: linkSpeed === "WiFi" ? null : criticalThreshold,
         labelPosition,
       };
 
@@ -701,7 +701,7 @@ export function ConnectionPropertiesPanel({
                                 type="number"
                                 min={0}
                                 max={100}
-                                value={warningThreshold}
+                                value={warningThreshold || 0}
                                 onChange={(
                                   e: React.ChangeEvent<HTMLInputElement>,
                                 ) => {
@@ -732,7 +732,7 @@ export function ConnectionPropertiesPanel({
                                 type="number"
                                 min={0}
                                 max={100}
-                                value={criticalThreshold}
+                                value={criticalThreshold || 0}
                                 onChange={(
                                   e: React.ChangeEvent<HTMLInputElement>,
                                 ) => {
@@ -750,7 +750,7 @@ export function ConnectionPropertiesPanel({
                             </div>
                           </div>
                         </div>
-                        {warningThreshold >= criticalThreshold && (
+                        {warningThreshold !== null && criticalThreshold !== null && warningThreshold >= criticalThreshold && (
                           <p className="text-xs text-destructive">
                             Warning threshold should be less than critical threshold
                           </p>
