@@ -247,6 +247,7 @@ export interface IStorage {
   createDeviceStatusEvent(event: InsertDeviceStatusEvent): Promise<DeviceStatusEvent>;
   getDeviceStatusEvents(deviceId: string, options?: { since?: Date; until?: Date; includeWarnings?: boolean; limit?: number }): Promise<DeviceStatusEvent[]>;
   getDeviceStatusSummary(deviceId: string, since: Date): Promise<{ status: string; durationMs: number }[]>;
+  getDeviceStatusSegments(deviceId: string, since: Date): Promise<{ status: string; startTime: Date; endTime: Date }[]>;
   deleteOldDeviceStatusEvents(olderThan: Date): Promise<number>;
 
   // Proxmox VMs
@@ -1031,6 +1032,78 @@ export class DatabaseStorage implements IStorage {
       status,
       durationMs
     }));
+  }
+
+  async getDeviceStatusSegments(deviceId: string, since: Date): Promise<{ status: string; startTime: Date; endTime: Date }[]> {
+    const { gte, lt } = await import('drizzle-orm');
+    
+    const now = new Date();
+    const segments: { status: string; startTime: Date; endTime: Date }[] = [];
+    
+    // Get the last event before the "since" date to determine starting status
+    const [lastEventBeforeSince] = await db.select().from(deviceStatusEvents)
+      .where(and(
+        eq(deviceStatusEvents.deviceId, deviceId),
+        lt(deviceStatusEvents.createdAt, since)
+      ))
+      .orderBy(desc(deviceStatusEvents.createdAt))
+      .limit(1);
+    
+    // Get all status events since the start time, ordered by creation date
+    const eventsInRange = await db.select().from(deviceStatusEvents)
+      .where(and(
+        eq(deviceStatusEvents.deviceId, deviceId),
+        gte(deviceStatusEvents.createdAt, since)
+      ))
+      .orderBy(deviceStatusEvents.createdAt);
+    
+    // If no events at all, fall back to device's current status for the entire window
+    if (!lastEventBeforeSince && eventsInRange.length === 0) {
+      const device = await this.getDevice(deviceId);
+      if (device) {
+        return [{ status: device.status, startTime: since, endTime: now }];
+      }
+      return [];
+    }
+    
+    // Track current status and time as we walk through the timeline
+    let currentStatus: string | undefined = lastEventBeforeSince?.newStatus;
+    
+    // If no pre-window event but we have in-range events, use the first event's previousStatus as baseline
+    if (!currentStatus && eventsInRange.length > 0) {
+      currentStatus = eventsInRange[0].previousStatus || undefined;
+    }
+    
+    let lastTime = since;
+    
+    // Process each event in range
+    for (const event of eventsInRange) {
+      const eventTime = new Date(event.createdAt);
+      
+      // If we have a current status, add segment from lastTime to this event
+      if (currentStatus && eventTime.getTime() > lastTime.getTime()) {
+        segments.push({
+          status: currentStatus,
+          startTime: lastTime,
+          endTime: eventTime
+        });
+      }
+      
+      // Update current status and lastTime for next iteration
+      currentStatus = event.newStatus;
+      lastTime = eventTime;
+    }
+    
+    // Add the tail segment from the last event to now
+    if (currentStatus && now.getTime() > lastTime.getTime()) {
+      segments.push({
+        status: currentStatus,
+        startTime: lastTime,
+        endTime: now
+      });
+    }
+    
+    return segments;
   }
 
   async deleteOldDeviceStatusEvents(olderThan: Date): Promise<number> {

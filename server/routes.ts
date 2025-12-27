@@ -1303,6 +1303,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/devices/:id/status-segments", async (req, res) => {
+    try {
+      const device = await storage.getDevice(req.params.id);
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found' });
+      }
+
+      const { range } = req.query;
+      
+      // Calculate time range
+      let since = new Date();
+      switch (range) {
+        case '24h':
+          since.setHours(since.getHours() - 24);
+          break;
+        case '7d':
+          since.setDate(since.getDate() - 7);
+          break;
+        case '30d':
+          since.setDate(since.getDate() - 30);
+          break;
+        case '90d':
+          since.setDate(since.getDate() - 90);
+          break;
+        default:
+          since.setHours(since.getHours() - 24);
+      }
+
+      const segments = await storage.getDeviceStatusSegments(req.params.id, since);
+      
+      res.json({
+        since: since.toISOString(),
+        until: new Date().toISOString(),
+        segments: segments.map(s => ({
+          status: s.status,
+          startTime: s.startTime.toISOString(),
+          endTime: s.endTime.toISOString()
+        }))
+      });
+    } catch (error) {
+      console.error('Error fetching status segments:', error);
+      res.status(500).json({ error: 'Failed to fetch status segments' });
+    }
+  });
+
   app.get("/api/devices/:id/status-summary", async (req, res) => {
     try {
       const device = await storage.getDevice(req.params.id);

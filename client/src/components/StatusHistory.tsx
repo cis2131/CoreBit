@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Clock, AlertCircle, CheckCircle2, AlertTriangle, HelpCircle } from "lucide-react";
+import { format } from "date-fns";
 import type { DeviceStatusEvent } from "@shared/schema";
 
 interface StatusHistoryBarProps {
@@ -33,6 +35,18 @@ interface StatusSummary {
   since: string;
   totalMs: number;
   summary: Array<{ status: string; durationMs: number; percentage: number }>;
+}
+
+interface StatusSegment {
+  status: string;
+  startTime: string;
+  endTime: string;
+}
+
+interface StatusSegmentsResponse {
+  since: string;
+  until: string;
+  segments: StatusSegment[];
 }
 
 const statusColors: Record<string, string> = {
@@ -97,52 +111,185 @@ function formatEventTime(timestamp: string): string {
   }
 }
 
-export function StatusHistoryBar({ deviceId, onClick }: StatusHistoryBarProps) {
-  const { data: summary, isLoading } = useQuery<StatusSummary>({
-    queryKey: ['/api/devices', deviceId, 'status-summary', '24h'],
+function generateTimeLabels(since: Date, until: Date, range: string): { time: Date; label: string }[] {
+  const labels: { time: Date; label: string }[] = [];
+  const totalMs = until.getTime() - since.getTime();
+  
+  // Determine appropriate interval based on range
+  let intervalMs: number;
+  let formatStr: string;
+  
+  if (range === '24h') {
+    intervalMs = 4 * 60 * 60 * 1000; // 4 hours
+    formatStr = 'HH:mm';
+  } else if (range === '7d') {
+    intervalMs = 24 * 60 * 60 * 1000; // 1 day
+    formatStr = 'MMM d';
+  } else if (range === '30d') {
+    intervalMs = 5 * 24 * 60 * 60 * 1000; // 5 days
+    formatStr = 'MMM d';
+  } else {
+    intervalMs = 15 * 24 * 60 * 60 * 1000; // 15 days
+    formatStr = 'MMM d';
+  }
+  
+  let current = new Date(since);
+  // Round to nearest interval
+  current.setMinutes(0, 0, 0);
+  if (range === '24h') {
+    current.setHours(Math.ceil(current.getHours() / 4) * 4);
+  }
+  
+  while (current <= until) {
+    if (current >= since) {
+      labels.push({
+        time: new Date(current),
+        label: format(current, formatStr)
+      });
+    }
+    current = new Date(current.getTime() + intervalMs);
+  }
+  
+  return labels;
+}
+
+interface StatusTimelineBarProps {
+  deviceId: string;
+  range?: string;
+  height?: number;
+  showLabels?: boolean;
+  onClick?: () => void;
+}
+
+export function StatusTimelineBar({ 
+  deviceId, 
+  range = '24h', 
+  height = 24,
+  showLabels = true,
+  onClick 
+}: StatusTimelineBarProps) {
+  const { data: segmentsData, isLoading } = useQuery<StatusSegmentsResponse>({
+    queryKey: ['/api/devices', deviceId, 'status-segments', range],
     queryFn: async () => {
-      const response = await fetch(`/api/devices/${deviceId}/status-summary?range=24h`);
-      if (!response.ok) throw new Error('Failed to fetch status summary');
+      const response = await fetch(`/api/devices/${deviceId}/status-segments?range=${range}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to fetch status segments');
       return response.json();
     },
     refetchInterval: 60000,
   });
 
-  if (isLoading || !summary || summary.summary.length === 0) {
+  const timeLabels = useMemo(() => {
+    if (!segmentsData) return [];
+    const since = new Date(segmentsData.since);
+    const until = new Date(segmentsData.until);
+    return generateTimeLabels(since, until, range);
+  }, [segmentsData, range]);
+
+  if (isLoading || !segmentsData) {
     return (
-      <div 
-        className="h-4 bg-muted rounded-sm cursor-pointer hover-elevate"
-        onClick={onClick}
-        data-testid="status-history-bar-empty"
-      >
-        <div className="h-full bg-gray-300 dark:bg-gray-600 rounded-sm flex items-center justify-center">
-          <span className="text-[10px] text-muted-foreground">No data</span>
-        </div>
+      <div className="space-y-1">
+        <div 
+          className="bg-muted rounded-sm animate-pulse"
+          style={{ height }}
+        />
+        {showLabels && <div className="h-4" />}
       </div>
     );
   }
 
-  const sortedSummary = [...summary.summary].sort((a, b) => {
-    const order = ['online', 'warning', 'stale', 'offline', 'unknown'];
-    return order.indexOf(a.status) - order.indexOf(b.status);
-  });
+  const since = new Date(segmentsData.since);
+  const until = new Date(segmentsData.until);
+  const totalMs = until.getTime() - since.getTime();
+
+  if (segmentsData.segments.length === 0) {
+    return (
+      <div className="space-y-1">
+        <div 
+          className="bg-gray-300 dark:bg-gray-600 rounded-sm flex items-center justify-center cursor-pointer hover-elevate"
+          style={{ height }}
+          onClick={onClick}
+          data-testid="status-timeline-bar-empty"
+        >
+          <span className="text-[10px] text-muted-foreground">No data</span>
+        </div>
+        {showLabels && <div className="h-4" />}
+      </div>
+    );
+  }
 
   return (
-    <div 
-      className="h-4 rounded-sm overflow-hidden flex cursor-pointer hover-elevate"
-      onClick={onClick}
-      title="Click to view detailed status history"
-      data-testid="status-history-bar"
-    >
-      {sortedSummary.map((item, index) => (
-        <div
-          key={item.status}
-          className={`${statusColors[item.status] || statusColors.unknown} h-full transition-all`}
-          style={{ width: `${item.percentage}%` }}
-          title={`${item.status}: ${item.percentage}%`}
-        />
-      ))}
+    <div className="space-y-1">
+      <div 
+        className="relative rounded-sm overflow-hidden cursor-pointer hover-elevate"
+        style={{ height }}
+        onClick={onClick}
+        data-testid="status-timeline-bar"
+      >
+        {segmentsData.segments.map((segment, index) => {
+          const startTime = new Date(segment.startTime);
+          const endTime = new Date(segment.endTime);
+          const startPct = ((startTime.getTime() - since.getTime()) / totalMs) * 100;
+          const widthPct = ((endTime.getTime() - startTime.getTime()) / totalMs) * 100;
+          
+          return (
+            <Tooltip key={index}>
+              <TooltipTrigger asChild>
+                <div
+                  className={`absolute top-0 h-full ${statusColors[segment.status] || statusColors.unknown} transition-all flex items-center justify-center`}
+                  style={{ 
+                    left: `${startPct}%`, 
+                    width: `${Math.max(widthPct, 0.5)}%` 
+                  }}
+                >
+                  {widthPct > 10 && (
+                    <span className="text-[10px] text-white font-medium capitalize px-1 truncate">
+                      {segment.status === 'online' ? 'On' : segment.status === 'offline' ? 'Off' : segment.status}
+                    </span>
+                  )}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">
+                <div className="font-medium capitalize">{segment.status}</div>
+                <div className="text-muted-foreground">
+                  {format(startTime, 'MMM d HH:mm')} - {format(endTime, 'HH:mm')}
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+      
+      {showLabels && (
+        <div className="relative h-4 text-[10px] text-muted-foreground">
+          {timeLabels.map((label, index) => {
+            const pct = ((label.time.getTime() - since.getTime()) / totalMs) * 100;
+            return (
+              <span
+                key={index}
+                className="absolute transform -translate-x-1/2 whitespace-nowrap"
+                style={{ left: `${Math.min(Math.max(pct, 3), 97)}%` }}
+              >
+                {label.label}
+              </span>
+            );
+          })}
+        </div>
+      )}
     </div>
+  );
+}
+
+export function StatusHistoryBar({ deviceId, onClick }: StatusHistoryBarProps) {
+  return (
+    <StatusTimelineBar 
+      deviceId={deviceId} 
+      range="24h" 
+      height={16}
+      showLabels={false}
+      onClick={onClick}
+    />
   );
 }
 
@@ -238,44 +385,43 @@ export function StatusHistoryModal({ deviceId, deviceName, open, onOpenChange }:
           <div>
             <h4 className="text-sm font-medium mb-2">Status Overview - {rangeLabels[range]}</h4>
             
+            <div className="mb-4">
+              <StatusTimelineBar 
+                deviceId={deviceId} 
+                range={range} 
+                height={32}
+                showLabels={true}
+              />
+            </div>
+            
             {summaryLoading ? (
-              <div className="h-8 bg-muted rounded animate-pulse" />
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[1, 2].map((i) => (
+                  <div key={i} className="h-12 bg-muted rounded animate-pulse" />
+                ))}
+              </div>
             ) : recalculatedPercentages.length > 0 ? (
-              <>
-                <div className="h-8 rounded overflow-hidden flex mb-3">
-                  {recalculatedPercentages.map((item) => (
-                    <div
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {recalculatedPercentages.map((item) => {
+                  const Icon = statusIcons[item.status] || statusIcons.unknown;
+                  return (
+                    <div 
                       key={item.status}
-                      className={`${statusColors[item.status] || statusColors.unknown} h-full flex items-center justify-center text-white text-xs font-medium transition-all`}
-                      style={{ width: `${Math.max(item.percentage, item.percentage > 0 ? 8 : 0)}%` }}
+                      className="flex items-center gap-2 p-2 rounded-md bg-muted/50"
                     >
-                      {item.percentage >= 10 && `${item.percentage}%`}
-                    </div>
-                  ))}
-                </div>
-                
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {recalculatedPercentages.map((item) => {
-                    const Icon = statusIcons[item.status] || statusIcons.unknown;
-                    return (
-                      <div 
-                        key={item.status}
-                        className="flex items-center gap-2 p-2 rounded-md bg-muted/50"
-                      >
-                        <div className={`w-3 h-3 rounded-full ${statusColors[item.status]}`} />
-                        <div className="flex flex-col">
-                          <span className={`text-sm font-medium capitalize ${statusTextColors[item.status]}`}>
-                            {item.status}
-                          </span>
-                          <span className="text-xs text-muted-foreground">
-                            {item.percentage}% ({formatDuration(item.durationMs)})
-                          </span>
-                        </div>
+                      <div className={`w-3 h-3 rounded-full ${statusColors[item.status]}`} />
+                      <div className="flex flex-col">
+                        <span className={`text-sm font-medium capitalize ${statusTextColors[item.status]}`}>
+                          {item.status}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {item.percentage}% ({formatDuration(item.durationMs)})
+                        </span>
                       </div>
-                    );
-                  })}
-                </div>
-              </>
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
               <div className="text-center py-4 text-muted-foreground text-sm">
                 No status data available for this period
