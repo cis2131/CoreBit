@@ -3850,14 +3850,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // Skip if no custom metrics data
               if (!deviceData?.customMetrics || Object.keys(deviceData.customMetrics).length === 0) continue;
               
-              // Get the prometheus metrics config for this device to map IDs to names
+              // Get the metrics config for this device to map IDs to names
+              // Include both Prometheus and SNMP metrics
               const credentials = device.credentials || {};
               const prometheusMetricsConfig = credentials.prometheusMetrics || [];
+              const snmpMetricsConfig = credentials.snmpMetrics || [];
               
               // Create a map of metric ID to metric name for quick lookup
               const metricIdToName: Record<string, string> = {};
               for (const config of prometheusMetricsConfig) {
                 metricIdToName[config.id] = config.metricName;
+              }
+              // For SNMP metrics, use the OID as the metric name
+              for (const config of snmpMetricsConfig) {
+                metricIdToName[config.id] = config.oid;
               }
               
               // Store each custom metric
@@ -4600,8 +4606,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { ipAddress, snmpCommunity, snmpVersion, baseOid, maxResults } = req.body;
       
+      // Validate required fields
       if (!ipAddress) {
         return res.status(400).json({ error: 'IP address is required' });
+      }
+      
+      // Validate IP address format
+      const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+      if (!ipPattern.test(ipAddress)) {
+        return res.status(400).json({ error: 'Invalid IP address format' });
+      }
+      
+      // Validate SNMP version
+      const validVersions = ['1', '2c', '3'];
+      if (snmpVersion && !validVersions.includes(snmpVersion)) {
+        return res.status(400).json({ error: 'Invalid SNMP version. Must be 1, 2c, or 3' });
+      }
+      
+      // Validate base OID format (simple check)
+      if (baseOid && !/^[\d.]+$/.test(baseOid)) {
+        return res.status(400).json({ error: 'Invalid base OID format' });
+      }
+      
+      // Validate maxResults is a reasonable number
+      const maxResultsNum = parseInt(maxResults) || 500;
+      if (maxResultsNum < 1 || maxResultsNum > 5000) {
+        return res.status(400).json({ error: 'maxResults must be between 1 and 5000' });
       }
       
       const credentials = {
@@ -4613,8 +4643,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress, 
         credentials, 
         baseOid || '1.3.6.1.2.1',
-        30000,
-        maxResults || 500
+        30000,  // 30 second timeout
+        maxResultsNum
       );
       res.json(result);
     } catch (error: any) {
