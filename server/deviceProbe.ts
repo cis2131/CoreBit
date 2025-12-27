@@ -1460,17 +1460,45 @@ export async function probePrometheusDevice(
           const customMetrics: Record<string, number | string> = {};
           const configuredMetrics = credentials?.prometheusMetrics || [];
           
+          // Helper to parse labelSelector string into object
+          // Supports full Prometheus label key format: [a-zA-Z_:][a-zA-Z0-9_:]*
+          const parseLabelSelector = (selector: string): Record<string, string> => {
+            const labels: Record<string, string> = {};
+            if (!selector || selector.length < 2) return labels;
+            const content = selector.slice(1, -1); // Remove { }
+            // Match label keys with colons (recording rules) and standard keys
+            const parts = content.match(/([a-zA-Z_:][a-zA-Z0-9_:]*)="([^"]*)"/g);
+            if (parts) {
+              for (const part of parts) {
+                const eqIndex = part.indexOf('=');
+                const key = part.slice(0, eqIndex);
+                const value = part.slice(eqIndex + 2, -1); // Skip =" and trailing "
+                labels[key] = value;
+              }
+            }
+            return labels;
+          };
+          
           for (const metricConfig of configuredMetrics) {
             try {
               const metricData = metrics.get(metricConfig.metricName);
               if (!metricData || metricData.length === 0) continue;
               
-              // Apply label filter if specified
+              // Apply label filter if specified (either labelFilter object or labelSelector string)
               let matchedValue: number | undefined;
-              if (metricConfig.labelFilter && Object.keys(metricConfig.labelFilter).length > 0) {
+              
+              // Determine label filter to use - labelSelector takes precedence if present
+              let effectiveLabelFilter: Record<string, string> | undefined;
+              if (metricConfig.labelSelector) {
+                effectiveLabelFilter = parseLabelSelector(metricConfig.labelSelector);
+              } else if (metricConfig.labelFilter && Object.keys(metricConfig.labelFilter).length > 0) {
+                effectiveLabelFilter = metricConfig.labelFilter;
+              }
+              
+              if (effectiveLabelFilter && Object.keys(effectiveLabelFilter).length > 0) {
                 // Find the entry that matches all label filters
                 const matchedEntry = metricData.find(entry => {
-                  return Object.entries(metricConfig.labelFilter!).every(([key, value]) => {
+                  return Object.entries(effectiveLabelFilter!).every(([key, value]) => {
                     return entry.labels[key] === value;
                   });
                 });
@@ -1540,13 +1568,28 @@ export async function probePrometheusDevice(
   });
 }
 
+// Sample with labels for discovered metrics
+interface DiscoveredSample {
+  labels: Record<string, string>;
+  labelString: string; // e.g., {device="sda",mode="idle"}
+  value: number;
+}
+
 // Discover available Prometheus metrics from a device
 // Returns list of metric names that can be configured for monitoring
 export async function discoverPrometheusMetrics(
   ipAddress: string,
   credentials?: any,
   timeoutMs: number = 5000
-): Promise<{ metrics: string[]; metricDetails: Record<string, { type?: string; help?: string; sampleCount: number }> }> {
+): Promise<{ 
+  metrics: string[]; 
+  metricDetails: Record<string, { 
+    type?: string; 
+    help?: string; 
+    sampleCount: number;
+    samples?: DiscoveredSample[];
+  }> 
+}> {
   const port = credentials?.prometheusPort || 9100;
   const path = credentials?.prometheusPath || '/metrics';
   const scheme = credentials?.prometheusScheme || 'http';
@@ -1573,9 +1616,7 @@ export async function discoverPrometheusMetrics(
       res.on('end', () => {
         try {
           const lines = data.split('\n');
-          const metricDetails: Record<string, { type?: string; help?: string; sampleCount: number }> = {};
-          let currentMetricHelp: string | undefined;
-          let currentMetricType: string | undefined;
+          const metricDetails: Record<string, { type?: string; help?: string; sampleCount: number; samples?: DiscoveredSample[] }> = {};
           
           for (const line of lines) {
             // Parse HELP comments
@@ -1583,7 +1624,7 @@ export async function discoverPrometheusMetrics(
             if (helpMatch) {
               const [, name, help] = helpMatch;
               if (!metricDetails[name]) {
-                metricDetails[name] = { sampleCount: 0 };
+                metricDetails[name] = { sampleCount: 0, samples: [] };
               }
               metricDetails[name].help = help;
               continue;
@@ -1594,7 +1635,7 @@ export async function discoverPrometheusMetrics(
             if (typeMatch) {
               const [, name, type] = typeMatch;
               if (!metricDetails[name]) {
-                metricDetails[name] = { sampleCount: 0 };
+                metricDetails[name] = { sampleCount: 0, samples: [] };
               }
               metricDetails[name].type = type;
               continue;
@@ -1603,16 +1644,47 @@ export async function discoverPrometheusMetrics(
             // Skip other comments and empty lines
             if (line.startsWith('#') || line.trim() === '') continue;
             
-            // Parse metric line to count samples
-            const labelMatch = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)\{/);
-            const simpleMatch = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)\s+/);
-            
-            const metricName = labelMatch?.[1] || simpleMatch?.[1];
-            if (metricName) {
+            // Parse metric line with labels: metric_name{label1="value1",label2="value2"} value
+            const labeledMatch = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{[^}]*\})\s+([0-9.eE+-]+|NaN|Inf|-Inf)$/);
+            if (labeledMatch) {
+              const [, metricName, labelString, valueStr] = labeledMatch;
               if (!metricDetails[metricName]) {
-                metricDetails[metricName] = { sampleCount: 0 };
+                metricDetails[metricName] = { sampleCount: 0, samples: [] };
               }
               metricDetails[metricName].sampleCount++;
+              
+              // Parse labels from labelString like {device="sda",mode="idle"}
+              const labels: Record<string, string> = {};
+              const labelContent = labelString.slice(1, -1); // Remove { }
+              const labelParts = labelContent.match(/([a-zA-Z_][a-zA-Z0-9_]*)="([^"]*)"/g);
+              if (labelParts) {
+                for (const part of labelParts) {
+                  const [key, value] = part.split('=');
+                  labels[key] = value.slice(1, -1); // Remove quotes
+                }
+              }
+              
+              metricDetails[metricName].samples!.push({
+                labels,
+                labelString,
+                value: parseFloat(valueStr)
+              });
+              continue;
+            }
+            
+            // Parse simple metric line: metric_name value
+            const simpleMatch = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)\s+([0-9.eE+-]+|NaN|Inf|-Inf)$/);
+            if (simpleMatch) {
+              const [, metricName, valueStr] = simpleMatch;
+              if (!metricDetails[metricName]) {
+                metricDetails[metricName] = { sampleCount: 0, samples: [] };
+              }
+              metricDetails[metricName].sampleCount++;
+              metricDetails[metricName].samples!.push({
+                labels: {},
+                labelString: '',
+                value: parseFloat(valueStr)
+              });
             }
           }
           

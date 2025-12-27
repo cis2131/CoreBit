@@ -12,6 +12,7 @@ export type PrometheusMetricConfig = {
   displayType: 'bar' | 'gauge' | 'number' | 'text' | 'bytes' | 'percentage'; // How to visualize
   unit?: string; // Optional unit suffix (e.g., 'GB', '%', 'ms')
   labelFilter?: Record<string, string>; // Optional label filter (e.g., {device: '/dev/sda1'})
+  labelSelector?: string; // Full label selector string (e.g., '{chip="platform_coretemp_0",sensor="temp1"}')
   transform?: 'toGB' | 'toMB' | 'toPercent' | 'divide1000' | 'none'; // Value transformation
   maxValue?: number; // For bar/gauge - the max value for percentage calculation
   warningThreshold?: number; // Optional warning threshold
@@ -406,6 +407,7 @@ const prometheusMetricConfigSchema = z.object({
   displayType: z.enum(['bar', 'gauge', 'number', 'text', 'bytes', 'percentage']),
   unit: z.string().optional(),
   labelFilter: z.record(z.string()).optional(),
+  labelSelector: z.string().optional(),
   transform: z.enum(['toGB', 'toMB', 'toPercent', 'divide1000', 'none']).optional(),
   maxValue: z.number().optional(),
   warningThreshold: z.number().optional(),

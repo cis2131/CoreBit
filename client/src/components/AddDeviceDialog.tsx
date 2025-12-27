@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Device, type CredentialProfile, PROMETHEUS_METRIC_PRESETS, type PrometheusMetricConfig } from '@shared/schema';
 import { apiRequest } from '@/lib/queryClient';
-import { Search, Loader2, Plus, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Loader2, Plus, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -103,14 +103,21 @@ export function AddDeviceDialog({
   const [discoveryOpen, setDiscoveryOpen] = useState(false);
   const [discoveredMetrics, setDiscoveredMetrics] = useState<{
     metrics: string[];
-    metricDetails: Record<string, { type?: string; help?: string; sampleCount: number }>;
+    metricDetails: Record<string, { 
+      type?: string; 
+      help?: string; 
+      sampleCount: number;
+      samples?: { labels: Record<string, string>; labelString: string; value: number }[];
+    }>;
   } | null>(null);
   const [metricSearch, setMetricSearch] = useState('');
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const [expandedMetrics, setExpandedMetrics] = useState<Set<string>>(new Set());
   
   // State for adding a new discovered metric
   const [addingMetric, setAddingMetric] = useState<string | null>(null);
+  const [addingLabelString, setAddingLabelString] = useState<string>('');
   const [newMetricLabel, setNewMetricLabel] = useState('');
   const [newMetricDisplayType, setNewMetricDisplayType] = useState<'number' | 'bytes' | 'percentage' | 'bar' | 'text'>('number');
   const [newMetricUnit, setNewMetricUnit] = useState('');
@@ -263,23 +270,56 @@ export function AddDeviceDialog({
     }
   };
 
+  // Simple hash function for generating unique IDs
+  const simpleHash = (str: string): string => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash).toString(36);
+  };
+  
   // Add a discovered metric to the list
-  const handleAddDiscoveredMetric = (metricName: string) => {
-    if (prometheusMetrics.some(m => m.metricName === metricName)) {
+  const handleAddDiscoveredMetric = (metricName: string, labelString?: string) => {
+    // Full metric query is metricName + labelString (e.g., node_hwmon_temp_celsius{chip="..."})
+    const fullMetricQuery = labelString ? `${metricName}${labelString}` : metricName;
+    
+    // Check if already added (by the full query)
+    if (prometheusMetrics.some(m => {
+      const existingQuery = m.labelSelector ? `${m.metricName}${m.labelSelector}` : m.metricName;
+      return existingQuery === fullMetricQuery;
+    })) {
       return; // Already added
     }
     
-    const details = discoveredMetrics?.metricDetails[metricName];
+    // Generate a label from the metric + labels
+    let defaultLabel = metricName.replace(/^node_/, '').replace(/_/g, ' ');
+    if (labelString) {
+      // Extract key values from labelString for display
+      const labelParts = labelString.slice(1, -1).match(/([a-zA-Z_:][a-zA-Z0-9_:]*)="([^"]*)"/g);
+      if (labelParts && labelParts.length > 0) {
+        const labelValues = labelParts.map(p => p.split('=')[1].slice(1, -1)).join(', ');
+        defaultLabel += ` (${labelValues})`;
+      }
+    }
+    
+    // Generate unique ID using metric name + hash of full query
+    const uniqueId = `discovered_${metricName.replace(/[^a-zA-Z0-9]/g, '_')}_${simpleHash(fullMetricQuery)}`;
+    
     const newMetric: PrometheusMetricConfig = {
-      id: `discovered_${metricName.replace(/[^a-zA-Z0-9]/g, '_')}`,
-      label: newMetricLabel || metricName.replace(/^node_/, '').replace(/_/g, ' '),
+      id: uniqueId,
+      label: newMetricLabel || defaultLabel,
       metricName,
+      labelSelector: labelString || undefined,
       displayType: newMetricDisplayType,
       unit: newMetricUnit || undefined
     };
     
     setPrometheusMetrics([...prometheusMetrics, newMetric]);
     setAddingMetric(null);
+    setAddingLabelString('');
     setNewMetricLabel('');
     setNewMetricDisplayType('number');
     setNewMetricUnit('');
@@ -842,20 +882,60 @@ export function AddDeviceDialog({
                                     />
                                   </div>
                                   
-                                  <ScrollArea className="h-48 border rounded-md p-2">
+                                  <ScrollArea className="h-64 border rounded-md p-2">
                                     {discoveredMetrics.metrics
-                                      .filter(m => m.toLowerCase().includes(metricSearch.toLowerCase()))
+                                      .filter(m => {
+                                        const search = metricSearch.toLowerCase();
+                                        // Search in metric name
+                                        if (m.toLowerCase().includes(search)) return true;
+                                        // Also search in sample labels
+                                        const details = discoveredMetrics.metricDetails[m];
+                                        if (details?.samples) {
+                                          return details.samples.some(s => 
+                                            s.labelString.toLowerCase().includes(search) ||
+                                            Object.values(s.labels).some(v => v.toLowerCase().includes(search))
+                                          );
+                                        }
+                                        return false;
+                                      })
                                       .slice(0, 100)
                                       .map(metricName => {
                                         const details = discoveredMetrics.metricDetails[metricName];
-                                        const isAlreadyAdded = prometheusMetrics.some(m => m.metricName === metricName);
-                                        const isConfiguring = addingMetric === metricName;
+                                        const hasSamples = details?.samples && details.samples.length > 1;
+                                        const isExpanded = expandedMetrics.has(metricName);
+                                        const isConfiguringBase = addingMetric === metricName && addingLabelString === '';
+                                        
+                                        const toggleExpand = () => {
+                                          const newSet = new Set(expandedMetrics);
+                                          if (isExpanded) {
+                                            newSet.delete(metricName);
+                                          } else {
+                                            newSet.add(metricName);
+                                          }
+                                          setExpandedMetrics(newSet);
+                                        };
+                                        
+                                        // Check if metric (without labels) is already added
+                                        const isBaseAdded = prometheusMetrics.some(m => m.metricName === metricName && !m.labelSelector);
                                         
                                         return (
                                           <div key={metricName} className="mb-2">
                                             <div className="flex items-start justify-between gap-2 p-2 hover-elevate rounded-md">
                                               <div className="flex-1 min-w-0 overflow-hidden">
-                                                <p className="text-sm font-mono truncate" title={metricName}>{metricName}</p>
+                                                <div className="flex items-center gap-1">
+                                                  {hasSamples && (
+                                                    <Button
+                                                      type="button"
+                                                      size="sm"
+                                                      variant="ghost"
+                                                      className="h-5 w-5 p-0"
+                                                      onClick={toggleExpand}
+                                                    >
+                                                      {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                                                    </Button>
+                                                  )}
+                                                  <p className="text-sm font-mono truncate" title={metricName}>{metricName}</p>
+                                                </div>
                                                 {details?.help && (
                                                   <p className="text-xs text-muted-foreground line-clamp-2 break-words" title={details.help}>
                                                     {details.help}
@@ -867,34 +947,161 @@ export function AddDeviceDialog({
                                                       {details.type}
                                                     </Badge>
                                                   )}
-                                                  {details?.sampleCount > 1 && (
-                                                    <Badge variant="outline" className="text-xs">
-                                                      {details.sampleCount} samples
+                                                  {hasSamples && (
+                                                    <Badge 
+                                                      variant="outline" 
+                                                      className="text-xs cursor-pointer"
+                                                      onClick={toggleExpand}
+                                                    >
+                                                      {details.sampleCount} samples {isExpanded ? '▼' : '▶'}
                                                     </Badge>
                                                   )}
                                                 </div>
                                               </div>
                                               <div className="flex-shrink-0">
-                                                {isAlreadyAdded ? (
-                                                  <Badge variant="secondary">Added</Badge>
-                                                ) : isConfiguring ? null : (
-                                                  <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    onClick={() => {
-                                                      setAddingMetric(metricName);
-                                                      setNewMetricLabel(metricName.replace(/^node_/, '').replace(/_/g, ' '));
-                                                    }}
-                                                    data-testid={`button-add-metric-${metricName}`}
-                                                  >
-                                                    <Plus className="w-4 h-4" />
-                                                  </Button>
+                                                {!hasSamples && (
+                                                  isBaseAdded ? (
+                                                    <Badge variant="secondary">Added</Badge>
+                                                  ) : isConfiguringBase ? null : (
+                                                    <Button
+                                                      type="button"
+                                                      size="sm"
+                                                      variant="ghost"
+                                                      onClick={() => {
+                                                        setAddingMetric(metricName);
+                                                        setAddingLabelString('');
+                                                        setNewMetricLabel(metricName.replace(/^node_/, '').replace(/_/g, ' '));
+                                                      }}
+                                                      data-testid={`button-add-metric-${metricName}`}
+                                                    >
+                                                      <Plus className="w-4 h-4" />
+                                                    </Button>
+                                                  )
                                                 )}
                                               </div>
                                             </div>
                                             
-                                            {isConfiguring && (
+                                            {/* Show samples when expanded */}
+                                            {hasSamples && isExpanded && details.samples && (
+                                              <div className="ml-6 mt-1 space-y-1 border-l-2 border-muted pl-2">
+                                                {details.samples.map((sample, idx) => {
+                                                  const fullQuery = `${metricName}${sample.labelString}`;
+                                                  const isSampleAdded = prometheusMetrics.some(m => 
+                                                    m.metricName === metricName && m.labelSelector === sample.labelString
+                                                  );
+                                                  const isConfiguringSample = addingMetric === metricName && addingLabelString === sample.labelString;
+                                                  
+                                                  // Extract meaningful label values for display
+                                                  const labelDisplay = Object.entries(sample.labels)
+                                                    .map(([k, v]) => `${k}="${v}"`)
+                                                    .join(', ');
+                                                  
+                                                  return (
+                                                    <div key={idx}>
+                                                      <div className="flex items-center justify-between gap-2 p-1.5 hover-elevate rounded text-xs">
+                                                        <div className="flex-1 min-w-0">
+                                                          <code className="text-xs bg-muted px-1 py-0.5 rounded break-all">
+                                                            {labelDisplay || '(no labels)'}
+                                                          </code>
+                                                          <span className="ml-2 text-muted-foreground">
+                                                            = {sample.value}
+                                                          </span>
+                                                        </div>
+                                                        <div className="flex-shrink-0">
+                                                          {isSampleAdded ? (
+                                                            <Badge variant="secondary" className="text-xs">Added</Badge>
+                                                          ) : isConfiguringSample ? null : (
+                                                            <Button
+                                                              type="button"
+                                                              size="sm"
+                                                              variant="ghost"
+                                                              className="h-6 w-6 p-0"
+                                                              onClick={() => {
+                                                                setAddingMetric(metricName);
+                                                                setAddingLabelString(sample.labelString);
+                                                                // Generate default label from metric + label values
+                                                                const labelVals = Object.values(sample.labels).join(', ');
+                                                                const baseName = metricName.replace(/^node_/, '').replace(/_/g, ' ');
+                                                                setNewMetricLabel(labelVals ? `${baseName} (${labelVals})` : baseName);
+                                                              }}
+                                                              data-testid={`button-add-sample-${idx}`}
+                                                            >
+                                                              <Plus className="w-3 h-3" />
+                                                            </Button>
+                                                          )}
+                                                        </div>
+                                                      </div>
+                                                      
+                                                      {/* Config form for this sample */}
+                                                      {isConfiguringSample && (
+                                                        <div className="ml-2 mt-2 p-3 border rounded-md space-y-3 bg-muted/50">
+                                                          <div className="space-y-2">
+                                                            <Label className="text-xs">Display Label</Label>
+                                                            <Input
+                                                              value={newMetricLabel}
+                                                              onChange={(e) => setNewMetricLabel(e.target.value)}
+                                                              placeholder="Enter display label"
+                                                              data-testid="input-new-metric-label"
+                                                            />
+                                                          </div>
+                                                          <div className="grid grid-cols-2 gap-2">
+                                                            <div className="space-y-2">
+                                                              <Label className="text-xs">Display Type</Label>
+                                                              <Select value={newMetricDisplayType} onValueChange={(v) => setNewMetricDisplayType(v as any)}>
+                                                                <SelectTrigger data-testid="select-new-metric-display-type">
+                                                                  <SelectValue />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                  <SelectItem value="number">Number</SelectItem>
+                                                                  <SelectItem value="bytes">Bytes</SelectItem>
+                                                                  <SelectItem value="percentage">Percentage</SelectItem>
+                                                                  <SelectItem value="bar">Progress Bar</SelectItem>
+                                                                  <SelectItem value="text">Text</SelectItem>
+                                                                </SelectContent>
+                                                              </Select>
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                              <Label className="text-xs">Unit (optional)</Label>
+                                                              <Input
+                                                                value={newMetricUnit}
+                                                                onChange={(e) => setNewMetricUnit(e.target.value)}
+                                                                placeholder="e.g., MB, %"
+                                                                data-testid="input-new-metric-unit"
+                                                              />
+                                                            </div>
+                                                          </div>
+                                                          <div className="flex gap-2">
+                                                            <Button
+                                                              type="button"
+                                                              size="sm"
+                                                              onClick={() => handleAddDiscoveredMetric(metricName, sample.labelString)}
+                                                              data-testid="button-confirm-add-metric"
+                                                            >
+                                                              Add Metric
+                                                            </Button>
+                                                            <Button
+                                                              type="button"
+                                                              size="sm"
+                                                              variant="ghost"
+                                                              onClick={() => {
+                                                                setAddingMetric(null);
+                                                                setAddingLabelString('');
+                                                              }}
+                                                              data-testid="button-cancel-add-metric"
+                                                            >
+                                                              Cancel
+                                                            </Button>
+                                                          </div>
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            )}
+                                            
+                                            {/* Config form for base metric (no samples) */}
+                                            {isConfiguringBase && (
                                               <div className="ml-2 mt-2 p-3 border rounded-md space-y-3 bg-muted/50">
                                                 <div className="space-y-2">
                                                   <Label className="text-xs">Display Label</Label>
