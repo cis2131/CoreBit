@@ -5805,10 +5805,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const historyByTarget = await storage.getPingHistoryByDevice(deviceId, sinceDate, untilDate);
       
-      // Downsample each target's history
+      // Get full target info for each target
+      const targets = await storage.getPingTargetsByDevice(deviceId);
+      const targetMap = new Map(targets.map(t => [t.id, t]));
+      
+      // Downsample each target's history and include full target info
       const maxPointsNum = parseInt(maxPoints as string, 10) || 500;
       const result = historyByTarget.map(t => ({
-        ...t,
+        target: targetMap.get(t.targetId) || { id: t.targetId, ipAddress: t.ipAddress, label: t.label },
         history: downsampleTimeSeries(t.history, maxPointsNum),
       }));
       
