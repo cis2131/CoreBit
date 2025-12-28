@@ -495,8 +495,8 @@ export function ConnectionLine({
         </>
       )}
 
-      {/* Port status indicators at connection endpoints */}
-      {(connection.sourcePort && connection.sourcePort !== 'none') && (
+      {/* Port status indicators at connection endpoints - hidden for placeholder devices */}
+      {(connection.sourcePort && connection.sourcePort !== 'none' && sourceDevice?.type !== 'placeholder') && (
         <>
           <circle
             cx={sourceIndicatorX}
@@ -517,7 +517,7 @@ export function ConnectionLine({
         </>
       )}
 
-      {(connection.targetPort && connection.targetPort !== 'none') && (
+      {(connection.targetPort && connection.targetPort !== 'none' && targetDevice?.type !== 'placeholder') && (
         <>
           <circle
             cx={targetIndicatorX}

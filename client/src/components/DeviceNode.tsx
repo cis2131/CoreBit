@@ -140,13 +140,15 @@ export function DeviceNode({ device, isSelected, isHighlighted, isOffline, linke
         }`}
         style={{ width: '320px' }}
       >
-        {/* Status indicator dot */}
-        <div
-          className={`absolute top-3 right-3 w-3 h-3 rounded-full ${
-            statusColors[device.status as keyof typeof statusColors] || statusColors.unknown
-          }`}
-          data-testid={`status-indicator-${device.status}`}
-        />
+        {/* Status indicator dot - hidden for placeholder devices */}
+        {device.type !== 'placeholder' && (
+          <div
+            className={`absolute top-3 right-3 w-3 h-3 rounded-full ${
+              statusColors[device.status as keyof typeof statusColors] || statusColors.unknown
+            }`}
+            data-testid={`status-indicator-${device.status}`}
+          />
+        )}
 
         {/* Notification indicators - bottom right */}
         {(hasGlobalNotifications || device.useOnDuty || isMuted) && (
