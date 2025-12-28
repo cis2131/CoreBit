@@ -4266,13 +4266,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Parse link speed string to bits per second
   function parseLinkSpeed(speed: string, customSpeedMbps?: number | null): number {
-    // WiFi and Custom use the customLinkSpeedMbps field if available
-    if (speed === 'WiFi' || speed === 'Custom') {
-      if (customSpeedMbps && customSpeedMbps > 0) {
-        return customSpeedMbps * 1000000; // Convert Mbps to bps
-      }
-      // Default fallback: 300Mbps for WiFi, 1Gbps for Custom
-      return speed === 'WiFi' ? 300000000 : 1000000000;
+    // If custom speed is set, it always takes priority for utilization calculation
+    // This allows users to override auto-detected or preset speeds
+    if (customSpeedMbps && customSpeedMbps > 0) {
+      return customSpeedMbps * 1000000; // Convert Mbps to bps
+    }
+    
+    // WiFi default fallback when no custom speed is set
+    if (speed === 'WiFi') {
+      return 300000000; // 300Mbps default for WiFi
     }
     
     // Handle 2.5G specially
