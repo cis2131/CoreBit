@@ -5711,7 +5711,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/devices/:id/ping-targets", requireAuth as any, async (req, res) => {
     try {
       const deviceId = req.params.id;
-      const { ipAddress, label, enabled, probeCount, intervalSeconds } = req.body;
+      const { ipAddress, label, enabled, probeCount, intervalSeconds, interfaceName } = req.body;
       
       if (!ipAddress) {
         return res.status(400).json({ error: 'IP address is required' });
@@ -5724,6 +5724,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         enabled: enabled ?? true,
         probeCount: probeCount || 20,
         intervalSeconds: intervalSeconds || 30,
+        interfaceName: interfaceName || null,
       });
       
       res.status(201).json(target);
