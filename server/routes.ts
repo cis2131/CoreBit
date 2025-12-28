@@ -3702,7 +3702,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         currentPhase = 'fetching devices';
         const allDevices = await storage.getAllDevices();
-        const devicesWithIp = allDevices.filter(d => d.ipAddress);
+        // Filter out placeholder devices (they don't get probed) and devices without IP
+        const devicesWithIp = allDevices.filter(d => d.ipAddress && d.type !== 'placeholder');
         
         // Check for stale devices - only mark offline if BOTH stale threshold exceeded AND ping fails
         const stalenessThresholdMs = intervalMs * 2;

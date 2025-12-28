@@ -1,5 +1,5 @@
 import { Device } from '@shared/schema';
-import { Server, Router, Wifi, HardDrive, Activity, Cpu, MemoryStick, Clock, ExternalLink, Bell, BellOff, Users } from 'lucide-react';
+import { Server, Router, Wifi, HardDrive, Activity, Cpu, MemoryStick, Clock, ExternalLink, Bell, BellOff, Users, Cloud, Globe, Network, Building, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -24,6 +24,19 @@ const deviceIcons = {
   server: HardDrive,
   access_point: Wifi,
   proxmox: Server,
+  generic_ping: Activity,
+  placeholder: Cloud,
+};
+
+// Icons for placeholder kinds
+const placeholderIcons = {
+  internet: Globe,
+  cloud: Cloud,
+  external: Network,
+  datacenter: Server,
+  building: Building,
+  site: MapPin,
+  custom: Cloud,
 };
 
 const statusColors = {
@@ -69,7 +82,10 @@ function parseUptime(uptime: string | undefined): { value: number; unit: string 
 }
 
 export function DeviceNode({ device, isSelected, isHighlighted, isOffline, linkedMapId, linkedMapHasOffline, hasGlobalNotifications, isMuted, onClick, onDragStart, onMapLinkClick }: DeviceNodeProps) {
-  const Icon = deviceIcons[device.type as keyof typeof deviceIcons] || Activity;
+  // For placeholder devices, use the placeholderKind-specific icon
+  const Icon = device.type === 'placeholder' && device.placeholderKind
+    ? placeholderIcons[device.placeholderKind as keyof typeof placeholderIcons] || Cloud
+    : deviceIcons[device.type as keyof typeof deviceIcons] || Activity;
 
   // Calculate port status counts
   const ports = device.deviceData?.ports || [];
@@ -77,7 +93,19 @@ export function DeviceNode({ device, isSelected, isHighlighted, isOffline, linke
   const offlinePorts = ports.filter(p => p.status === 'down').length;
 
   // Extract model or use type as fallback
-  const subtitle = device.deviceData?.model || device.type.replace(/_/g, ' ').toUpperCase();
+  // For placeholder devices, show the placeholder kind as the subtitle
+  const placeholderLabels: Record<string, string> = {
+    internet: 'Internet / WAN',
+    cloud: 'Cloud Provider',
+    external: 'External Network',
+    datacenter: 'Datacenter',
+    building: 'Building / Site',
+    site: 'Remote Site',
+    custom: 'Placeholder',
+  };
+  const subtitle = device.type === 'placeholder' && device.placeholderKind
+    ? placeholderLabels[device.placeholderKind] || 'Placeholder'
+    : device.deviceData?.model || device.type.replace(/_/g, ' ').toUpperCase();
 
   // Parse uptime
   const uptime = parseUptime(device.deviceData?.uptime);

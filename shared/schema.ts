@@ -235,6 +235,7 @@ export const devices = pgTable("devices", {
   }>(),
   useOnDuty: boolean("use_on_duty").default(false).notNull(), // Also send alerts to on-duty operators (in addition to global channels)
   mutedUntil: timestamp("muted_until"), // Device notifications muted until this time (null = not muted)
+  placeholderKind: text("placeholder_kind").$type<'internet' | 'cloud' | 'external' | 'datacenter' | 'building' | 'site' | 'custom'>(), // Visual icon/type for placeholder devices
   statusChangedAt: timestamp("status_changed_at"), // Timestamp when status last changed (for offline duration display)
   metricsRetentionHours: integer("metrics_retention_hours"), // Override global retention for this device (null = use global default)
   lastProbeError: text("last_probe_error"), // Last error message from failed probe (for diagnostics)

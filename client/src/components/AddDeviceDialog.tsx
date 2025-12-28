@@ -38,6 +38,7 @@ interface AddDeviceDialogProps {
     position: { x: number; y: number };
     credentialProfileId?: string;
     customCredentials?: any;
+    placeholderKind?: 'internet' | 'cloud' | 'external' | 'datacenter' | 'building' | 'site' | 'custom';
   }) => void;
   onDelete?: (deviceId: string) => void;
   initialPosition: { x: number; y: number };
@@ -53,6 +54,17 @@ const deviceTypes = [
   { value: 'server', label: 'Server' },
   { value: 'access_point', label: 'Access Point' },
   { value: 'proxmox', label: 'Proxmox VE Host' },
+  { value: 'placeholder', label: 'Placeholder / External' },
+];
+
+const placeholderKinds = [
+  { value: 'internet', label: 'Internet / WAN' },
+  { value: 'cloud', label: 'Cloud Provider' },
+  { value: 'external', label: 'External Network' },
+  { value: 'datacenter', label: 'Datacenter' },
+  { value: 'building', label: 'Building / Site' },
+  { value: 'site', label: 'Remote Site' },
+  { value: 'custom', label: 'Custom Label' },
 ];
 
 export function AddDeviceDialog({
@@ -67,6 +79,7 @@ export function AddDeviceDialog({
   const [name, setName] = useState('');
   const [type, setType] = useState(initialType);
   const [ipAddress, setIpAddress] = useState('');
+  const [placeholderKind, setPlaceholderKind] = useState<'internet' | 'cloud' | 'external' | 'datacenter' | 'building' | 'site' | 'custom'>('internet');
   const [credMode, setCredMode] = useState<'profile' | 'custom' | 'none'>('none');
   const [selectedProfileId, setSelectedProfileId] = useState<string>('');
   
@@ -165,6 +178,7 @@ export function AddDeviceDialog({
                         type === 'server' ? 'server' :
                         type === 'generic_ping' ? 'ping' :
                         type === 'proxmox' ? 'proxmox' :
+                        type === 'placeholder' ? 'placeholder' :
                         'none';
 
   // Server devices can use SNMP or Prometheus (node_exporter) profiles
@@ -520,12 +534,17 @@ export function AddDeviceDialog({
 
   const handleSubmit = () => {
     if (name.trim()) {
-      const baseData = {
+      const baseData: any = {
         name: name.trim(),
         type,
-        ipAddress: ipAddress.trim(),
+        ipAddress: type === 'placeholder' ? '' : ipAddress.trim(),
         position: initialPosition,
       };
+      
+      // Add placeholder kind for placeholder devices
+      if (type === 'placeholder') {
+        baseData.placeholderKind = placeholderKind;
+      }
 
       let credentialData: any = {};
 
@@ -666,16 +685,42 @@ export function AddDeviceDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="device-ip">IP Address</Label>
-            <Input
-              id="device-ip"
-              placeholder="e.g., 192.168.1.1"
-              value={ipAddress}
-              onChange={(e) => setIpAddress(e.target.value)}
-              data-testid="input-device-ip"
-            />
-          </div>
+
+          {/* Placeholder kind selector for placeholder devices */}
+          {type === 'placeholder' && (
+            <div className="space-y-2">
+              <Label htmlFor="placeholder-kind">Placeholder Type</Label>
+              <Select value={placeholderKind} onValueChange={(v) => setPlaceholderKind(v as any)}>
+                <SelectTrigger id="placeholder-kind" data-testid="select-placeholder-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {placeholderKinds.map(pk => (
+                    <SelectItem key={pk.value} value={pk.value}>
+                      {pk.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                Placeholder devices are visual markers for external networks, cloud services, or unmanaged infrastructure. They are not probed.
+              </p>
+            </div>
+          )}
+
+          {/* IP Address - hidden for placeholder devices */}
+          {type !== 'placeholder' && (
+            <div className="space-y-2">
+              <Label htmlFor="device-ip">IP Address</Label>
+              <Input
+                id="device-ip"
+                placeholder="e.g., 192.168.1.1"
+                value={ipAddress}
+                onChange={(e) => setIpAddress(e.target.value)}
+                data-testid="input-device-ip"
+              />
+            </div>
+          )}
 
           {deviceCategory === 'ping' && (
             <div className="text-sm text-muted-foreground p-3 rounded-md bg-muted/50">
@@ -683,7 +728,7 @@ export function AddDeviceDialog({
             </div>
           )}
 
-          {deviceCategory !== 'none' && deviceCategory !== 'ping' && (
+          {deviceCategory !== 'none' && deviceCategory !== 'ping' && deviceCategory !== 'placeholder' && (
             <>
               <Separator />
               <div className="space-y-4">

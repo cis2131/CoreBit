@@ -343,6 +343,7 @@ export default function NetworkTopology() {
     position: { x: number; y: number };
     credentialProfileId?: string;
     customCredentials?: any;
+    placeholderKind?: 'internet' | 'cloud' | 'external' | 'datacenter' | 'building' | 'site' | 'custom';
   }) => {
     if (!currentMapId) return;
 
@@ -363,6 +364,11 @@ export default function NetworkTopology() {
         updateData.customCredentials = deviceData.customCredentials;
       }
       
+      // Include placeholderKind for placeholder devices
+      if (deviceData.placeholderKind) {
+        updateData.placeholderKind = deviceData.placeholderKind;
+      }
+      
       updateDeviceMutation.mutate({
         id: editingDevice.id,
         data: updateData,
@@ -376,6 +382,7 @@ export default function NetworkTopology() {
         ipAddress: deviceData.ipAddress || undefined,
         credentialProfileId: deviceData.credentialProfileId || undefined,
         customCredentials: deviceData.customCredentials || undefined,
+        placeholderKind: deviceData.placeholderKind || undefined,
       });
       
       // Create placement for the new device
