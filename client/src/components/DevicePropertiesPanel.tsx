@@ -798,63 +798,57 @@ export function DevicePropertiesPanel({
                           )}
                           <Badge 
                             variant="secondary" 
-                            className="font-mono text-xs cursor-pointer hover-elevate shrink-0" 
+                            className="font-mono text-xs cursor-pointer hover-elevate max-w-[140px] truncate" 
                             data-testid={`badge-ipam-${addr.id}`}
                             onClick={() => {
                               if (canModify) {
                                 setPollingAddressMutation.mutate(isPollingAddress ? null : addr.id);
                               }
                             }}
-                            title={canModify ? (isPollingAddress ? "Click to unset as polling address" : "Click to set as polling address") : ""}
+                            title={canModify ? (isPollingAddress ? "Click to unset as polling address" : "Click to set as polling address") : addr.ipAddress}
                           >
                             {addr.ipAddress}
                           </Badge>
                           {addr.role && addr.role !== "primary" && (
-                            <Badge variant="outline" className="text-xs capitalize shrink-0" data-testid={`badge-role-${addr.id}`}>
+                            <Badge variant="outline" className="text-xs capitalize" data-testid={`badge-role-${addr.id}`}>
                               {addr.role}
                             </Badge>
                           )}
-                          {assignedInterface && (
-                            <span className="text-xs text-muted-foreground truncate min-w-0 flex-1" data-testid={`text-interface-${addr.id}`}>
-                              {assignedInterface.name}
-                            </span>
-                          )}
+                          <span className="flex-1" />
                           <span className="text-xs text-muted-foreground capitalize shrink-0">
                             {addr.status}
                           </span>
-                          <div className="shrink-0 flex items-center gap-0.5">
-                            {isMonitored ? (
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-5 w-5 text-green-600"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setPingChartTargetIp(addr.ipAddress);
-                                  setPingChartOpen(true);
-                                }}
-                                title="View ping latency chart"
-                                data-testid={`button-ping-chart-ipam-${addr.id}`}
-                              >
-                                <Activity className="h-3 w-3" />
-                              </Button>
-                            ) : (
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-5 w-5 invisible group-hover:visible"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  quickAddPingTargetMutation.mutate(addr.ipAddress);
-                                }}
-                                disabled={quickAddPingTargetMutation.isPending}
-                                title="Add to ping monitoring"
-                                data-testid={`button-add-ping-ipam-${addr.id}`}
-                              >
-                                <Crosshair className="h-3 w-3" />
-                              </Button>
-                            )}
-                          </div>
+                          {isMonitored ? (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-5 w-5 text-green-600 shrink-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPingChartTargetIp(addr.ipAddress);
+                                setPingChartOpen(true);
+                              }}
+                              title="View ping latency chart"
+                              data-testid={`button-ping-chart-ipam-${addr.id}`}
+                            >
+                              <Activity className="h-3 w-3" />
+                            </Button>
+                          ) : (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-5 w-5 invisible group-hover:visible shrink-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                quickAddPingTargetMutation.mutate(addr.ipAddress);
+                              }}
+                              disabled={quickAddPingTargetMutation.isPending}
+                              title="Add to ping monitoring"
+                              data-testid={`button-add-ping-ipam-${addr.id}`}
+                            >
+                              <Crosshair className="h-3 w-3" />
+                            </Button>
+                          )}
                         </div>
                       );
                     })}
@@ -1547,7 +1541,7 @@ export function DevicePropertiesPanel({
                               return (
                                 <div
                                   key={addr.id}
-                                  className={`flex items-center gap-1.5 p-1 rounded text-xs group min-w-0 ${
+                                  className={`flex items-center gap-1 p-1 rounded text-xs group min-w-0 ${
                                     isPollingAddress ? "bg-primary/10 border border-primary/20" : "bg-muted/50"
                                   }`}
                                   data-testid={`interface-ip-${addr.id}`}
@@ -1555,7 +1549,7 @@ export function DevicePropertiesPanel({
                                   {isPollingAddress && (
                                     <Star className="h-3 w-3 text-primary fill-primary shrink-0" />
                                   )}
-                                  <span className="font-mono truncate min-w-0 flex-1" data-testid={`text-ip-${addr.id}`}>
+                                  <span className="font-mono truncate min-w-0 flex-1 max-w-[120px]" data-testid={`text-ip-${addr.id}`} title={addr.networkAddress || addr.ipAddress}>
                                     {addr.networkAddress || addr.ipAddress}
                                   </span>
                                   {isManual && (
@@ -1570,67 +1564,65 @@ export function DevicePropertiesPanel({
                                   }`}>
                                     {addr.status}
                                   </span>
-                                  <div className="shrink-0 flex items-center gap-0.5">
-                                    {isIpMonitored ? (
+                                  {isIpMonitored ? (
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-5 w-5 text-green-600 shrink-0"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setPingChartTargetIp(addr.ipAddress);
+                                        setPingChartOpen(true);
+                                      }}
+                                      title="View ping latency chart"
+                                      data-testid={`button-ping-chart-iface-${addr.id}`}
+                                    >
+                                      <Activity className="h-3 w-3" />
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-5 w-5 invisible group-hover:visible shrink-0"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        quickAddPingTargetMutation.mutate(addr.ipAddress);
+                                      }}
+                                      disabled={quickAddPingTargetMutation.isPending}
+                                      title="Add to ping monitoring"
+                                      data-testid={`button-add-ping-iface-${addr.id}`}
+                                    >
+                                      <Crosshair className="h-3 w-3" />
+                                    </Button>
+                                  )}
+                                  {isManual && canModify && (
+                                    <>
                                       <Button
                                         size="icon"
                                         variant="ghost"
-                                        className="h-5 w-5 text-green-600"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setPingChartTargetIp(addr.ipAddress);
-                                          setPingChartOpen(true);
+                                        className="h-5 w-5 invisible group-hover:visible shrink-0"
+                                        onClick={() => {
+                                          setEditingIpId(addr.id);
+                                          setEditingIpValue(addr.ipAddress);
                                         }}
-                                        title="View ping latency chart"
-                                        data-testid={`button-ping-chart-iface-${addr.id}`}
+                                        title="Edit IP"
+                                        data-testid={`button-edit-ip-${addr.id}`}
                                       >
-                                        <Activity className="h-3 w-3" />
+                                        <Pencil className="h-3 w-3" />
                                       </Button>
-                                    ) : (
                                       <Button
                                         size="icon"
                                         variant="ghost"
-                                        className="h-5 w-5 invisible group-hover:visible"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          quickAddPingTargetMutation.mutate(addr.ipAddress);
-                                        }}
-                                        disabled={quickAddPingTargetMutation.isPending}
-                                        title="Add to ping monitoring"
-                                        data-testid={`button-add-ping-iface-${addr.id}`}
+                                        className="h-5 w-5 text-destructive hover:text-destructive invisible group-hover:visible shrink-0"
+                                        onClick={() => deleteManualIpMutation.mutate(addr.id)}
+                                        disabled={deleteManualIpMutation.isPending}
+                                        title="Delete IP"
+                                        data-testid={`button-delete-ip-${addr.id}`}
                                       >
-                                        <Crosshair className="h-3 w-3" />
+                                        <Trash2 className="h-3 w-3" />
                                       </Button>
-                                    )}
-                                    {isManual && canModify && (
-                                      <>
-                                        <Button
-                                          size="icon"
-                                          variant="ghost"
-                                          className="h-5 w-5 invisible group-hover:visible"
-                                          onClick={() => {
-                                            setEditingIpId(addr.id);
-                                            setEditingIpValue(addr.ipAddress);
-                                          }}
-                                          title="Edit IP"
-                                          data-testid={`button-edit-ip-${addr.id}`}
-                                        >
-                                          <Pencil className="h-3 w-3" />
-                                        </Button>
-                                        <Button
-                                          size="icon"
-                                          variant="ghost"
-                                          className="h-5 w-5 text-destructive hover:text-destructive invisible group-hover:visible"
-                                          onClick={() => deleteManualIpMutation.mutate(addr.id)}
-                                          disabled={deleteManualIpMutation.isPending}
-                                          title="Delete IP"
-                                          data-testid={`button-delete-ip-${addr.id}`}
-                                        >
-                                          <Trash2 className="h-3 w-3" />
-                                        </Button>
-                                      </>
-                                    )}
-                                  </div>
+                                    </>
+                                  )}
                                 </div>
                               );
                             })}
