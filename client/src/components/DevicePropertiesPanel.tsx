@@ -720,7 +720,7 @@ export function DevicePropertiesPanel({
   };
 
   return (
-    <div className="h-full w-80 min-w-0 max-w-80 bg-background border-l border-border flex flex-col overflow-hidden">
+    <div className="h-full w-80 shrink-0 bg-background border-l border-border flex flex-col overflow-hidden">
       <div className="p-4 border-b border-border flex items-center justify-between">
         <h2 className="text-base font-semibold text-foreground">
           Device Properties
@@ -735,8 +735,8 @@ export function DevicePropertiesPanel({
         </Button>
       </div>
 
-      <ScrollArea className="flex-1">
-        <div className="p-4 space-y-4">
+      <ScrollArea className="flex-1 overflow-x-hidden">
+        <div className="p-4 space-y-4 overflow-hidden">
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm">Basic Information</CardTitle>
