@@ -208,9 +208,9 @@ install_dependencies() {
             fi
             
             # Install packages one by one for better error handling
-            log_info "Installing: curl wget unzip..."
-            log_verbose "Running: apt-get install $APT_OPTS curl wget unzip"
-            if ! apt-get install $APT_OPTS curl wget unzip; then
+            log_info "Installing: curl wget unzip fping..."
+            log_verbose "Running: apt-get install $APT_OPTS curl wget unzip fping"
+            if ! apt-get install $APT_OPTS curl wget unzip fping; then
                 log_error "Failed to install basic utilities."
                 log_info "Try running manually: sudo apt-get -f install"
                 if [ "$VERBOSE_MODE" != true ]; then
@@ -251,14 +251,14 @@ install_dependencies() {
             ;;
         centos|rhel|fedora|rocky|almalinux)
             if command -v dnf &> /dev/null; then
-                dnf install -y curl wget unzip postgresql-server postgresql nodejs npm
+                dnf install -y curl wget unzip fping postgresql-server postgresql nodejs npm
             else
-                yum install -y curl wget unzip postgresql-server postgresql nodejs npm
+                yum install -y curl wget unzip fping postgresql-server postgresql nodejs npm
             fi
             ;;
         *)
             log_error "Unsupported OS for automatic dependency installation"
-            log_info "Please install manually: curl, wget, unzip, postgresql, nodejs (v18+)"
+            log_info "Please install manually: curl, wget, unzip, fping, postgresql, nodejs (v18+)"
             exit 1
             ;;
     esac
