@@ -41,4 +41,5 @@ Use this template for new releases:
 
 ---
 
-[Unreleased]: https://github.com/cis2131/CoreBit/compare/HEAD
+<!-- Changelog comparison links will be added here once releases are tagged -->
+[Unreleased]: https://github.com/cis2131/CoreBit/releases
