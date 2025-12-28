@@ -98,7 +98,6 @@ vendor/
 bower_components/
 
 # Development Tools
-.git/
 .gitattributes
 .editorconfig
 .eslintrc*
