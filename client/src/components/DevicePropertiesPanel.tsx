@@ -51,6 +51,7 @@ import {
   CheckCircle2,
   XCircle,
   Activity,
+  Crosshair,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -850,7 +851,7 @@ export function DevicePropertiesPanel({
                                 title="Add to ping monitoring"
                                 data-testid={`button-add-ping-ipam-${addr.id}`}
                               >
-                                <Plus className="h-3 w-3" />
+                                <Crosshair className="h-3 w-3" />
                               </Button>
                             )}
                           </div>
@@ -1598,7 +1599,7 @@ export function DevicePropertiesPanel({
                                         title="Add to ping monitoring"
                                         data-testid={`button-add-ping-iface-${addr.id}`}
                                       >
-                                        <Plus className="h-3 w-3" />
+                                        <Crosshair className="h-3 w-3" />
                                       </Button>
                                     )}
                                     {isManual && canModify && (

@@ -221,7 +221,16 @@ export function PingLatencyChart({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Activity className="h-5 w-5 text-muted-foreground" />
-              <DialogTitle>Ping Latency - {deviceName}</DialogTitle>
+              <div>
+                <DialogTitle>Ping Latency - {deviceName}</DialogTitle>
+                {currentTarget?.target && (
+                  <p className="text-sm text-muted-foreground font-mono mt-0.5">
+                    {currentTarget.target.label 
+                      ? `${currentTarget.target.label} (${currentTarget.target.ipAddress})`
+                      : currentTarget.target.ipAddress}
+                  </p>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-2 mr-6">
               <Select value={timeRange} onValueChange={setTimeRange}>
