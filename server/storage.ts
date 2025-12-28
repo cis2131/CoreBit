@@ -79,7 +79,13 @@ import {
   type ConnectionBandwidthHistory,
   type InsertConnectionBandwidthHistory,
   type PrometheusMetricsHistory,
-  type InsertPrometheusMetricsHistory
+  type InsertPrometheusMetricsHistory,
+  pingTargets,
+  pingHistory,
+  type PingTarget,
+  type InsertPingTarget,
+  type PingHistory,
+  type InsertPingHistory
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, isNotNull, isNull, or, gt, lt, gte, lte, asc, inArray } from "drizzle-orm";
@@ -349,6 +355,22 @@ export interface IStorage {
   getPrometheusMetricsHistory(deviceId: string, metricId: string, since: Date, until?: Date): Promise<PrometheusMetricsHistory[]>;
   getPrometheusMetricsHistoryAllMetrics(deviceId: string, since: Date, until?: Date): Promise<PrometheusMetricsHistory[]>;
   deleteOldPrometheusMetrics(olderThan: Date): Promise<number>;
+
+  // Ping Targets (latency monitoring)
+  getAllPingTargets(): Promise<PingTarget[]>;
+  getEnabledPingTargets(): Promise<PingTarget[]>;
+  getPingTargetsByDevice(deviceId: string): Promise<PingTarget[]>;
+  getPingTarget(id: string): Promise<PingTarget | undefined>;
+  createPingTarget(target: InsertPingTarget): Promise<PingTarget>;
+  updatePingTarget(id: string, target: Partial<InsertPingTarget>): Promise<PingTarget | undefined>;
+  deletePingTarget(id: string): Promise<void>;
+  deletePingTargetsByDevice(deviceId: string): Promise<void>;
+
+  // Ping History (latency data)
+  insertPingHistoryBatch(records: InsertPingHistory[]): Promise<number>;
+  getPingHistory(targetId: string, since: Date, until?: Date): Promise<PingHistory[]>;
+  getPingHistoryByDevice(deviceId: string, since: Date, until?: Date): Promise<{ targetId: string; ipAddress: string; label: string | null; history: PingHistory[] }[]>;
+  deleteOldPingHistory(olderThan: Date): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1956,6 +1978,102 @@ export class DatabaseStorage implements IStorage {
   async deleteOldPrometheusMetrics(olderThan: Date): Promise<number> {
     const result = await db.delete(prometheusMetricsHistory)
       .where(lt(prometheusMetricsHistory.timestamp, olderThan))
+      .returning();
+    return result.length;
+  }
+
+  // Ping Targets
+  async getAllPingTargets(): Promise<PingTarget[]> {
+    return await db.select().from(pingTargets).orderBy(pingTargets.createdAt);
+  }
+
+  async getEnabledPingTargets(): Promise<PingTarget[]> {
+    return await db.select().from(pingTargets)
+      .where(eq(pingTargets.enabled, true))
+      .orderBy(pingTargets.createdAt);
+  }
+
+  async getPingTargetsByDevice(deviceId: string): Promise<PingTarget[]> {
+    return await db.select().from(pingTargets)
+      .where(eq(pingTargets.deviceId, deviceId))
+      .orderBy(pingTargets.createdAt);
+  }
+
+  async getPingTarget(id: string): Promise<PingTarget | undefined> {
+    const [target] = await db.select().from(pingTargets).where(eq(pingTargets.id, id));
+    return target || undefined;
+  }
+
+  async createPingTarget(target: InsertPingTarget): Promise<PingTarget> {
+    const [created] = await db.insert(pingTargets).values(target).returning();
+    return created;
+  }
+
+  async updatePingTarget(id: string, target: Partial<InsertPingTarget>): Promise<PingTarget | undefined> {
+    const [updated] = await db.update(pingTargets)
+      .set({ ...target, updatedAt: new Date() })
+      .where(eq(pingTargets.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deletePingTarget(id: string): Promise<void> {
+    await db.delete(pingTargets).where(eq(pingTargets.id, id));
+  }
+
+  async deletePingTargetsByDevice(deviceId: string): Promise<void> {
+    await db.delete(pingTargets).where(eq(pingTargets.deviceId, deviceId));
+  }
+
+  // Ping History
+  async insertPingHistoryBatch(records: InsertPingHistory[]): Promise<number> {
+    if (records.length === 0) return 0;
+    
+    try {
+      await db.insert(pingHistory).values(records);
+      return records.length;
+    } catch (error: any) {
+      console.error('[PingHistory] Batch insert failed:', error.message);
+      return 0;
+    }
+  }
+
+  async getPingHistory(targetId: string, since: Date, until?: Date): Promise<PingHistory[]> {
+    const conditions = [
+      eq(pingHistory.targetId, targetId),
+      gte(pingHistory.timestamp, since),
+    ];
+    
+    if (until) {
+      conditions.push(lte(pingHistory.timestamp, until));
+    }
+    
+    return await db.select()
+      .from(pingHistory)
+      .where(and(...conditions))
+      .orderBy(asc(pingHistory.timestamp));
+  }
+
+  async getPingHistoryByDevice(deviceId: string, since: Date, until?: Date): Promise<{ targetId: string; ipAddress: string; label: string | null; history: PingHistory[] }[]> {
+    // Get all ping targets for this device
+    const targets = await this.getPingTargetsByDevice(deviceId);
+    
+    const results = await Promise.all(targets.map(async (target) => {
+      const history = await this.getPingHistory(target.id, since, until);
+      return {
+        targetId: target.id,
+        ipAddress: target.ipAddress,
+        label: target.label,
+        history,
+      };
+    }));
+    
+    return results;
+  }
+
+  async deleteOldPingHistory(olderThan: Date): Promise<number> {
+    const result = await db.delete(pingHistory)
+      .where(lt(pingHistory.timestamp, olderThan))
       .returning();
     return result.length;
   }

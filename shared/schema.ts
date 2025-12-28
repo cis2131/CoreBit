@@ -1037,3 +1037,61 @@ export const insertPrometheusMetricsHistorySchema = createInsertSchema(prometheu
 });
 export type PrometheusMetricsHistory = typeof prometheusMetricsHistory.$inferSelect;
 export type InsertPrometheusMetricsHistory = z.infer<typeof insertPrometheusMetricsHistorySchema>;
+
+// Ping targets - IP addresses to monitor for latency (smokeping-style)
+export const pingTargets = pgTable("ping_targets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  deviceId: varchar("device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
+  ipAddress: text("ip_address").notNull(), // IP address to ping
+  label: text("label"), // Optional friendly label (e.g., "WAN Interface", "LAN Gateway")
+  enabled: boolean("enabled").default(true).notNull(),
+  probeCount: integer("probe_count").default(20).notNull(), // Number of pings per cycle (default 20)
+  intervalSeconds: integer("interval_seconds").default(30).notNull(), // Probe interval (default 30s)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_ping_targets_device").on(table.deviceId),
+  index("idx_ping_targets_enabled").on(table.enabled),
+]);
+
+export const insertPingTargetSchema = createInsertSchema(pingTargets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type PingTarget = typeof pingTargets.$inferSelect;
+export type InsertPingTarget = z.infer<typeof insertPingTargetSchema>;
+
+// Ping history - aggregated latency/loss data per probe cycle
+export const pingHistory = pgTable("ping_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  targetId: varchar("target_id").notNull().references(() => pingTargets.id, { onDelete: "cascade" }),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  // Packet statistics
+  sent: integer("sent").notNull(), // Packets sent
+  received: integer("received").notNull(), // Packets received
+  lossPct: doublePrecision("loss_pct").notNull(), // Loss percentage (0-100)
+  // RTT statistics in milliseconds (all as double for precision)
+  rttMin: doublePrecision("rtt_min"), // Minimum RTT
+  rttMax: doublePrecision("rtt_max"), // Maximum RTT
+  rttAvg: doublePrecision("rtt_avg"), // Average RTT
+  rttMdev: doublePrecision("rtt_mdev"), // Standard deviation
+  // Percentiles for smokeping-style visualization
+  rttP10: doublePrecision("rtt_p10"), // 10th percentile
+  rttP25: doublePrecision("rtt_p25"), // 25th percentile
+  rttP50: doublePrecision("rtt_p50"), // Median (50th percentile)
+  rttP75: doublePrecision("rtt_p75"), // 75th percentile
+  rttP90: doublePrecision("rtt_p90"), // 90th percentile
+  rttP95: doublePrecision("rtt_p95"), // 95th percentile
+}, (table) => [
+  index("idx_ping_history_target_time").on(table.targetId, table.timestamp),
+  index("idx_ping_history_timestamp").on(table.timestamp),
+]);
+
+export const insertPingHistorySchema = createInsertSchema(pingHistory).omit({
+  id: true,
+});
+
+export type PingHistory = typeof pingHistory.$inferSelect;
+export type InsertPingHistory = z.infer<typeof insertPingHistorySchema>;
