@@ -167,6 +167,16 @@ export function PingLatencyChart({
     }
   }, [open]);
 
+  // Update selection when initialTargetIp changes (e.g., user clicks different IP)
+  useEffect(() => {
+    if (open && initialTargetIp && pingData && pingData.length > 0) {
+      const targetByIp = pingData.find((t) => t.target?.ipAddress === initialTargetIp);
+      if (targetByIp?.target?.id && targetByIp.target.id !== selectedTargetId) {
+        setSelectedTargetId(targetByIp.target.id);
+      }
+    }
+  }, [initialTargetIp, open, pingData]);
+
   // Use useMemo to ensure stable target that updates when data loads
   const currentTarget = useMemo(() => {
     if (!pingData || pingData.length === 0) return null;
