@@ -735,8 +735,8 @@ export function DevicePropertiesPanel({
         </Button>
       </div>
 
-      <ScrollArea className="flex-1 overflow-x-hidden">
-        <div className="p-4 space-y-4 overflow-hidden">
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-4 w-[calc(20rem-2px)] overflow-hidden">
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm">Basic Information</CardTitle>
