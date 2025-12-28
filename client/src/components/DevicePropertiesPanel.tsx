@@ -719,7 +719,7 @@ export function DevicePropertiesPanel({
   };
 
   return (
-    <div className="h-full w-80 bg-background border-l border-border flex flex-col">
+    <div className="h-full w-80 min-w-0 max-w-80 bg-background border-l border-border flex flex-col overflow-hidden">
       <div className="p-4 border-b border-border flex items-center justify-between">
         <h2 className="text-base font-semibold text-foreground">
           Device Properties
@@ -787,7 +787,7 @@ export function DevicePropertiesPanel({
                       return (
                         <div
                           key={addr.id}
-                          className={`flex items-center gap-2 p-1.5 rounded-md group ${
+                          className={`flex items-center gap-1.5 p-1.5 rounded-md group min-w-0 ${
                             isPollingAddress ? "bg-primary/10 border border-primary/30" : ""
                           }`}
                           data-testid={`ipam-address-row-${addr.id}`}
@@ -797,7 +797,7 @@ export function DevicePropertiesPanel({
                           )}
                           <Badge 
                             variant="secondary" 
-                            className="font-mono text-xs cursor-pointer hover-elevate" 
+                            className="font-mono text-xs cursor-pointer hover-elevate shrink-0" 
                             data-testid={`badge-ipam-${addr.id}`}
                             onClick={() => {
                               if (canModify) {
@@ -809,19 +809,19 @@ export function DevicePropertiesPanel({
                             {addr.ipAddress}
                           </Badge>
                           {addr.role && addr.role !== "primary" && (
-                            <Badge variant="outline" className="text-xs capitalize" data-testid={`badge-role-${addr.id}`}>
+                            <Badge variant="outline" className="text-xs capitalize shrink-0" data-testid={`badge-role-${addr.id}`}>
                               {addr.role}
                             </Badge>
                           )}
                           {assignedInterface && (
-                            <span className="text-xs text-muted-foreground truncate" data-testid={`text-interface-${addr.id}`}>
+                            <span className="text-xs text-muted-foreground truncate min-w-0 flex-1" data-testid={`text-interface-${addr.id}`}>
                               {assignedInterface.name}
                             </span>
                           )}
-                          <span className="text-xs text-muted-foreground capitalize">
+                          <span className="text-xs text-muted-foreground capitalize shrink-0">
                             {addr.status}
                           </span>
-                          <div className="ml-auto flex items-center gap-0.5">
+                          <div className="shrink-0 flex items-center gap-0.5">
                             {isMonitored ? (
                               <Button
                                 size="icon"
@@ -1546,7 +1546,7 @@ export function DevicePropertiesPanel({
                               return (
                                 <div
                                   key={addr.id}
-                                  className={`flex items-center gap-2 p-1 rounded text-xs group ${
+                                  className={`flex items-center gap-1.5 p-1 rounded text-xs group min-w-0 ${
                                     isPollingAddress ? "bg-primary/10 border border-primary/20" : "bg-muted/50"
                                   }`}
                                   data-testid={`interface-ip-${addr.id}`}
@@ -1554,22 +1554,22 @@ export function DevicePropertiesPanel({
                                   {isPollingAddress && (
                                     <Star className="h-3 w-3 text-primary fill-primary shrink-0" />
                                   )}
-                                  <span className="font-mono" data-testid={`text-ip-${addr.id}`}>
+                                  <span className="font-mono truncate min-w-0 flex-1" data-testid={`text-ip-${addr.id}`}>
                                     {addr.networkAddress || addr.ipAddress}
                                   </span>
                                   {isManual && (
-                                    <Badge variant="outline" className="text-[10px] px-1 py-0" data-testid={`badge-manual-${addr.id}`}>
+                                    <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0" data-testid={`badge-manual-${addr.id}`}>
                                       manual
                                     </Badge>
                                   )}
-                                  <span className={`text-xs capitalize ${
+                                  <span className={`text-xs capitalize shrink-0 ${
                                     addr.status === 'assigned' ? 'text-green-600 dark:text-green-400' :
                                     addr.status === 'offline' ? 'text-red-500' :
                                     'text-muted-foreground'
                                   }`}>
                                     {addr.status}
                                   </span>
-                                  <div className="ml-auto flex items-center gap-0.5">
+                                  <div className="shrink-0 flex items-center gap-0.5">
                                     {isIpMonitored ? (
                                       <Button
                                         size="icon"
