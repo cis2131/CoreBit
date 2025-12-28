@@ -2779,6 +2779,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     'shift_timezone': 'Europe/Copenhagen',
   };
   
+  // Metrics history settings - MUST be defined BEFORE the wildcard :key routes
+  app.get("/api/settings/metrics-history", async (_req, res) => {
+    try {
+      const retentionHours = await storage.getSetting('metrics_retention_hours') ?? 24;
+      const enableMetricsHistory = await storage.getSetting('enable_metrics_history') ?? true;
+      res.json({ retentionHours, enableMetricsHistory });
+    } catch (error) {
+      console.error('Error fetching metrics history settings:', error);
+      res.status(500).json({ error: 'Failed to fetch metrics history settings' });
+    }
+  });
+  
+  app.put("/api/settings/metrics-history", requireAdmin as any, async (req, res) => {
+    try {
+      const { retentionHours, enableMetricsHistory } = req.body;
+      
+      if (retentionHours !== undefined && retentionHours !== null) {
+        await storage.setSetting('metrics_retention_hours', retentionHours);
+      }
+      
+      if (enableMetricsHistory !== undefined && enableMetricsHistory !== null) {
+        await storage.setSetting('enable_metrics_history', enableMetricsHistory);
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error updating metrics history settings:', error);
+      res.status(500).json({ error: 'Failed to update metrics history settings' });
+    }
+  });
+  
   app.get("/api/settings/:key", async (req, res) => {
     try {
       const value = await storage.getSetting(req.params.key);
@@ -5431,38 +5462,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error updating backup settings:', error);
       res.status(500).json({ error: 'Failed to update backup settings' });
-    }
-  });
-  
-  // Get metrics history settings
-  app.get("/api/settings/metrics-history", async (_req, res) => {
-    try {
-      const retentionHours = await storage.getSetting('metrics_retention_hours') ?? 24;
-      const enableMetricsHistory = await storage.getSetting('enable_metrics_history') ?? true;
-      res.json({ retentionHours, enableMetricsHistory });
-    } catch (error) {
-      console.error('Error fetching metrics history settings:', error);
-      res.status(500).json({ error: 'Failed to fetch metrics history settings' });
-    }
-  });
-  
-  // Update metrics history settings
-  app.put("/api/settings/metrics-history", requireAdmin as any, async (req, res) => {
-    try {
-      const { retentionHours, enableMetricsHistory } = req.body;
-      
-      if (retentionHours !== undefined && retentionHours !== null) {
-        await storage.setSetting('metrics_retention_hours', retentionHours);
-      }
-      
-      if (enableMetricsHistory !== undefined && enableMetricsHistory !== null) {
-        await storage.setSetting('enable_metrics_history', enableMetricsHistory);
-      }
-      
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Error updating metrics history settings:', error);
-      res.status(500).json({ error: 'Failed to update metrics history settings' });
     }
   });
   
