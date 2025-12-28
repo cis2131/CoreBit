@@ -119,11 +119,11 @@ export function PingLatencyChart({
   });
 
   const currentTarget = selectedTargetId
-    ? pingData?.find((t) => t.target.id === selectedTargetId)
+    ? pingData?.find((t) => t.target?.id === selectedTargetId)
     : pingData?.[0];
 
   const chartData =
-    currentTarget?.history.map((point) => ({
+    currentTarget?.history?.map((point) => ({
       timestamp: new Date(point.timestamp).getTime(),
       timeLabel: formatTime(point.timestamp),
       rttMin: point.rttMin,
@@ -228,18 +228,18 @@ export function PingLatencyChart({
         </DialogHeader>
 
         <div className="space-y-4">
-          {pingData && pingData.length > 1 && (
+          {pingData && pingData.length > 1 && pingData[0]?.target && (
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Target:</span>
               <Select
-                value={selectedTargetId || pingData[0]?.target.id}
+                value={selectedTargetId || pingData[0]?.target?.id || ""}
                 onValueChange={setSelectedTargetId}
               >
                 <SelectTrigger className="w-64" data-testid="select-ping-target">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {pingData.map((t) => (
+                  {pingData.filter((t) => t.target).map((t) => (
                     <SelectItem key={t.target.id} value={t.target.id}>
                       {t.target.label || t.target.ipAddress}
                     </SelectItem>
