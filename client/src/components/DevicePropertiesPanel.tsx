@@ -50,6 +50,7 @@ import {
   BarChart3,
   CheckCircle2,
   XCircle,
+  Activity,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,6 +58,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { StatusHistoryBar, StatusHistoryModal } from "@/components/StatusHistory";
 import { DeviceMetricsChartViewer, PrometheusMetricsChartViewer } from "@/components/MetricsChartViewer";
+import { PingLatencyChart, PingStatusBadge } from "@/components/PingLatencyChart";
 
 interface DevicePropertiesPanelProps {
   device: Device & {
@@ -152,6 +154,10 @@ export function DevicePropertiesPanel({
   const [metricsChartMetric, setMetricsChartMetric] = useState<'cpu' | 'memory' | 'disk' | 'ping'>('cpu');
   const [prometheusChartOpen, setPrometheusChartOpen] = useState(false);
   const [prometheusChartMetricId, setPrometheusChartMetricId] = useState<string>('');
+  const [pingChartOpen, setPingChartOpen] = useState(false);
+  const [addPingTargetOpen, setAddPingTargetOpen] = useState(false);
+  const [newPingIp, setNewPingIp] = useState("");
+  const [newPingLabel, setNewPingLabel] = useState("");
   const [timeoutValue, setTimeoutValue] = useState<string>(
     device.probeTimeout?.toString() ?? "",
   );
@@ -319,6 +325,72 @@ export function DevicePropertiesPanel({
     },
     staleTime: 0,
     refetchOnMount: 'always',
+  });
+
+  interface PingTarget {
+    id: string;
+    deviceId: string;
+    ipAddress: string;
+    label: string | null;
+    enabled: boolean;
+    probeCount: number;
+    intervalSeconds: number;
+  }
+
+  const { data: pingTargets = [], refetch: refetchPingTargets } = useQuery<PingTarget[]>({
+    queryKey: ["/api/devices", device.id, "ping-targets"],
+    queryFn: async () => {
+      const response = await fetch(`/api/devices/${device.id}/ping-targets`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+  });
+
+  const addPingTargetMutation = useMutation({
+    mutationFn: async (data: { ipAddress: string; label?: string }) =>
+      apiRequest("POST", `/api/devices/${device.id}/ping-targets`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/devices", device.id, "ping-targets"],
+      });
+      setAddPingTargetOpen(false);
+      setNewPingIp("");
+      setNewPingLabel("");
+      toast({ description: "Ping target added" });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        description: "Failed to add ping target",
+      });
+    },
+  });
+
+  const togglePingTargetMutation = useMutation({
+    mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) =>
+      apiRequest("PATCH", `/api/ping-targets/${id}`, { enabled }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/devices", device.id, "ping-targets"],
+      });
+    },
+  });
+
+  const deletePingTargetMutation = useMutation({
+    mutationFn: async (id: string) =>
+      apiRequest("DELETE", `/api/ping-targets/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/devices", device.id, "ping-targets"],
+      });
+      toast({ description: "Ping target removed" });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        description: "Failed to remove ping target",
+      });
+    },
   });
 
   const addNotificationMutation = useMutation({
@@ -1594,6 +1666,153 @@ export function DevicePropertiesPanel({
 
           <Card>
             <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-sm">Ping Monitoring</CardTitle>
+                </div>
+                {pingTargets.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setPingChartOpen(true)}
+                    data-testid="button-view-ping-chart"
+                  >
+                    <BarChart3 className="h-3 w-3 mr-1" />
+                    View Chart
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {pingTargets.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  No ping targets configured. Add an IP address to monitor latency.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {pingTargets.map((target) => (
+                    <div
+                      key={target.id}
+                      className="flex items-center justify-between p-2 rounded-md bg-muted/50"
+                      data-testid={`ping-target-${target.id}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          checked={target.enabled}
+                          onCheckedChange={(checked) =>
+                            togglePingTargetMutation.mutate({
+                              id: target.id,
+                              enabled: checked as boolean,
+                            })
+                          }
+                          disabled={!canModify}
+                          data-testid={`checkbox-ping-target-${target.id}`}
+                        />
+                        <div className="space-y-0.5">
+                          <div className="text-sm font-mono">{target.ipAddress}</div>
+                          {target.label && (
+                            <div className="text-xs text-muted-foreground">
+                              {target.label}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <PingStatusBadge
+                          deviceId={device.id}
+                          onClick={() => setPingChartOpen(true)}
+                        />
+                        {canModify && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => deletePingTargetMutation.mutate(target.id)}
+                            data-testid={`button-delete-ping-target-${target.id}`}
+                          >
+                            <Trash2 className="h-3 w-3 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {canModify && (
+                <>
+                  {addPingTargetOpen ? (
+                    <div className="space-y-2 p-2 border rounded-md">
+                      <Input
+                        placeholder="IP Address"
+                        value={newPingIp}
+                        onChange={(e) => setNewPingIp(e.target.value)}
+                        className="h-8"
+                        data-testid="input-new-ping-ip"
+                      />
+                      <Input
+                        placeholder="Label (optional)"
+                        value={newPingLabel}
+                        onChange={(e) => setNewPingLabel(e.target.value)}
+                        className="h-8"
+                        data-testid="input-new-ping-label"
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="h-7"
+                          onClick={() => {
+                            if (newPingIp.trim()) {
+                              addPingTargetMutation.mutate({
+                                ipAddress: newPingIp.trim(),
+                                label: newPingLabel.trim() || undefined,
+                              });
+                            }
+                          }}
+                          disabled={!newPingIp.trim() || addPingTargetMutation.isPending}
+                          data-testid="button-save-ping-target"
+                        >
+                          Add
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7"
+                          onClick={() => {
+                            setAddPingTargetOpen(false);
+                            setNewPingIp("");
+                            setNewPingLabel("");
+                          }}
+                          data-testid="button-cancel-ping-target"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full h-8"
+                      onClick={() => {
+                        setNewPingIp(device.ipAddress || "");
+                        setAddPingTargetOpen(true);
+                      }}
+                      data-testid="button-add-ping-target"
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add Ping Target
+                    </Button>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
                 <Bell className="h-4 w-4 text-muted-foreground" />
                 <CardTitle className="text-sm">Notifications</CardTitle>
@@ -1888,6 +2107,13 @@ export function DevicePropertiesPanel({
           return [...prometheusMetrics, ...snmpMetrics];
         })()}
         initialMetricId={prometheusChartMetricId}
+      />
+
+      <PingLatencyChart
+        deviceId={device.id}
+        deviceName={device.name}
+        open={pingChartOpen}
+        onOpenChange={setPingChartOpen}
       />
     </div>
   );
