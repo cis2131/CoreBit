@@ -121,14 +121,27 @@ export function PingLatencyChart({
     refetchInterval: 30000,
   });
 
-  // Initialize selected target based on initialTargetIp
+  // Refetch when dialog opens or time range changes
+  useEffect(() => {
+    if (open) {
+      refetch();
+    }
+  }, [open, timeRange, refetch]);
+
+  // Initialize selected target based on initialTargetIp or default to first
   useEffect(() => {
     if (pingData && pingData.length > 0 && !hasInitialized) {
       if (initialTargetIp) {
         const targetByIp = pingData.find((t) => t.target?.ipAddress === initialTargetIp);
         if (targetByIp?.target?.id) {
           setSelectedTargetId(targetByIp.target.id);
+        } else if (pingData[0]?.target?.id) {
+          // Fall back to first target if initialTargetIp not found
+          setSelectedTargetId(pingData[0].target.id);
         }
+      } else if (pingData[0]?.target?.id) {
+        // Default to first target when no initialTargetIp
+        setSelectedTargetId(pingData[0].target.id);
       }
       setHasInitialized(true);
     }
