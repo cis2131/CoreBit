@@ -306,23 +306,50 @@ export function ConnectionPropertiesPanel({
               <CardTitle className="text-sm">Link Configuration</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="link-speed">Link Speed</Label>
-                <Select value={linkSpeed} onValueChange={setLinkSpeed}>
-                  <SelectTrigger
-                    id="link-speed"
-                    data-testid="select-link-speed"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {linkSpeeds.map((speed) => (
-                      <SelectItem key={speed} value={speed}>
-                        {speed}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-2 gap-4 items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="link-speed">Link Speed</Label>
+                  <Select value={linkSpeed} onValueChange={setLinkSpeed}>
+                    <SelectTrigger
+                      id="link-speed"
+                      data-testid="select-link-speed"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {linkSpeeds.map((speed) => (
+                        <SelectItem key={speed} value={speed}>
+                          {speed}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="custom-link-speed" className="text-xs">
+                      {linkSpeed === "WiFi" ? "WiFi Speed" : "Custom Speed"}
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      id="custom-link-speed"
+                      type="number"
+                      min={1}
+                      max={1000000}
+                      value={customLinkSpeedMbps || ""}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                        const val = parseInt(e.target.value);
+                        setCustomLinkSpeedMbps(isNaN(val) ? null : Math.min(1000000, Math.max(1, val)));
+                      }}
+                      placeholder="Mbps"
+                      className="h-9"
+                      data-testid="input-custom-link-speed"
+                    />
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase">Mbps</span>
+                  </div>
+                </div>
               </div>
 
               {sourcePorts.length > 0 && (
@@ -689,34 +716,6 @@ export function ConnectionPropertiesPanel({
                       data-testid="switch-flip-traffic"
                     />
                   </div>
-
-                  {/* Custom Speed Input for WiFi and Custom links */}
-                  {(linkSpeed === "WiFi" || linkSpeed === "Custom") && (
-                    <div className="space-y-3 pt-3 border-t">
-                      <Label className="text-sm font-medium">
-                        {linkSpeed === "WiFi" ? "WiFi Max Speed" : "Custom Link Speed"}
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        Set the maximum bandwidth for utilization calculations
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          min={1}
-                          max={1000000}
-                          value={customLinkSpeedMbps || ""}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                            const val = parseInt(e.target.value);
-                            setCustomLinkSpeedMbps(isNaN(val) ? null : Math.min(1000000, Math.max(1, val)));
-                          }}
-                          placeholder="e.g. 300"
-                          className="h-8 w-24"
-                          data-testid="input-custom-link-speed"
-                        />
-                        <span className="text-xs text-muted-foreground">Mbps</span>
-                      </div>
-                    </div>
-                  )}
 
                   <div className="space-y-3 pt-3 border-t">
                     <Label className="text-sm font-medium">
