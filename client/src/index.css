@@ -307,3 +307,20 @@
   animation: critical-flash 0.8s ease-in-out infinite;
   stroke: #ef4444 !important; /* red-500 */
 }
+
+/* Packet loss glow animation - pulsing red glow to indicate instability */
+@keyframes packetloss-glow {
+  0%, 100% { 
+    filter: drop-shadow(0 0 3px #ef4444) drop-shadow(0 0 6px #ef4444);
+    stroke-opacity: 0.8;
+  }
+  50% { 
+    filter: drop-shadow(0 0 6px #ef4444) drop-shadow(0 0 12px #f97316);
+    stroke-opacity: 1;
+  }
+}
+
+.connection-packetloss-glow {
+  animation: packetloss-glow 1.2s ease-in-out infinite;
+  stroke: #ef4444 !important; /* red-500 */
+}

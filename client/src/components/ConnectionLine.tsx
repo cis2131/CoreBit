@@ -105,6 +105,9 @@ export function ConnectionLine({
   } else if (utilizationPct >= warningThreshold) {
     thresholdFlashClass = 'connection-warning-flash';
   }
+  
+  // Packet loss glow class (only applies if no bandwidth threshold is active)
+  const packetLossGlowClass = hasPacketLoss && !thresholdFlashClass ? 'connection-packetloss-glow' : '';
 
   // Calculate curve offset - use manual offset if set, otherwise use auto-offset for duplicate connections
   const curveMode = connection.curveMode || 'straight';
@@ -433,7 +436,7 @@ export function ConnectionLine({
             strokeWidth={strokeWidth}
             strokeOpacity={0.7}
             strokeDasharray={effectiveDashArray}
-            className={`transition-all ${thresholdFlashClass}`}
+            className={`transition-all ${thresholdFlashClass} ${packetLossGlowClass}`}
           />
           {/* Invisible hit area for spline path */}
           <path
@@ -454,7 +457,7 @@ export function ConnectionLine({
             strokeWidth={strokeWidth}
             strokeOpacity={0.7}
             strokeDasharray={effectiveDashArray}
-            className={`transition-all ${thresholdFlashClass}`}
+            className={`transition-all ${thresholdFlashClass} ${packetLossGlowClass}`}
           />
           {/* Invisible hit area for curved path */}
           <path
@@ -477,7 +480,7 @@ export function ConnectionLine({
             strokeWidth={strokeWidth}
             strokeOpacity={0.7}
             strokeDasharray={effectiveDashArray}
-            className={`transition-all ${thresholdFlashClass}`}
+            className={`transition-all ${thresholdFlashClass} ${packetLossGlowClass}`}
           />
           {/* Invisible hit area for straight line */}
           <line
