@@ -5451,11 +5451,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { retentionHours, enableMetricsHistory } = req.body;
       
-      if (retentionHours !== undefined) {
+      if (retentionHours !== undefined && retentionHours !== null) {
         await storage.setSetting('metrics_retention_hours', retentionHours);
       }
       
-      if (enableMetricsHistory !== undefined) {
+      if (enableMetricsHistory !== undefined && enableMetricsHistory !== null) {
         await storage.setSetting('enable_metrics_history', enableMetricsHistory);
       }
       
