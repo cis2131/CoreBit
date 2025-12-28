@@ -1813,7 +1813,10 @@ export function DevicePropertiesPanel({
                         <PingStatusBadge
                           deviceId={device.id}
                           targetId={target.id}
-                          onClick={() => setPingChartOpen(true)}
+                          onClick={() => {
+                            setPingChartTargetIp(target.ipAddress);
+                            setPingChartOpen(true);
+                          }}
                         />
                         {canModify && (
                           <Button
