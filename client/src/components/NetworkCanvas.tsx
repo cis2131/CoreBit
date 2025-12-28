@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Device, Connection, ProxmoxVm } from '@shared/schema';
 import { DeviceNode } from './DeviceNode';
 import { ProxmoxHostNode } from './ProxmoxHostNode';
@@ -6,6 +7,9 @@ import { ProxmoxVMModal } from './ProxmoxVMModal';
 import { ConnectionLine } from './ConnectionLine';
 import { Plus, Minus, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+
+// Type for packet loss status: deviceId -> { interfaceName -> hasPacketLoss }
+type PacketLossStatus = Record<string, Record<string, boolean>>;
 
 interface MapHealthSummary {
   mapId: string;
@@ -63,6 +67,36 @@ export function NetworkCanvas({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [tempPosition, setTempPosition] = useState<{ x: number; y: number } | null>(null);
   const pendingPositionRef = useRef<{ x: number; y: number } | null>(null);
+  
+  // Fetch packet loss status for connection visualization
+  const { data: packetLossStatus = {} } = useQuery<PacketLossStatus>({
+    queryKey: ['/api/ping-targets/packet-loss-status'],
+    refetchInterval: 30000, // Refresh every 30 seconds
+    staleTime: 10000,
+  });
+  
+  // Helper to check if a connection has packet loss on either endpoint
+  const connectionHasPacketLoss = useCallback((conn: Connection): boolean => {
+    // Check source device/port
+    if (conn.sourcePort && conn.sourcePort !== 'none') {
+      const deviceStatus = packetLossStatus[conn.sourceDeviceId];
+      if (deviceStatus) {
+        // Check by port name (interface name)
+        if (deviceStatus[conn.sourcePort]) return true;
+      }
+    }
+    
+    // Check target device/port
+    if (conn.targetPort && conn.targetPort !== 'none') {
+      const deviceStatus = packetLossStatus[conn.targetDeviceId];
+      if (deviceStatus) {
+        // Check by port name (interface name)
+        if (deviceStatus[conn.targetPort]) return true;
+      }
+    }
+    
+    return false;
+  }, [packetLossStatus]);
   const [deviceWasDragged, setDeviceWasDragged] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [vmModalDevice, setVmModalDevice] = useState<Device | null>(null);
@@ -529,6 +563,7 @@ export function NetworkCanvas({
                   sourceDevice={source}
                   targetDevice={target}
                   autoOffset={autoOffset}
+                  hasPacketLoss={connectionHasPacketLoss(conn)}
                 />
               );
             })}

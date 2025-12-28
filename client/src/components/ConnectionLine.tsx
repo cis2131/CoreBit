@@ -28,6 +28,7 @@ interface ConnectionLineProps {
   targetDevice?: Device;
   autoOffset?: number;
   bandwidthHistory?: BandwidthDataPoint[];
+  hasPacketLoss?: boolean; // True if any ping target on this connection has packet loss
 }
 
 // Format bits per second to human readable (network standard)
@@ -61,12 +62,18 @@ export function ConnectionLine({
   targetDevice,
   autoOffset = 0,
   bandwidthHistory = [],
+  hasPacketLoss = false,
 }: ConnectionLineProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const speed = (connection.linkSpeed || '1G') as keyof typeof linkSpeedStyles;
   const style = linkSpeedStyles[speed] || linkSpeedStyles['1G'];
   const strokeWidth = isSelected ? style.width + 2 : style.width;
+  
+  // Packet loss dash pattern: dash-dot pattern that's very visible
+  // Pattern: long dash, gap, short dot, gap (e.g., "12,4,3,4")
+  const packetLossDashArray = '12,4,3,4';
+  const effectiveDashArray = hasPacketLoss ? packetLossDashArray : style.dashArray;
 
   // Fetch traffic history for bandwidth graph - only when hovered and monitoring is enabled
   const hasMonitoring = !!connection.monitorInterface;
@@ -425,7 +432,7 @@ export function ConnectionLine({
             stroke={style.color}
             strokeWidth={strokeWidth}
             strokeOpacity={0.7}
-            strokeDasharray={style.dashArray}
+            strokeDasharray={effectiveDashArray}
             className={`transition-all ${thresholdFlashClass}`}
           />
           {/* Invisible hit area for spline path */}
@@ -446,7 +453,7 @@ export function ConnectionLine({
             stroke={style.color}
             strokeWidth={strokeWidth}
             strokeOpacity={0.7}
-            strokeDasharray={style.dashArray}
+            strokeDasharray={effectiveDashArray}
             className={`transition-all ${thresholdFlashClass}`}
           />
           {/* Invisible hit area for curved path */}
@@ -469,7 +476,7 @@ export function ConnectionLine({
             stroke={style.color}
             strokeWidth={strokeWidth}
             strokeOpacity={0.7}
-            strokeDasharray={style.dashArray}
+            strokeDasharray={effectiveDashArray}
             className={`transition-all ${thresholdFlashClass}`}
           />
           {/* Invisible hit area for straight line */}

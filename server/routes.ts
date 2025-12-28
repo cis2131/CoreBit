@@ -5835,6 +5835,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Get recent packet loss data for connections visualization
+  // Returns a map of deviceId -> { interfaceName -> hasPacketLoss }
+  app.get("/api/ping-targets/packet-loss-status", requireAuth as any, async (_req, res) => {
+    try {
+      // Get all ping targets
+      const allTargets = await storage.getAllPingTargets();
+      
+      // Get recent history (last 5 minutes) for checking latest status
+      const recentTime = new Date(Date.now() - 5 * 60 * 1000);
+      
+      // Build device -> interface -> hasPacketLoss map
+      const packetLossMap: Record<string, Record<string, boolean>> = {};
+      
+      for (const target of allTargets) {
+        if (!target.enabled) continue;
+        
+        // Get latest ping history entry for this target
+        const history = await storage.getPingHistory(target.id, recentTime, new Date());
+        
+        // Check if there's any packet loss in the most recent probe
+        const latestProbe = history[history.length - 1];
+        const hasLoss = latestProbe && latestProbe.lossPct > 0;
+        
+        if (!packetLossMap[target.deviceId]) {
+          packetLossMap[target.deviceId] = {};
+        }
+        
+        // Track by interface name if available, otherwise by IP
+        const key = target.interfaceName || target.ipAddress;
+        
+        // If already marked as having loss, keep it true
+        if (!packetLossMap[target.deviceId][key]) {
+          packetLossMap[target.deviceId][key] = hasLoss;
+        } else if (hasLoss) {
+          packetLossMap[target.deviceId][key] = true;
+        }
+      }
+      
+      res.json(packetLossMap);
+    } catch (error: any) {
+      console.error('Error fetching packet loss status:', error);
+      res.status(500).json({ error: 'Failed to fetch packet loss status' });
+    }
+  });
+  
   // Scheduled backup timer
   let scheduledBackupTimer: NodeJS.Timeout | null = null;
   
