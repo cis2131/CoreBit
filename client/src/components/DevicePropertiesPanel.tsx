@@ -1812,6 +1812,7 @@ export function DevicePropertiesPanel({
                       <div className="flex items-center gap-2">
                         <PingStatusBadge
                           deviceId={device.id}
+                          targetId={target.id}
                           onClick={() => setPingChartOpen(true)}
                         />
                         {canModify && (

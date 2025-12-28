@@ -469,10 +469,11 @@ export function PingLatencyChart({
 
 interface PingStatusBadgeProps {
   deviceId: string;
+  targetId?: string;
   onClick?: () => void;
 }
 
-export function PingStatusBadge({ deviceId, onClick }: PingStatusBadgeProps) {
+export function PingStatusBadge({ deviceId, targetId, onClick }: PingStatusBadgeProps) {
   const since = new Date(Date.now() - 60 * 60 * 1000);
   
   const { data: pingData } = useQuery<PingTargetWithHistory[]>({
@@ -489,7 +490,16 @@ export function PingStatusBadge({ deviceId, onClick }: PingStatusBadgeProps) {
 
   if (!pingData || pingData.length === 0) return null;
 
-  const latestPoints = pingData.map((t) => t.history[t.history.length - 1]).filter(Boolean);
+  let latestPoints: PingHistoryPoint[];
+  
+  if (targetId) {
+    const targetData = pingData.find((t) => t.target.id === targetId);
+    if (!targetData || targetData.history.length === 0) return null;
+    latestPoints = [targetData.history[targetData.history.length - 1]];
+  } else {
+    latestPoints = pingData.map((t) => t.history[t.history.length - 1]).filter(Boolean);
+  }
+  
   if (latestPoints.length === 0) return null;
 
   const avgRtt =
@@ -502,7 +512,7 @@ export function PingStatusBadge({ deviceId, onClick }: PingStatusBadgeProps) {
       variant={hasLoss ? "destructive" : "outline"}
       className="cursor-pointer font-mono text-xs whitespace-nowrap flex-shrink-0"
       onClick={onClick}
-      data-testid="badge-ping-status"
+      data-testid={`badge-ping-status${targetId ? `-${targetId}` : ""}`}
     >
       <Activity className="h-3 w-3 mr-1 flex-shrink-0" />
       <span className="truncate max-w-[100px]">
