@@ -3996,8 +3996,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     // Initialize devices, then start the first probe cycle
-    initializeDeviceStatus().then(() => {
+    initializeDeviceStatus().then(async () => {
       setTimeout(runProbeCycle, 5000);
+      
+      // Start ping probing service (runs independently from device probing)
+      try {
+        const { startPingProbing, cleanupOldPingHistory } = await import('./pingProbe');
+        const pingInterval = await storage.getSetting('ping_probe_interval') ?? 30;
+        startPingProbing(pingInterval);
+        
+        // Schedule ping history cleanup (every hour)
+        setInterval(async () => {
+          const retentionHours = await storage.getSetting('metrics_retention_hours') ?? 24;
+          await cleanupOldPingHistory(retentionHours);
+        }, 60 * 60 * 1000);
+      } catch (error) {
+        console.error('[PingProbe] Failed to start ping probing:', error);
+      }
     });
   }
   
@@ -5666,6 +5681,155 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     return downsampled;
   }
+  
+  // ============ PING LATENCY MONITORING API ENDPOINTS ============
+  
+  // Get all ping targets
+  app.get("/api/ping-targets", requireAuth as any, async (_req, res) => {
+    try {
+      const targets = await storage.getAllPingTargets();
+      res.json(targets);
+    } catch (error: any) {
+      console.error('Error fetching ping targets:', error);
+      res.status(500).json({ error: 'Failed to fetch ping targets' });
+    }
+  });
+  
+  // Get ping targets for a specific device
+  app.get("/api/devices/:id/ping-targets", requireAuth as any, async (req, res) => {
+    try {
+      const deviceId = req.params.id;
+      const targets = await storage.getPingTargetsByDevice(deviceId);
+      res.json(targets);
+    } catch (error: any) {
+      console.error('Error fetching device ping targets:', error);
+      res.status(500).json({ error: 'Failed to fetch device ping targets' });
+    }
+  });
+  
+  // Create a ping target for a device
+  app.post("/api/devices/:id/ping-targets", requireAuth as any, async (req, res) => {
+    try {
+      const deviceId = req.params.id;
+      const { ipAddress, label, enabled, probeCount, intervalSeconds } = req.body;
+      
+      if (!ipAddress) {
+        return res.status(400).json({ error: 'IP address is required' });
+      }
+      
+      const target = await storage.createPingTarget({
+        deviceId,
+        ipAddress,
+        label: label || null,
+        enabled: enabled ?? true,
+        probeCount: probeCount || 20,
+        intervalSeconds: intervalSeconds || 30,
+      });
+      
+      res.status(201).json(target);
+    } catch (error: any) {
+      console.error('Error creating ping target:', error);
+      res.status(500).json({ error: 'Failed to create ping target' });
+    }
+  });
+  
+  // Update a ping target
+  app.patch("/api/ping-targets/:id", requireAuth as any, async (req, res) => {
+    try {
+      const targetId = req.params.id;
+      const { ipAddress, label, enabled, probeCount, intervalSeconds } = req.body;
+      
+      const updateData: any = {};
+      if (ipAddress !== undefined) updateData.ipAddress = ipAddress;
+      if (label !== undefined) updateData.label = label;
+      if (enabled !== undefined) updateData.enabled = enabled;
+      if (probeCount !== undefined) updateData.probeCount = probeCount;
+      if (intervalSeconds !== undefined) updateData.intervalSeconds = intervalSeconds;
+      
+      const target = await storage.updatePingTarget(targetId, updateData);
+      if (!target) {
+        return res.status(404).json({ error: 'Ping target not found' });
+      }
+      
+      res.json(target);
+    } catch (error: any) {
+      console.error('Error updating ping target:', error);
+      res.status(500).json({ error: 'Failed to update ping target' });
+    }
+  });
+  
+  // Delete a ping target
+  app.delete("/api/ping-targets/:id", requireAuth as any, async (req, res) => {
+    try {
+      const targetId = req.params.id;
+      await storage.deletePingTarget(targetId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error deleting ping target:', error);
+      res.status(500).json({ error: 'Failed to delete ping target' });
+    }
+  });
+  
+  // Get ping history for a specific target
+  app.get("/api/ping-targets/:id/history", requireAuth as any, async (req, res) => {
+    try {
+      const targetId = req.params.id;
+      const { since, until, maxPoints = '500' } = req.query;
+      
+      // Default to last 24 hours if not specified
+      const sinceDate = since ? new Date(since as string) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const untilDate = until ? new Date(until as string) : new Date();
+      
+      const history = await storage.getPingHistory(targetId, sinceDate, untilDate);
+      
+      // Downsample if too many points
+      const maxPointsNum = parseInt(maxPoints as string, 10) || 500;
+      const downsampled = downsampleTimeSeries(history, maxPointsNum);
+      
+      res.json(downsampled);
+    } catch (error: any) {
+      console.error('Error fetching ping history:', error);
+      res.status(500).json({ error: 'Failed to fetch ping history' });
+    }
+  });
+  
+  // Get ping history for all targets of a device
+  app.get("/api/devices/:id/ping-history", requireAuth as any, async (req, res) => {
+    try {
+      const deviceId = req.params.id;
+      const { since, until, maxPoints = '500' } = req.query;
+      
+      // Default to last 24 hours if not specified
+      const sinceDate = since ? new Date(since as string) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const untilDate = until ? new Date(until as string) : new Date();
+      
+      const historyByTarget = await storage.getPingHistoryByDevice(deviceId, sinceDate, untilDate);
+      
+      // Downsample each target's history
+      const maxPointsNum = parseInt(maxPoints as string, 10) || 500;
+      const result = historyByTarget.map(t => ({
+        ...t,
+        history: downsampleTimeSeries(t.history, maxPointsNum),
+      }));
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error('Error fetching device ping history:', error);
+      res.status(500).json({ error: 'Failed to fetch device ping history' });
+    }
+  });
+  
+  // Get ping probing status
+  app.get("/api/ping-probing/status", requireAuth as any, async (_req, res) => {
+    try {
+      const { getProbingStatus } = await import('./pingProbe');
+      const status = getProbingStatus();
+      res.json(status);
+    } catch (error: any) {
+      console.error('Error fetching ping probing status:', error);
+      res.status(500).json({ error: 'Failed to fetch ping probing status' });
+    }
+  });
   
   // Scheduled backup timer
   let scheduledBackupTimer: NodeJS.Timeout | null = null;
