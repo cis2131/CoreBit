@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
@@ -155,9 +155,15 @@ export function PingLatencyChart({
     }
   }, [open]);
 
-  const currentTarget = selectedTargetId
-    ? pingData?.find((t) => t.target?.id === selectedTargetId)
-    : pingData?.[0];
+  // Use useMemo to ensure stable target that updates when data loads
+  const currentTarget = useMemo(() => {
+    if (!pingData || pingData.length === 0) return null;
+    if (selectedTargetId) {
+      const found = pingData.find((t) => t.target?.id === selectedTargetId);
+      if (found) return found;
+    }
+    return pingData[0];
+  }, [pingData, selectedTargetId]);
 
   const chartData =
     currentTarget?.history?.map((point) => ({
