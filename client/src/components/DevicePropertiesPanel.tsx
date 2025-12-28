@@ -861,55 +861,60 @@ export function DevicePropertiesPanel({
                   )}
                 </div>
               )}
-              <div>
-                <p className="text-muted-foreground text-xs">Status</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <div className={`w-2 h-2 rounded-full ${status.color}`} />
-                  <span
-                    className="font-medium text-foreground"
-                    data-testid="text-property-status"
-                  >
-                    {status.label}
-                  </span>
-                </div>
-                {(device.status === 'offline' || device.status === 'stale') && device.statusChangedAt && (
-                  <p className="text-xs text-muted-foreground mt-1" data-testid="text-offline-duration">
-                    {formatStatusDuration(new Date(device.statusChangedAt))}
-                  </p>
-                )}
-                {(device.status === 'offline' || device.status === 'stale') && device.lastProbeError && (
-                  <div className="flex items-start gap-1.5 mt-2 p-2 bg-destructive/10 rounded-md border border-destructive/20">
-                    <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
-                    <p className="text-xs text-destructive" data-testid="text-probe-error">
-                      {device.lastProbeError}
-                    </p>
-                  </div>
-                )}
-              </div>
-              {device.lastSeen && (
-                <div>
-                  <p className="text-muted-foreground text-xs">Last Seen</p>
-                  {(() => {
-                    const lastSeenDate = new Date(device.lastSeen);
-                    const { color } = getLastSeenColor(lastSeenDate);
-                    return (
-                      <p
-                        className={`font-medium ${color}`}
-                        data-testid="text-property-last-seen"
+              {/* Hide Status, Last Seen, and Status History for placeholder devices */}
+              {device.type !== 'placeholder' && (
+                <>
+                  <div>
+                    <p className="text-muted-foreground text-xs">Status</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className={`w-2 h-2 rounded-full ${status.color}`} />
+                      <span
+                        className="font-medium text-foreground"
+                        data-testid="text-property-status"
                       >
-                        {formatLastSeen(lastSeenDate)}
+                        {status.label}
+                      </span>
+                    </div>
+                    {(device.status === 'offline' || device.status === 'stale') && device.statusChangedAt && (
+                      <p className="text-xs text-muted-foreground mt-1" data-testid="text-offline-duration">
+                        {formatStatusDuration(new Date(device.statusChangedAt))}
                       </p>
-                    );
-                  })()}
-                </div>
+                    )}
+                    {(device.status === 'offline' || device.status === 'stale') && device.lastProbeError && (
+                      <div className="flex items-start gap-1.5 mt-2 p-2 bg-destructive/10 rounded-md border border-destructive/20">
+                        <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+                        <p className="text-xs text-destructive" data-testid="text-probe-error">
+                          {device.lastProbeError}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  {device.lastSeen && (
+                    <div>
+                      <p className="text-muted-foreground text-xs">Last Seen</p>
+                      {(() => {
+                        const lastSeenDate = new Date(device.lastSeen);
+                        const { color } = getLastSeenColor(lastSeenDate);
+                        return (
+                          <p
+                            className={`font-medium ${color}`}
+                            data-testid="text-property-last-seen"
+                          >
+                            {formatLastSeen(lastSeenDate)}
+                          </p>
+                        );
+                      })()}
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-muted-foreground text-xs mb-1.5">Status History (24h)</p>
+                    <StatusHistoryBar 
+                      deviceId={device.id} 
+                      onClick={() => setStatusHistoryOpen(true)}
+                    />
+                  </div>
+                </>
               )}
-              <div>
-                <p className="text-muted-foreground text-xs mb-1.5">Status History (24h)</p>
-                <StatusHistoryBar 
-                  deviceId={device.id} 
-                  onClick={() => setStatusHistoryOpen(true)}
-                />
-              </div>
             </CardContent>
           </Card>
 
@@ -1636,145 +1641,150 @@ export function DevicePropertiesPanel({
             </Card>
           )}
 
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <Key className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-sm">Credentials</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {device.credentialProfileId && credentialProfile ? (
-                <div className="space-y-1">
-                  <div className="text-sm text-foreground font-medium">
-                    {credentialProfile.name}
+          {/* Hide Credentials section for placeholder devices */}
+          {device.type !== 'placeholder' && (
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <Key className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle className="text-sm">Credentials</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {device.credentialProfileId && credentialProfile ? (
+                  <div className="space-y-1">
+                    <div className="text-sm text-foreground font-medium">
+                      {credentialProfile.name}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {credentialProfile.type === "mikrotik"
+                        ? "Mikrotik Device"
+                        : credentialProfile.type === "prometheus"
+                        ? "Prometheus (node_exporter)"
+                        : credentialProfile.type === "proxmox"
+                        ? "Proxmox VE"
+                        : "SNMP Device"}
+                    </div>
+                    <Badge variant="outline" className="text-xs mt-2">
+                      Profile
+                    </Badge>
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {credentialProfile.type === "mikrotik"
-                      ? "Mikrotik Device"
-                      : credentialProfile.type === "prometheus"
-                      ? "Prometheus (node_exporter)"
-                      : credentialProfile.type === "proxmox"
-                      ? "Proxmox VE"
-                      : "SNMP Device"}
+                ) : device.customCredentials ? (
+                  <div className="space-y-1">
+                    <div className="text-sm text-foreground font-medium">
+                      Custom Credentials
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Device-specific credentials configured
+                    </div>
+                    <Badge variant="outline" className="text-xs mt-2">
+                      Custom
+                    </Badge>
                   </div>
-                  <Badge variant="outline" className="text-xs mt-2">
-                    Profile
-                  </Badge>
-                </div>
-              ) : device.customCredentials ? (
-                <div className="space-y-1">
-                  <div className="text-sm text-foreground font-medium">
-                    Custom Credentials
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    No credentials configured
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    Device-specific credentials configured
-                  </div>
-                  <Badge variant="outline" className="text-xs mt-2">
-                    Custom
-                  </Badge>
-                </div>
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  No credentials configured
-                </div>
-              )}
-
-              <Separator />
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <Label className="text-sm font-medium">Probe Timeout</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={120}
-                    placeholder={String(globalDefaultTimeout)}
-                    value={timeoutValue}
-                    onChange={(e) => setTimeoutValue(e.target.value)}
-                    onBlur={handleTimeoutBlur}
-                    className="w-20 h-8"
-                    data-testid="input-probe-timeout"
-                    disabled={!canModify}
-                  />
-                  <span className="text-sm text-muted-foreground">
-                    seconds{" "}
-                    {device.probeTimeout
-                      ? "(custom)"
-                      : `(global: ${globalDefaultTimeout}s)`}
-                  </span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Leave empty to use global default from Settings
-                </p>
-              </div>
-
-              <Separator />
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-                  <Label className="text-sm font-medium">
-                    Offline Threshold
-                  </Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={10}
-                    placeholder={String(globalDefaultThreshold)}
-                    value={thresholdValue}
-                    onChange={(e) => setThresholdValue(e.target.value)}
-                    onBlur={handleThresholdBlur}
-                    className="w-20 h-8"
-                    data-testid="input-offline-threshold"
-                    disabled={!canModify}
-                  />
-                  <span className="text-sm text-muted-foreground">
-                    cycles{" "}
-                    {device.offlineThreshold
-                      ? "(custom)"
-                      : `(global: ${globalDefaultThreshold})`}
-                  </span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Leave empty to use global default from Settings
-                </p>
-                {device.failureCount ? (
-                  <p className="text-xs text-yellow-600">
-                    Current failures: {device.failureCount}/
-                    {device.offlineThreshold || globalDefaultThreshold}
-                  </p>
-                ) : null}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-muted-foreground" />
-                  <CardTitle className="text-sm">Ping Monitoring</CardTitle>
-                </div>
-                {pingTargets.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => setPingChartOpen(true)}
-                    data-testid="button-view-ping-chart"
-                  >
-                    <BarChart3 className="h-3 w-3 mr-1" />
-                    View Chart
-                  </Button>
                 )}
-              </div>
-            </CardHeader>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <Label className="text-sm font-medium">Probe Timeout</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={120}
+                      placeholder={String(globalDefaultTimeout)}
+                      value={timeoutValue}
+                      onChange={(e) => setTimeoutValue(e.target.value)}
+                      onBlur={handleTimeoutBlur}
+                      className="w-20 h-8"
+                      data-testid="input-probe-timeout"
+                      disabled={!canModify}
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      seconds{" "}
+                      {device.probeTimeout
+                        ? "(custom)"
+                        : `(global: ${globalDefaultTimeout}s)`}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to use global default from Settings
+                  </p>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                    <Label className="text-sm font-medium">
+                      Offline Threshold
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={10}
+                      placeholder={String(globalDefaultThreshold)}
+                      value={thresholdValue}
+                      onChange={(e) => setThresholdValue(e.target.value)}
+                      onBlur={handleThresholdBlur}
+                      className="w-20 h-8"
+                      data-testid="input-offline-threshold"
+                      disabled={!canModify}
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      cycles{" "}
+                      {device.offlineThreshold
+                        ? "(custom)"
+                        : `(global: ${globalDefaultThreshold})`}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to use global default from Settings
+                  </p>
+                  {device.failureCount ? (
+                    <p className="text-xs text-yellow-600">
+                      Current failures: {device.failureCount}/
+                      {device.offlineThreshold || globalDefaultThreshold}
+                    </p>
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Hide Ping Monitoring section for placeholder devices */}
+          {device.type !== 'placeholder' && (
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Activity className="h-4 w-4 text-muted-foreground" />
+                    <CardTitle className="text-sm">Ping Monitoring</CardTitle>
+                  </div>
+                  {pingTargets.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setPingChartOpen(true)}
+                      data-testid="button-view-ping-chart"
+                    >
+                      <BarChart3 className="h-3 w-3 mr-1" />
+                      View Chart
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
             <CardContent className="space-y-3">
               {pingTargets.length === 0 ? (
                 <div className="text-sm text-muted-foreground">
@@ -1905,7 +1915,10 @@ export function DevicePropertiesPanel({
               )}
             </CardContent>
           </Card>
+          )}
 
+          {/* Hide Notifications section for placeholder devices */}
+          {device.type !== 'placeholder' && (
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
@@ -2047,6 +2060,7 @@ export function DevicePropertiesPanel({
               </div>
             </CardContent>
           </Card>
+          )}
 
           <Card>
             <CardHeader className="pb-3">
