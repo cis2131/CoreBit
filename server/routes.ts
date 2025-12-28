@@ -785,6 +785,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const data = insertDeviceSchema.parse(req.body);
       
+      // Placeholder devices are never probed - they represent external/unmanaged infrastructure
+      if (data.type === 'placeholder') {
+        const device = await storage.createDevice({
+          ...data,
+          status: 'unknown', // Neutral status for placeholders
+          deviceData: undefined,
+        });
+        return res.status(201).json(device);
+      }
+      
       // Resolve credentials from profile or custom
       const credentials = await resolveCredentials({
         credentialProfileId: data.credentialProfileId || null,
@@ -859,21 +869,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (updateData.type || updateData.ipAddress || updateData.credentialProfileId !== undefined || updateData.customCredentials !== undefined) {
         const existingDevice = await storage.getDevice(req.params.id);
         if (existingDevice) {
-          const mergedDevice = { ...existingDevice, ...updateData };
-          const credentials = await resolveCredentials(mergedDevice);
-          
           const deviceTypeToProbe = updateData.type || existingDevice.type;
-          const probeResult = await probeDevice(
-            deviceTypeToProbe, 
-            (updateData.ipAddress !== undefined ? updateData.ipAddress : existingDevice.ipAddress) || undefined,
-            credentials
-          );
-          const status = determineDeviceStatus(probeResult.data, probeResult.success, probeResult.pingOnly, deviceTypeToProbe);
-          finalUpdateData = {
-            ...updateData,
-            status,
-            deviceData: probeResult.success ? probeResult.data : (existingDevice.deviceData || undefined),
-          };
+          
+          // Placeholder devices are never probed - they represent external/unmanaged infrastructure
+          if (deviceTypeToProbe === 'placeholder') {
+            finalUpdateData = {
+              ...updateData,
+              status: 'unknown', // Neutral status for placeholders
+              deviceData: undefined,
+            };
+          } else {
+            const mergedDevice = { ...existingDevice, ...updateData };
+            const credentials = await resolveCredentials(mergedDevice);
+            
+            const probeResult = await probeDevice(
+              deviceTypeToProbe, 
+              (updateData.ipAddress !== undefined ? updateData.ipAddress : existingDevice.ipAddress) || undefined,
+              credentials
+            );
+            const status = determineDeviceStatus(probeResult.data, probeResult.success, probeResult.pingOnly, deviceTypeToProbe);
+            finalUpdateData = {
+              ...updateData,
+              status,
+              deviceData: probeResult.success ? probeResult.data : (existingDevice.deviceData || undefined),
+            };
+          }
         }
       }
       
