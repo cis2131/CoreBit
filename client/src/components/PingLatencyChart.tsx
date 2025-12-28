@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
@@ -67,6 +67,7 @@ interface PingLatencyChartProps {
   deviceName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialTargetIp?: string;
 }
 
 const TIME_RANGES = [
@@ -94,9 +95,11 @@ export function PingLatencyChart({
   deviceName,
   open,
   onOpenChange,
+  initialTargetIp,
 }: PingLatencyChartProps) {
   const [timeRange, setTimeRange] = useState("3h");
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   const selectedRange = TIME_RANGES.find((r) => r.value === timeRange);
   const since = new Date(
@@ -117,6 +120,27 @@ export function PingLatencyChart({
     enabled: open,
     refetchInterval: 30000,
   });
+
+  // Initialize selected target based on initialTargetIp
+  useEffect(() => {
+    if (pingData && pingData.length > 0 && !hasInitialized) {
+      if (initialTargetIp) {
+        const targetByIp = pingData.find((t) => t.target?.ipAddress === initialTargetIp);
+        if (targetByIp?.target?.id) {
+          setSelectedTargetId(targetByIp.target.id);
+        }
+      }
+      setHasInitialized(true);
+    }
+  }, [pingData, initialTargetIp, hasInitialized]);
+
+  // Reset initialization when dialog closes
+  useEffect(() => {
+    if (!open) {
+      setHasInitialized(false);
+      setSelectedTargetId(null);
+    }
+  }, [open]);
 
   const currentTarget = selectedTargetId
     ? pingData?.find((t) => t.target?.id === selectedTargetId)
@@ -228,24 +252,30 @@ export function PingLatencyChart({
         </DialogHeader>
 
         <div className="space-y-4">
-          {pingData && pingData.length > 1 && pingData[0]?.target && (
+          {pingData && pingData.length > 0 && currentTarget?.target && (
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Target:</span>
-              <Select
-                value={selectedTargetId || pingData[0]?.target?.id || ""}
-                onValueChange={setSelectedTargetId}
-              >
-                <SelectTrigger className="w-64" data-testid="select-ping-target">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {pingData.filter((t) => t.target).map((t) => (
-                    <SelectItem key={t.target.id} value={t.target.id}>
-                      {t.target.label || t.target.ipAddress}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {pingData.length > 1 ? (
+                <Select
+                  value={selectedTargetId || pingData[0]?.target?.id || ""}
+                  onValueChange={setSelectedTargetId}
+                >
+                  <SelectTrigger className="w-64" data-testid="select-ping-target">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pingData.filter((t) => t.target).map((t) => (
+                      <SelectItem key={t.target.id} value={t.target.id}>
+                        {t.target.label ? `${t.target.label} (${t.target.ipAddress})` : t.target.ipAddress}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Badge variant="outline" className="font-mono" data-testid="badge-ping-target-ip">
+                  {currentTarget.target.label ? `${currentTarget.target.label} (${currentTarget.target.ipAddress})` : currentTarget.target.ipAddress}
+                </Badge>
+              )}
             </div>
           )}
 

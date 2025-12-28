@@ -155,6 +155,7 @@ export function DevicePropertiesPanel({
   const [prometheusChartOpen, setPrometheusChartOpen] = useState(false);
   const [prometheusChartMetricId, setPrometheusChartMetricId] = useState<string>('');
   const [pingChartOpen, setPingChartOpen] = useState(false);
+  const [pingChartTargetIp, setPingChartTargetIp] = useState<string | undefined>(undefined);
   const [addPingTargetOpen, setAddPingTargetOpen] = useState(false);
   const [newPingIp, setNewPingIp] = useState("");
   const [newPingLabel, setNewPingLabel] = useState("");
@@ -343,6 +344,30 @@ export function DevicePropertiesPanel({
       const response = await fetch(`/api/devices/${device.id}/ping-targets`);
       if (!response.ok) return [];
       return response.json();
+    },
+  });
+
+  // Create a Set of monitored IP addresses for quick lookup
+  const monitoredIpAddresses = new Set(pingTargets.map(t => t.ipAddress));
+
+  // Helper to check if an IP is ping monitored
+  const isPingMonitored = (ip: string) => monitoredIpAddresses.has(ip);
+
+  // Quick add ping target from IP address
+  const quickAddPingTargetMutation = useMutation({
+    mutationFn: async (ipAddress: string) =>
+      apiRequest("POST", `/api/devices/${device.id}/ping-targets`, { ipAddress }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/devices", device.id, "ping-targets"],
+      });
+      toast({ description: "Added to ping monitoring" });
+    },
+    onError: () => {
+      toast({
+        variant: "destructive",
+        description: "Failed to add ping target",
+      });
     },
   });
 
@@ -758,24 +783,29 @@ export function DevicePropertiesPanel({
                       const assignedInterface = deviceInterfaces.find(
                         (iface) => iface.id === addr.assignedInterfaceId
                       );
+                      const isMonitored = isPingMonitored(addr.ipAddress);
                       return (
                         <div
                           key={addr.id}
-                          className={`flex items-center gap-2 p-1.5 rounded-md cursor-pointer hover-elevate ${
+                          className={`flex items-center gap-2 p-1.5 rounded-md group ${
                             isPollingAddress ? "bg-primary/10 border border-primary/30" : ""
                           }`}
-                          onClick={() => {
-                            if (canModify) {
-                              setPollingAddressMutation.mutate(isPollingAddress ? null : addr.id);
-                            }
-                          }}
                           data-testid={`ipam-address-row-${addr.id}`}
-                          title={canModify ? (isPollingAddress ? "Click to unset as polling address" : "Click to set as polling address") : ""}
                         >
                           {isPollingAddress && (
                             <Star className="h-3 w-3 text-primary fill-primary shrink-0" data-testid={`star-polling-${addr.id}`} />
                           )}
-                          <Badge variant="secondary" className="font-mono text-xs" data-testid={`badge-ipam-${addr.id}`}>
+                          <Badge 
+                            variant="secondary" 
+                            className="font-mono text-xs cursor-pointer hover-elevate" 
+                            data-testid={`badge-ipam-${addr.id}`}
+                            onClick={() => {
+                              if (canModify) {
+                                setPollingAddressMutation.mutate(isPollingAddress ? null : addr.id);
+                              }
+                            }}
+                            title={canModify ? (isPollingAddress ? "Click to unset as polling address" : "Click to set as polling address") : ""}
+                          >
                             {addr.ipAddress}
                           </Badge>
                           {addr.role && addr.role !== "primary" && (
@@ -788,9 +818,42 @@ export function DevicePropertiesPanel({
                               {assignedInterface.name}
                             </span>
                           )}
-                          <span className="text-xs text-muted-foreground capitalize ml-auto">
+                          <span className="text-xs text-muted-foreground capitalize">
                             {addr.status}
                           </span>
+                          <div className="ml-auto flex items-center gap-0.5">
+                            {isMonitored ? (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-5 w-5 text-green-600"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPingChartTargetIp(addr.ipAddress);
+                                  setPingChartOpen(true);
+                                }}
+                                title="View ping latency chart"
+                                data-testid={`button-ping-chart-ipam-${addr.id}`}
+                              >
+                                <Activity className="h-3 w-3" />
+                              </Button>
+                            ) : (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-5 w-5 invisible group-hover:visible"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  quickAddPingTargetMutation.mutate(addr.ipAddress);
+                                }}
+                                disabled={quickAddPingTargetMutation.isPending}
+                                title="Add to ping monitoring"
+                                data-testid={`button-add-ping-ipam-${addr.id}`}
+                              >
+                                <Plus className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -1479,6 +1542,7 @@ export function DevicePropertiesPanel({
                                 );
                               }
 
+                              const isIpMonitored = isPingMonitored(addr.ipAddress);
                               return (
                                 <div
                                   key={addr.id}
@@ -1505,34 +1569,67 @@ export function DevicePropertiesPanel({
                                   }`}>
                                     {addr.status}
                                   </span>
-                                  {isManual && canModify && (
-                                    <div className="ml-auto flex items-center gap-0.5 invisible group-hover:visible">
+                                  <div className="ml-auto flex items-center gap-0.5">
+                                    {isIpMonitored ? (
                                       <Button
                                         size="icon"
                                         variant="ghost"
-                                        className="h-5 w-5"
-                                        onClick={() => {
-                                          setEditingIpId(addr.id);
-                                          setEditingIpValue(addr.ipAddress);
+                                        className="h-5 w-5 text-green-600"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setPingChartTargetIp(addr.ipAddress);
+                                          setPingChartOpen(true);
                                         }}
-                                        title="Edit IP"
-                                        data-testid={`button-edit-ip-${addr.id}`}
+                                        title="View ping latency chart"
+                                        data-testid={`button-ping-chart-iface-${addr.id}`}
                                       >
-                                        <Pencil className="h-3 w-3" />
+                                        <Activity className="h-3 w-3" />
                                       </Button>
+                                    ) : (
                                       <Button
                                         size="icon"
                                         variant="ghost"
-                                        className="h-5 w-5 text-destructive hover:text-destructive"
-                                        onClick={() => deleteManualIpMutation.mutate(addr.id)}
-                                        disabled={deleteManualIpMutation.isPending}
-                                        title="Delete IP"
-                                        data-testid={`button-delete-ip-${addr.id}`}
+                                        className="h-5 w-5 invisible group-hover:visible"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          quickAddPingTargetMutation.mutate(addr.ipAddress);
+                                        }}
+                                        disabled={quickAddPingTargetMutation.isPending}
+                                        title="Add to ping monitoring"
+                                        data-testid={`button-add-ping-iface-${addr.id}`}
                                       >
-                                        <Trash2 className="h-3 w-3" />
+                                        <Plus className="h-3 w-3" />
                                       </Button>
-                                    </div>
-                                  )}
+                                    )}
+                                    {isManual && canModify && (
+                                      <>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-5 w-5 invisible group-hover:visible"
+                                          onClick={() => {
+                                            setEditingIpId(addr.id);
+                                            setEditingIpValue(addr.ipAddress);
+                                          }}
+                                          title="Edit IP"
+                                          data-testid={`button-edit-ip-${addr.id}`}
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-5 w-5 text-destructive hover:text-destructive invisible group-hover:visible"
+                                          onClick={() => deleteManualIpMutation.mutate(addr.id)}
+                                          disabled={deleteManualIpMutation.isPending}
+                                          title="Delete IP"
+                                          data-testid={`button-delete-ip-${addr.id}`}
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
                               );
                             })}
@@ -2113,7 +2210,11 @@ export function DevicePropertiesPanel({
         deviceId={device.id}
         deviceName={device.name}
         open={pingChartOpen}
-        onOpenChange={setPingChartOpen}
+        onOpenChange={(open) => {
+          setPingChartOpen(open);
+          if (!open) setPingChartTargetIp(undefined);
+        }}
+        initialTargetIp={pingChartTargetIp}
       />
     </div>
   );
