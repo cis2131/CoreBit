@@ -1940,15 +1940,13 @@ function getSnmpValueType(vb: any): DiscoveredSnmpOid['valueType'] {
     case 65: // Counter32
     case 70: // Counter64
       return 'counter';
-    case 66: // Gauge32
-    case 67: // Unsigned32
+    case 66: // Gauge32 / Unsigned32
       return 'gauge';
     case 2: // Integer
       return 'integer';
     case 4: // OctetString
       return 'string';
-    case 67: // TimeTicks
-    case 0x43: // TimeTicks (alternative)
+    case 67: // TimeTicks (0x43)
       return 'timeticks';
     case 64: // IpAddress
       return 'ipAddress';
