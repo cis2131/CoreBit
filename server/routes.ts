@@ -3036,19 +3036,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let status = determineDeviceStatus(probeResult.data, probeResult.success, probeResult.pingOnly, device.type);
       const oldStatus = device.status;
       
-      // Log when ping was used for probing
+      // Log when ping was used for probing - only log on STATUS TRANSITIONS, not every cycle
+      // The actual status change logging happens later at line ~3436
       if (probeResult.pingOnly) {
         const timestamp = new Date().toISOString();
         if (device.type === 'generic_ping') {
-          // Ping-only device - this is expected behavior
-          if (probeResult.success) {
-            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): Ping probe successful (RTT: ${probeResult.pingRtt?.toFixed(2) || 'n/a'}ms)`);
-          } else {
-            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): Ping probe failed - device unreachable`);
+          // Ping-only device - only log on status change (handled below)
+          // Don't log every successful ping
+          if (!probeResult.success && oldStatus === 'online') {
+            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): Ping probe failed - device becoming unreachable`);
           }
         } else {
-          // SNMP device with ping fallback - mark as stale
-          console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): SNMP failed but ping succeeded (RTT: ${probeResult.pingRtt || 'n/a'}ms) - marking as stale`);
+          // SNMP device with ping fallback - only log when transitioning TO stale (not while already stale)
+          if (oldStatus !== 'stale') {
+            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): SNMP failed but ping succeeded (RTT: ${probeResult.pingRtt || 'n/a'}ms) - marking as stale`);
+          }
         }
       }
       
@@ -3059,8 +3061,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const pingResult = await pingDevice(device.ipAddress, 3);
           if (pingResult.success) {
             status = 'stale';
-            const timestamp = new Date().toISOString();
-            console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): Mikrotik API failed but ping succeeded (RTT: ${pingResult.rtt || 'n/a'}ms) - marking as stale`);
+            // Only log transition if actually changing to stale (not if already stale)
+            if (oldStatus !== 'stale') {
+              const timestamp = new Date().toISOString();
+              console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): Mikrotik API failed but ping succeeded (RTT: ${pingResult.rtt || 'n/a'}ms) - marking as stale`);
+            }
           }
         } catch (pingError: any) {
           console.warn(`[Probing] Ping fallback failed for ${device.name}:`, pingError.message);
@@ -3524,9 +3529,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 const pingResult = await pingDevice(device.ipAddress, 3);
                 if (pingResult.success) {
                   useStaleStatus = true;
-                  const timestamp = new Date().toISOString();
-                  const probeType = device.type.startsWith('mikrotik_') ? 'Mikrotik API' : 'SNMP';
-                  console.log(`[${timestamp}] [Probing] ${device.name} (${device.ipAddress}): ${probeType} timed out but ping succeeded (RTT: ${pingResult.rtt || 'n/a'}ms) - marking as stale`);
+                  // Only log if actually transitioning to stale (not if already stale)
+                  // The detailed status change log happens below in the oldStatus !== targetStatus block
                 }
               } catch (pingError: any) {
                 console.warn(`[Probing] Ping fallback failed for ${device.name}:`, pingError.message);
