@@ -354,10 +354,10 @@ export function DevicePropertiesPanel({
   // Helper to check if an IP is ping monitored
   const isPingMonitored = (ip: string) => monitoredIpAddresses.has(ip);
 
-  // Quick add ping target from IP address
+  // Quick add ping target from IP address (with optional interface name)
   const quickAddPingTargetMutation = useMutation({
-    mutationFn: async (ipAddress: string) =>
-      apiRequest("POST", `/api/devices/${device.id}/ping-targets`, { ipAddress }),
+    mutationFn: async ({ ipAddress, interfaceName }: { ipAddress: string; interfaceName?: string }) =>
+      apiRequest("POST", `/api/devices/${device.id}/ping-targets`, { ipAddress, interfaceName }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["/api/devices", device.id, "ping-targets"],
@@ -840,7 +840,7 @@ export function DevicePropertiesPanel({
                               className="h-5 w-5 invisible group-hover:visible shrink-0"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                quickAddPingTargetMutation.mutate(addr.ipAddress);
+                                quickAddPingTargetMutation.mutate({ ipAddress: addr.ipAddress });
                               }}
                               disabled={quickAddPingTargetMutation.isPending}
                               title="Add to ping monitoring"
@@ -1586,7 +1586,7 @@ export function DevicePropertiesPanel({
                                       className="h-5 w-5 invisible group-hover:visible shrink-0"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        quickAddPingTargetMutation.mutate(addr.ipAddress);
+                                        quickAddPingTargetMutation.mutate({ ipAddress: addr.ipAddress, interfaceName: iface.name });
                                       }}
                                       disabled={quickAddPingTargetMutation.isPending}
                                       title="Add to ping monitoring"
@@ -1888,7 +1888,8 @@ export function DevicePropertiesPanel({
                       size="sm"
                       className="w-full h-8"
                       onClick={() => {
-                        setNewPingIp(device.ipAddress || "");
+                        setNewPingIp("");
+                        setNewPingLabel("");
                         setAddPingTargetOpen(true);
                       }}
                       data-testid="button-add-ping-target"

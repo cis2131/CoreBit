@@ -1044,6 +1044,7 @@ export const pingTargets = pgTable("ping_targets", {
   deviceId: varchar("device_id").notNull().references(() => devices.id, { onDelete: "cascade" }),
   ipAddress: text("ip_address").notNull(), // IP address to ping
   label: text("label"), // Optional friendly label (e.g., "WAN Interface", "LAN Gateway")
+  interfaceName: text("interface_name"), // Interface name if IP belongs to an interface (e.g., "bridge", "ether1")
   enabled: boolean("enabled").default(true).notNull(),
   probeCount: integer("probe_count").default(20).notNull(), // Number of pings per cycle (default 20)
   intervalSeconds: integer("interval_seconds").default(30).notNull(), // Probe interval (default 30s)

@@ -52,6 +52,7 @@ interface PingTarget {
   deviceId: string;
   ipAddress: string;
   label: string | null;
+  interfaceName: string | null;
   enabled: boolean;
   probeCount: number;
   intervalSeconds: number;
@@ -88,6 +89,17 @@ function formatMs(value: number | null): string {
   if (value < 1) return `${(value * 1000).toFixed(0)}μs`;
   if (value < 100) return `${value.toFixed(1)}ms`;
   return `${Math.round(value)}ms`;
+}
+
+function formatTargetDisplay(target: PingTarget): string {
+  const parts: string[] = [];
+  if (target.label) parts.push(target.label);
+  if (target.interfaceName) parts.push(target.interfaceName);
+  
+  if (parts.length > 0) {
+    return `${parts.join(" - ")} (${target.ipAddress})`;
+  }
+  return target.ipAddress;
 }
 
 export function PingLatencyChart({
@@ -244,9 +256,7 @@ export function PingLatencyChart({
                 <DialogTitle>Ping Latency - {deviceName}</DialogTitle>
                 {currentTarget?.target && (
                   <p className="text-sm text-muted-foreground font-mono mt-0.5">
-                    {currentTarget.target.label 
-                      ? `${currentTarget.target.label} (${currentTarget.target.ipAddress})`
-                      : currentTarget.target.ipAddress}
+                    {formatTargetDisplay(currentTarget.target)}
                   </p>
                 )}
               </div>
@@ -294,14 +304,14 @@ export function PingLatencyChart({
                   <SelectContent>
                     {pingData.filter((t) => t.target).map((t) => (
                       <SelectItem key={t.target.id} value={t.target.id}>
-                        {t.target.label ? `${t.target.label} (${t.target.ipAddress})` : t.target.ipAddress}
+                        {formatTargetDisplay(t.target)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               ) : (
                 <Badge variant="outline" className="font-mono" data-testid="badge-ping-target-ip">
-                  {currentTarget.target.label ? `${currentTarget.target.label} (${currentTarget.target.ipAddress})` : currentTarget.target.ipAddress}
+                  {formatTargetDisplay(currentTarget.target)}
                 </Badge>
               )}
             </div>
