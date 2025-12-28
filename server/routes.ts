@@ -4505,7 +4505,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Clean up each retention group
-      for (const [retentionHours, deviceIds] of devicesByRetention) {
+      for (const [retentionHours, deviceIds] of Array.from(devicesByRetention.entries())) {
         const cutoff = new Date(now.getTime() - retentionHours * 60 * 60 * 1000);
         const deleted = await storage.deleteDeviceMetricsHistoryBefore(cutoff, deviceIds);
         totalDeviceMetricsDeleted += deleted;

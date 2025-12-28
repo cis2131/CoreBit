@@ -875,13 +875,18 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
                               return <div className="text-muted-foreground">-</div>;
                             }
                             
+                            // Show max 2 assignments, then "+N more"
+                            const maxShow = 2;
+                            const showList = assignmentsList.slice(0, maxShow);
+                            const remaining = assignmentsList.length - maxShow;
+                            
                             return (
-                              <div className="space-y-1">
-                                {assignmentsList.map((assignment, idx) => {
+                              <div className="space-y-0.5">
+                                {showList.map((assignment, idx) => {
                                   const info = getAssignmentDeviceInfo(assignment as IpamAddressAssignment);
                                   const canNavigate = info.deviceId && info.mapId && onNavigateToDevice;
                                   return (
-                                    <div key={`${assignment.deviceId}-${idx}`}>
+                                    <div key={`${assignment.deviceId}-${idx}`} className="flex items-center gap-1 text-xs">
                                       {canNavigate ? (
                                         <button
                                           className="text-left text-primary hover:underline flex items-center gap-1"
@@ -891,18 +896,21 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
                                           }}
                                           data-testid={`link-device-${info.deviceId}`}
                                         >
-                                          <MapPin className="h-3 w-3" />
-                                          {info.name}
+                                          <MapPin className="h-3 w-3 shrink-0" />
+                                          <span className="truncate max-w-[100px]">{info.name}</span>
                                         </button>
                                       ) : (
-                                        <div>{info.name}</div>
+                                        <span className="truncate max-w-[100px]">{info.name}</span>
                                       )}
                                       {info.interfaceInfo && (
-                                        <div className="text-xs text-muted-foreground ml-4">{info.interfaceInfo}</div>
+                                        <span className="text-muted-foreground truncate max-w-[60px]">{info.interfaceInfo}</span>
                                       )}
                                     </div>
                                   );
                                 })}
+                                {remaining > 0 && (
+                                  <div className="text-xs text-muted-foreground">+{remaining} more</div>
+                                )}
                               </div>
                             );
                           })()}
