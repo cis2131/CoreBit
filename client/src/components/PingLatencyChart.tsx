@@ -199,7 +199,7 @@ export function PingLatencyChart({
               <Activity className="h-5 w-5 text-muted-foreground" />
               <DialogTitle>Ping Latency - {deviceName}</DialogTitle>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 mr-6">
               <Select value={timeRange} onValueChange={setTimeRange}>
                 <SelectTrigger className="w-36" data-testid="select-time-range">
                   <SelectValue />
@@ -442,13 +442,14 @@ export function PingStatusBadge({ deviceId, onClick }: PingStatusBadgeProps) {
   return (
     <Badge
       variant={hasLoss ? "destructive" : "outline"}
-      className="cursor-pointer font-mono text-xs"
+      className="cursor-pointer font-mono text-xs whitespace-nowrap flex-shrink-0"
       onClick={onClick}
       data-testid="badge-ping-status"
     >
-      <Activity className="h-3 w-3 mr-1" />
-      {avgRtt.toFixed(1)}ms
-      {hasLoss && ` / ${maxLoss.toFixed(0)}% loss`}
+      <Activity className="h-3 w-3 mr-1 flex-shrink-0" />
+      <span className="truncate max-w-[100px]">
+        {avgRtt.toFixed(1)}ms{hasLoss && ` / ${maxLoss.toFixed(0)}%`}
+      </span>
     </Badge>
   );
 }

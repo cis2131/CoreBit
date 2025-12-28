@@ -218,9 +218,13 @@ async function runProbeCycle(): Promise<void> {
     }
     
     if (historyRecords.length > 0) {
+      const allFailed = historyRecords.every(r => r.lossPct === 100);
       const inserted = await storage.insertPingHistoryBatch(historyRecords);
       const elapsed = Date.now() - startTime;
       console.log(`[PingProbe] Cycle complete: ${targets.length} targets, ${inserted} records stored in ${elapsed}ms`);
+      if (allFailed && targets.length > 0) {
+        console.warn('[PingProbe] Warning: All pings failed with 100% loss. This may indicate fping is not installed or ICMP is blocked.');
+      }
     }
     
   } catch (error: any) {
