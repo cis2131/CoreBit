@@ -1,0 +1,153 @@
+# CoreBit .gitignore
+# This file ensures only release files and documentation are tracked
+# Source code and development files are excluded
+
+# Source Code Files
+*.c
+*.cpp
+*.cc
+*.cxx
+*.h
+*.hpp
+*.hxx
+*.java
+*.py
+*.js
+*.ts
+*.jsx
+*.tsx
+*.go
+*.rs
+*.rb
+*.php
+*.cs
+*.vb
+*.swift
+*.kt
+*.scala
+*.m
+*.mm
+
+# Project and Build Files
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.xcodeproj
+*.xcworkspace
+Makefile
+makefile
+CMakeLists.txt
+*.cmake
+*.gradle
+*.maven
+pom.xml
+build.gradle
+package.json
+package-lock.json
+yarn.lock
+Cargo.toml
+Cargo.lock
+*.csproj
+*.fsproj
+*.vbproj
+Gemfile
+Gemfile.lock
+composer.json
+composer.lock
+go.mod
+go.sum
+
+# Build Output and Artifacts
+build/
+dist/
+target/
+out/
+bin/
+obj/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.class
+*.pyc
+*.pyo
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.tox/
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+
+# Dependencies and Packages
+node_modules/
+vendor/
+bower_components/
+
+# Development Tools
+.git/
+.gitattributes
+.editorconfig
+.eslintrc*
+.prettierrc*
+tsconfig.json
+jest.config.*
+*.config.js
+*.config.ts
+
+# Testing
+tests/
+test/
+__tests__/
+*.test.*
+*.spec.*
+coverage/
+.coverage
+htmlcov/
+
+# Documentation Source (if using generators)
+docs/source/
+*.rst
+
+# Temporary Files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Allow These Files
+# Release files, documentation, and changelog
+!README.md
+!CHANGELOG.md
+!LICENSE
+!LICENSE.txt
+!LICENSE.md
+!CONTRIBUTING.md
+!CODE_OF_CONDUCT.md
+!SECURITY.md
+!.gitignore
+
+# Allow release binaries and archives (uncomment as needed)
+# !*.exe
+# !*.dmg
+# !*.pkg
+# !*.deb
+# !*.rpm
+# !*.zip
+# !*.tar.gz
+# !*.tar.bz2
+# !*.rar
+# !*.7z
