@@ -10,7 +10,7 @@ There are three main methods to delete a file from the root folder of this GitHu
 
 This is the simplest method if you want to delete a file directly through GitHub's website.
 
-1. **Navigate to the repository** on GitHub (https://github.com/cis2131/CoreBit)
+1. **Navigate to the repository** on GitHub
 2. **Locate the file** you want to delete in the root folder
 3. **Click on the file name** to open it
 4. **Click the trash icon** (🗑️) in the top-right corner of the file view
@@ -28,7 +28,7 @@ This method is preferred for developers who work with Git regularly.
 
 ```bash
 # 1. Navigate to your local repository
-cd /path/to/CoreBit
+cd /path/to/your-repository
 
 # 2. Ensure you're on the correct branch
 git checkout main  # or your target branch
@@ -63,7 +63,7 @@ git push origin main
 For users who prefer a graphical interface:
 
 1. **Open GitHub Desktop**
-2. **Select the CoreBit repository** from the repository list
+2. **Select your repository** from the repository list
 3. **Navigate to the file** in your file explorer or Finder
 4. **Delete the file** normally (move to trash/recycle bin)
 5. **Return to GitHub Desktop** - you'll see the deleted file in the "Changes" tab
@@ -107,7 +107,7 @@ git push origin main
 
 ## Common Files You Might Delete
 
-In the CoreBit repository root folder, common files that might be deleted include:
+In this repository's root folder, common files that might be deleted include:
 
 - **Configuration files:** `.env.example`, `*.config.js/ts`
 - **Documentation files:** `*.md` files (README.md, DEPLOYMENT.md, etc.)
