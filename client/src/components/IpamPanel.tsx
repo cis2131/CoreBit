@@ -770,7 +770,7 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
           setAddressSearchQuery('');
         }
       }}>
-        <DialogContent className="max-w-3xl max-h-[80vh]">
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Network className="h-5 w-5" />
@@ -825,7 +825,7 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
               )}
             </div>
 
-            <ScrollArea className="h-[400px] border rounded-md">
+            <ScrollArea className="h-[400px] border rounded-md overflow-auto">
               {addressesLoading ? (
                 <div className="flex items-center justify-center h-32">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -837,15 +837,16 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
                   <p className="text-xs">Click "Expand to IPs" to generate addresses</p>
                 </div>
               ) : (
+                <div className="min-w-full overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>IP Address</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Device</TableHead>
-                      <TableHead>Hostname</TableHead>
-                      <TableHead>Notes</TableHead>
-                      <TableHead>Last Seen</TableHead>
+                      <TableHead className="whitespace-nowrap">IP Address</TableHead>
+                      <TableHead className="whitespace-nowrap">Status</TableHead>
+                      <TableHead className="whitespace-nowrap">Device</TableHead>
+                      <TableHead className="whitespace-nowrap">Hostname</TableHead>
+                      <TableHead className="whitespace-nowrap">Notes</TableHead>
+                      <TableHead className="whitespace-nowrap">Last Seen</TableHead>
                       {canModify && <TableHead className="w-10"></TableHead>}
                     </TableRow>
                   </TableHeader>
@@ -981,6 +982,7 @@ export function IpamPanel({ isCollapsed = false, onNavigateToDevice }: IpamPanel
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               )}
             </ScrollArea>
           </div>
