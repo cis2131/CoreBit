@@ -274,6 +274,7 @@ export const deviceInterfaces = pgTable("device_interfaces", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   index("idx_device_interfaces_device").on(table.deviceId),
+  uniqueIndex("idx_device_interfaces_unique").on(table.deviceId, table.name),
 ]);
 
 export const connections = pgTable("connections", {

@@ -1592,36 +1592,50 @@ export class DatabaseStorage implements IStorage {
   }
 
   async syncDeviceInterfaces(deviceId: string, interfaces: Omit<InsertDeviceInterface, 'deviceId'>[]): Promise<DeviceInterface[]> {
-    // Get existing interfaces for this device
-    const existing = await this.getDeviceInterfaces(deviceId);
-    const existingByName = new Map(existing.map(i => [i.name, i]));
-    
+    // Use upsert pattern with ON CONFLICT to prevent race conditions causing duplicate interfaces
+    // The unique constraint on (deviceId, name) ensures each interface is unique per device
     const result: DeviceInterface[] = [];
     const now = new Date();
     
     for (const iface of interfaces) {
-      const existingIface = existingByName.get(iface.name);
-      if (existingIface) {
-        // Update existing interface
-        const updated = await this.updateDeviceInterface(existingIface.id, {
-          ...iface,
-          lastSeenAt: now,
-        });
-        if (updated) result.push(updated);
-        existingByName.delete(iface.name);
-      } else {
-        // Create new interface
-        const created = await this.createDeviceInterface({
-          ...iface,
-          deviceId,
-          lastSeenAt: now,
-        });
-        result.push(created);
+      // Use raw SQL for upsert since Drizzle's onConflictDoUpdate requires the conflict target
+      // The unique index idx_device_interfaces_unique on (device_id, name) handles duplicates
+      const insertData: InsertDeviceInterface = {
+        ...iface,
+        deviceId,
+        lastSeenAt: now,
+      };
+      
+      try {
+        // Try to insert - if conflict on (deviceId, name), update instead
+        const [upserted] = await db
+          .insert(deviceInterfaces)
+          .values(insertData)
+          .onConflictDoUpdate({
+            target: [deviceInterfaces.deviceId, deviceInterfaces.name],
+            set: {
+              description: iface.description,
+              type: iface.type,
+              parentInterfaceId: iface.parentInterfaceId,
+              snmpIndex: iface.snmpIndex,
+              macAddress: iface.macAddress,
+              isVirtual: iface.isVirtual,
+              operStatus: iface.operStatus,
+              adminStatus: iface.adminStatus,
+              speed: iface.speed,
+              duplex: iface.duplex,
+              discoverySource: iface.discoverySource,
+              lastSeenAt: now,
+            },
+          })
+          .returning();
+        
+        if (upserted) result.push(upserted);
+      } catch (error: any) {
+        // Log but continue - don't let one interface failure break the whole sync
+        console.error(`[Storage] Failed to sync interface ${iface.name} for device ${deviceId}:`, error.message);
       }
     }
-    
-    // Mark interfaces that weren't seen as stale (don't delete - they may have IP assignments)
-    // We don't delete them because IPAM addresses may reference them
     
     return result;
   }
