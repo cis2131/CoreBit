@@ -88,7 +88,7 @@ import {
   type InsertPingHistory
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, isNotNull, isNull, or, gt, lt, gte, lte, asc, inArray } from "drizzle-orm";
+import { eq, and, desc, isNotNull, isNull, or, gt, lt, gte, lte, asc, inArray, sql } from "drizzle-orm";
 
 // IP utility functions for IPAM pool matching
 function ipToLong(ip: string): number {
@@ -2094,3 +2094,63 @@ export class DatabaseStorage implements IStorage {
 }
 
 export const storage = new DatabaseStorage();
+
+// Startup cleanup function to deduplicate device interfaces
+// This handles upgrades from older versions that may have duplicate interfaces
+// Also creates the unique index if it doesn't exist after cleanup
+export async function cleanupDuplicateInterfaces(): Promise<number> {
+  try {
+    // Find duplicates using raw SQL
+    const duplicates = await db.execute<{ device_id: string; name: string; cnt: string }>(
+      sql`SELECT device_id, name, COUNT(*) as cnt 
+          FROM device_interfaces 
+          GROUP BY device_id, name 
+          HAVING COUNT(*) > 1`
+    );
+    
+    let deletedCount = 0;
+    
+    if (duplicates.rows && duplicates.rows.length > 0) {
+      for (const dup of duplicates.rows) {
+        // Get all interfaces with this deviceId and name, ordered by lastSeenAt desc (keep newest)
+        const interfaces = await db.select()
+          .from(deviceInterfaces)
+          .where(and(
+            eq(deviceInterfaces.deviceId, dup.device_id),
+            eq(deviceInterfaces.name, dup.name)
+          ))
+          .orderBy(desc(deviceInterfaces.lastSeenAt));
+        
+        // Delete all but the first (newest) one
+        for (let i = 1; i < interfaces.length; i++) {
+          await db.delete(deviceInterfaces).where(eq(deviceInterfaces.id, interfaces[i].id));
+          deletedCount++;
+        }
+      }
+      
+      if (deletedCount > 0) {
+        console.log(`[Storage] Cleaned up ${deletedCount} duplicate interface records`);
+      }
+    }
+    
+    // After cleanup, ensure the unique index exists (handles upgrade case)
+    // This will silently succeed if index already exists
+    try {
+      await db.execute(
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_device_interfaces_unique 
+            ON device_interfaces (device_id, name)`
+      );
+    } catch (indexError: any) {
+      // Index creation might fail if duplicates still exist (shouldn't happen after cleanup)
+      // or if index already exists with different definition
+      if (!indexError.message?.includes('already exists')) {
+        console.error('[Storage] Failed to create unique index:', indexError.message);
+      }
+    }
+    
+    return deletedCount;
+  } catch (error: any) {
+    console.error('[Storage] Error cleaning up duplicate interfaces:', error.message);
+    return 0;
+  }
+}

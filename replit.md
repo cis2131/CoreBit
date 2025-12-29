@@ -94,6 +94,15 @@ The project includes a complete deployment system for production servers:
 
 **Snap-to-Grid:** Default ON (devices snap to 20px grid), hold Shift for free placement.
 
+## Upgrade Notes
+
+**Automatic Interface Deduplication:**
+When upgrading from older versions, the application automatically cleans up any duplicate device interface records at startup. This is necessary because:
+-   Older versions could create duplicate interfaces during concurrent device probing
+-   A unique constraint on `(deviceId, name)` now prevents duplicates at the database level
+-   The cleanup runs silently unless duplicates are found, then logs the count of cleaned records
+-   The most recently seen interface is kept, older duplicates are deleted
+
 ## Disaster Recovery
 
 **Admin Password Reset:**
