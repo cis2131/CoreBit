@@ -83,12 +83,46 @@ function expandCidr(cidr: string): string[] {
 }
 
 // Helper function to resolve credentials from profile or custom
+// Merges profile credentials with device-specific overrides (customCredentials)
 async function resolveCredentials(device: Pick<Device, 'credentialProfileId' | 'customCredentials'>) {
+  let profileCreds: any = null;
+  
   if (device.credentialProfileId) {
     const profile = await storage.getCredentialProfile(device.credentialProfileId);
-    return profile?.credentials;
+    profileCreds = profile?.credentials || null;
   }
-  return device.customCredentials;
+  
+  const customCreds = device.customCredentials as any;
+  
+  // If no profile, return custom credentials only
+  if (!profileCreds) {
+    return customCreds;
+  }
+  
+  // If no custom credentials, return profile credentials only
+  if (!customCreds) {
+    return profileCreds;
+  }
+  
+  // Merge: profile is base, custom overrides most fields
+  // But for arrays like snmpMetrics and prometheusMetrics, prefer custom if it has items
+  const merged = { ...profileCreds };
+  
+  // Override with non-null/undefined custom credential fields
+  for (const key of Object.keys(customCreds)) {
+    if (customCreds[key] !== null && customCreds[key] !== undefined) {
+      // For array fields, only override if custom array has items
+      if (Array.isArray(customCreds[key])) {
+        if (customCreds[key].length > 0) {
+          merged[key] = customCreds[key];
+        }
+      } else {
+        merged[key] = customCreds[key];
+      }
+    }
+  }
+  
+  return merged;
 }
 
 // Helper function to render message template with device variables

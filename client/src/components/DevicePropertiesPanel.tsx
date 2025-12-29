@@ -918,8 +918,9 @@ export function DevicePropertiesPanel({
             </CardContent>
           </Card>
 
-          {device.deviceData?.cpuUsagePct !== undefined &&
-            device.deviceData?.memoryUsagePct !== undefined && (
+          {(device.deviceData?.cpuUsagePct !== undefined ||
+            device.deviceData?.memoryUsagePct !== undefined ||
+            (device.deviceData?.customMetrics && Object.keys(device.deviceData.customMetrics).length > 0)) && (
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center justify-between">
@@ -940,69 +941,75 @@ export function DevicePropertiesPanel({
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div 
-                    className="space-y-2 cursor-pointer hover-elevate p-2 -m-2 rounded-md transition-colors"
-                    onClick={() => {
-                      setMetricsChartMetric('cpu');
-                      setMetricsChartOpen(true);
-                    }}
-                    title="Click to view CPU history"
-                    data-testid="button-cpu-chart"
-                  >
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <Cpu className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-foreground font-medium">
-                          CPU Usage
+                  {device.deviceData?.cpuUsagePct !== undefined && (
+                    <div 
+                      className="space-y-2 cursor-pointer hover-elevate p-2 -m-2 rounded-md transition-colors"
+                      onClick={() => {
+                        setMetricsChartMetric('cpu');
+                        setMetricsChartOpen(true);
+                      }}
+                      title="Click to view CPU history"
+                      data-testid="button-cpu-chart"
+                    >
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <Cpu className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-foreground font-medium">
+                            CPU Usage
+                          </span>
+                        </div>
+                        <span
+                          className="font-mono font-semibold text-foreground"
+                          data-testid="text-cpu-usage"
+                        >
+                          {device.deviceData.cpuUsagePct}%
                         </span>
                       </div>
-                      <span
-                        className="font-mono font-semibold text-foreground"
-                        data-testid="text-cpu-usage"
-                      >
-                        {device.deviceData.cpuUsagePct}%
-                      </span>
+                      <Progress
+                        value={device.deviceData.cpuUsagePct}
+                        className="h-2"
+                        data-testid="progress-cpu"
+                      />
                     </div>
-                    <Progress
-                      value={device.deviceData.cpuUsagePct}
-                      className="h-2"
-                      data-testid="progress-cpu"
-                    />
-                  </div>
-                  <div 
-                    className="space-y-2 cursor-pointer hover-elevate p-2 -m-2 rounded-md transition-colors"
-                    onClick={() => {
-                      setMetricsChartMetric('memory');
-                      setMetricsChartOpen(true);
-                    }}
-                    title="Click to view Memory history"
-                    data-testid="button-memory-chart"
-                  >
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <MemoryStick className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-foreground font-medium">
-                          Memory Usage
+                  )}
+                  {device.deviceData?.memoryUsagePct !== undefined && (
+                    <div 
+                      className="space-y-2 cursor-pointer hover-elevate p-2 -m-2 rounded-md transition-colors"
+                      onClick={() => {
+                        setMetricsChartMetric('memory');
+                        setMetricsChartOpen(true);
+                      }}
+                      title="Click to view Memory history"
+                      data-testid="button-memory-chart"
+                    >
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <MemoryStick className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-foreground font-medium">
+                            Memory Usage
+                          </span>
+                        </div>
+                        <span
+                          className="font-mono font-semibold text-foreground"
+                          data-testid="text-memory-usage"
+                        >
+                          {device.deviceData.memoryUsagePct}%
                         </span>
                       </div>
-                      <span
-                        className="font-mono font-semibold text-foreground"
-                        data-testid="text-memory-usage"
-                      >
-                        {device.deviceData.memoryUsagePct}%
-                      </span>
+                      <Progress
+                        value={device.deviceData.memoryUsagePct}
+                        className="h-2"
+                        data-testid="progress-memory"
+                      />
                     </div>
-                    <Progress
-                      value={device.deviceData.memoryUsagePct}
-                      className="h-2"
-                      data-testid="progress-memory"
-                    />
-                  </div>
+                  )}
                   
-                  {/* Custom metrics from Prometheus */}
+                  {/* Custom metrics from Prometheus and SNMP */}
                   {device.deviceData?.customMetrics && Object.keys(device.deviceData.customMetrics).length > 0 && (
                     <>
-                      <Separator className="my-3" />
+                      {(device.deviceData?.cpuUsagePct !== undefined || device.deviceData?.memoryUsagePct !== undefined) && (
+                        <Separator className="my-3" />
+                      )}
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs text-muted-foreground font-medium">Custom Metrics</span>
                         <Button
