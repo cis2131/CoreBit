@@ -1,6 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { storage, cleanupDuplicateInterfaces } from "./storage";
+import { storage, cleanupDuplicateInterfaces, cleanupDuplicateProxmoxVms } from "./storage";
 import { probeDevice, determineDeviceStatus, probeInterfaceTraffic, probePrometheusInterfaceTraffic, probeMikrotikWithPool, pingDevice, discoverDevice, discoverPrometheusMetrics, discoverSnmpMetrics, type DeviceFingerprint, type ProbeType } from "./deviceProbe";
 import { mikrotikPool } from "./mikrotikConnectionPool";
 import { insertMapSchema, insertDeviceSchema, insertDevicePlacementSchema, insertConnectionSchema, insertCredentialProfileSchema, insertNotificationSchema, insertDeviceNotificationSchema, insertScanProfileSchema, insertUserSchema, insertUserNotificationChannelSchema, insertDutyUserScheduleSchema, insertDutyShiftConfigSchema, insertIpamPoolSchema, insertIpamAddressSchema, type Device, type Connection, type UserNotificationChannel } from "@shared/schema";
@@ -487,9 +487,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Check for admin password recovery (disaster recovery)
   await checkAdminRecovery();
   
-  // Clean up any duplicate device interfaces from older versions
-  // This must run before probing to avoid unique constraint violations
+  // Clean up any duplicate records from older versions
+  // These must run before probing to avoid unique constraint violations
   await cleanupDuplicateInterfaces();
+  await cleanupDuplicateProxmoxVms();
 
   // ========== AUTHENTICATION ROUTES ==========
   

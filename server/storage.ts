@@ -1180,20 +1180,53 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertProxmoxVm(hostDeviceId: string, vmid: number, vm: Partial<InsertProxmoxVm>): Promise<ProxmoxVm> {
-    const existing = await this.getProxmoxVmByVmid(hostDeviceId, vmid);
-    if (existing) {
-      const updated = await this.updateProxmoxVm(existing.id, vm);
-      return updated!;
-    } else {
-      return await this.createProxmoxVm({
-        hostDeviceId,
-        vmid,
-        vmType: vm.vmType || 'qemu',
-        name: vm.name || `VM ${vmid}`,
-        status: vm.status || 'unknown',
-        node: vm.node || 'unknown',
-        ...vm
-      } as InsertProxmoxVm);
+    // Use atomic upsert with ON CONFLICT to prevent race conditions during concurrent probes
+    const insertData: InsertProxmoxVm = {
+      hostDeviceId,
+      vmid,
+      vmType: vm.vmType || 'qemu',
+      name: vm.name || `VM ${vmid}`,
+      status: vm.status || 'unknown',
+      node: vm.node || 'unknown',
+      ...vm
+    } as InsertProxmoxVm;
+    
+    try {
+      const [upserted] = await db
+        .insert(proxmoxVms)
+        .values(insertData)
+        .onConflictDoUpdate({
+          target: [proxmoxVms.hostDeviceId, proxmoxVms.vmid],
+          set: {
+            name: vm.name,
+            status: vm.status,
+            node: vm.node,
+            cpuUsage: vm.cpuUsage,
+            cpuUsagePct: vm.cpuUsagePct,
+            memoryBytes: vm.memoryBytes,
+            memoryUsagePct: vm.memoryUsagePct,
+            diskBytes: vm.diskBytes,
+            uptime: vm.uptime,
+            ipAddresses: vm.ipAddresses,
+            macAddresses: vm.macAddresses,
+            matchedDeviceId: vm.matchedDeviceId,
+            clusterName: vm.clusterName,
+            lastSeen: new Date(),
+          },
+        })
+        .returning();
+      
+      return upserted;
+    } catch (error: any) {
+      // Fallback to original logic if upsert fails (e.g., unique index doesn't exist yet)
+      console.error(`[Storage] Proxmox VM upsert failed, falling back:`, error.message);
+      const existing = await this.getProxmoxVmByVmid(hostDeviceId, vmid);
+      if (existing) {
+        const updated = await this.updateProxmoxVm(existing.id, vm);
+        return updated!;
+      } else {
+        return await this.createProxmoxVm(insertData);
+      }
     }
   }
 
@@ -2094,6 +2127,63 @@ export class DatabaseStorage implements IStorage {
 }
 
 export const storage = new DatabaseStorage();
+
+// Startup cleanup function to deduplicate Proxmox VMs
+// This handles upgrades from older versions that may have duplicate VM records
+// Also creates the unique index if it doesn't exist after cleanup
+export async function cleanupDuplicateProxmoxVms(): Promise<number> {
+  try {
+    // Find duplicates using raw SQL
+    const duplicates = await db.execute<{ host_device_id: string; vmid: number; cnt: string }>(
+      sql`SELECT host_device_id, vmid, COUNT(*) as cnt 
+          FROM proxmox_vms 
+          GROUP BY host_device_id, vmid 
+          HAVING COUNT(*) > 1`
+    );
+    
+    let deletedCount = 0;
+    
+    if (duplicates.rows && duplicates.rows.length > 0) {
+      for (const dup of duplicates.rows) {
+        // Get all VMs with this hostDeviceId and vmid, ordered by lastSeen desc (keep newest)
+        const vms = await db.select()
+          .from(proxmoxVms)
+          .where(and(
+            eq(proxmoxVms.hostDeviceId, dup.host_device_id),
+            eq(proxmoxVms.vmid, dup.vmid)
+          ))
+          .orderBy(desc(proxmoxVms.lastSeen));
+        
+        // Delete all but the first (newest) one
+        for (let i = 1; i < vms.length; i++) {
+          await db.delete(proxmoxVms).where(eq(proxmoxVms.id, vms[i].id));
+          deletedCount++;
+        }
+      }
+      
+      if (deletedCount > 0) {
+        console.log(`[Storage] Cleaned up ${deletedCount} duplicate Proxmox VM records`);
+      }
+    }
+    
+    // After cleanup, ensure the unique index exists (handles upgrade case)
+    try {
+      await db.execute(
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_proxmox_vms_unique 
+            ON proxmox_vms (host_device_id, vmid)`
+      );
+    } catch (indexError: any) {
+      if (!indexError.message?.includes('already exists')) {
+        console.error('[Storage] Failed to create Proxmox VMs unique index:', indexError.message);
+      }
+    }
+    
+    return deletedCount;
+  } catch (error: any) {
+    console.error('[Storage] Error cleaning up duplicate Proxmox VMs:', error.message);
+    return 0;
+  }
+}
 
 // Startup cleanup function to deduplicate device interfaces
 // This handles upgrades from older versions that may have duplicate interfaces
