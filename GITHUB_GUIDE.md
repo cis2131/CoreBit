@@ -109,11 +109,12 @@ git push origin main
 
 In this repository's root folder, common files that might be deleted include:
 
-- **Configuration files:** `.env.example`, `*.config.js/ts`
+- **Configuration files:** `.env.example`, `*.config.js`, `*.config.ts`
 - **Documentation files:** `*.md` files (README.md, DEPLOYMENT.md, etc.)
-- **Build artifacts:** `dist/`, `build/` (though these are usually in .gitignore)
 - **Package files:** `package.json`, `package-lock.json`
 - **Other project files:** `tsconfig.json`, `.replit`, etc.
+
+**Note:** Build artifacts like `dist/` and `build/` directories are typically excluded via `.gitignore` and shouldn't need manual deletion from Git.
 
 **Warning:** Be extremely careful when deleting:
 - `package.json` - Required for dependency management
@@ -127,7 +128,7 @@ If you encounter issues:
 
 1. **Check Git status:** `git status`
 2. **View recent commits:** `git log --oneline -10`
-3. **Undo uncommitted changes:** `git checkout -- filename.txt`
+3. **Undo uncommitted changes:** `git restore filename.txt` (or `git checkout -- filename.txt` for older Git versions)
 4. **Undo last commit (not pushed):** `git reset HEAD~1`
 5. **Consult documentation:** [GitHub Docs](https://docs.github.com)
 
