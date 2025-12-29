@@ -64,12 +64,16 @@ if (!ADMIN_PASSWORD || ADMIN_PASSWORD.length < 8) {
 // Stripe configuration (optional - only required for payment processing)
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
-const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID;
+const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID; // Pro license (unlimited)
+const STRIPE_PRICE_ID_DEVICE_PACK = process.env.STRIPE_PRICE_ID_DEVICE_PACK || 'price_1SjckoIEfpt7OIJOAL1swxmf'; // Device pack (+10 devices)
+const DEVICE_PACK_SIZE = 10; // Each device pack adds 10 devices
 let stripe = null;
 
 if (STRIPE_SECRET_KEY) {
   stripe = require('stripe')(STRIPE_SECRET_KEY);
   console.log('Stripe integration enabled');
+  console.log('Pro price ID:', STRIPE_PRICE_ID || 'not configured');
+  console.log('Device pack price ID:', STRIPE_PRICE_ID_DEVICE_PACK);
 } else {
   console.log('Stripe not configured - payment endpoints disabled');
 }
@@ -163,7 +167,8 @@ function signLicense(licenseData) {
   return sign.sign(privateKey, 'base64');
 }
 
-function createLicenseFromPayment(customerEmail, customerName, stripeSessionId, stripePaymentIntent) {
+// Create a license from Stripe payment - supports pro and device_pack tiers
+function createLicenseFromPayment(customerEmail, customerName, stripeSessionId, stripePaymentIntent, tier = 'pro', deviceLimit = null) {
   const licenseKey = generateLicenseKey();
   const now = new Date();
   const updatesValidUntil = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000); // 1 year
@@ -173,8 +178,8 @@ function createLicenseFromPayment(customerEmail, customerName, stripeSessionId, 
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     licenseKey,
-    'pro',
-    null, // unlimited devices
+    tier,
+    deviceLimit, // null for pro (unlimited), 10 for device_pack
     now.toISOString(),
     updatesValidUntil.toISOString(),
     customerEmail || null,
@@ -185,8 +190,8 @@ function createLicenseFromPayment(customerEmail, customerName, stripeSessionId, 
   
   return {
     licenseKey,
-    tier: 'pro',
-    deviceLimit: null,
+    tier,
+    deviceLimit,
     purchaseDate: now.toISOString(),
     updatesValidUntil: updatesValidUntil.toISOString(),
   };
@@ -251,23 +256,33 @@ function requireAdminSession(req, res, next) {
 
 // ============== STRIPE ENDPOINTS ==============
 
-// Create Stripe Checkout Session
+// Create Stripe Checkout Session - supports both Pro and Device Pack products
 app.post('/api/stripe/checkout', async (req, res) => {
   if (!stripe) {
     return res.status(503).json({ error: 'Stripe not configured' });
   }
   
-  if (!STRIPE_PRICE_ID) {
-    return res.status(503).json({ error: 'STRIPE_PRICE_ID not configured' });
-  }
-  
   try {
-    const { fingerprint } = req.body;
+    const { fingerprint, product } = req.body;
+    
+    // Determine which price to use based on product type
+    let priceId;
+    let productType = product || 'pro'; // Default to pro for backwards compatibility
+    
+    if (productType === 'device_pack') {
+      priceId = STRIPE_PRICE_ID_DEVICE_PACK;
+    } else {
+      priceId = STRIPE_PRICE_ID;
+    }
+    
+    if (!priceId) {
+      return res.status(503).json({ error: `Price ID not configured for ${productType}` });
+    }
     
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [{
-        price: STRIPE_PRICE_ID,
+        price: priceId,
         quantity: 1,
       }],
       mode: 'payment',
@@ -275,6 +290,7 @@ app.post('/api/stripe/checkout', async (req, res) => {
       cancel_url: `${BASE_URL}/cancel`,
       metadata: {
         fingerprint: fingerprint || '',
+        product_type: productType, // Store product type for webhook
       },
     });
     
@@ -316,15 +332,27 @@ app.post('/webhook', async (req, res) => {
       return res.json({ received: true });
     }
     
-    // Create license
+    // Determine tier and device limit from metadata or line items
+    const productType = session.metadata?.product_type || 'pro';
+    let tier = 'pro';
+    let deviceLimit = null;
+    
+    if (productType === 'device_pack') {
+      tier = 'device_pack';
+      deviceLimit = DEVICE_PACK_SIZE;
+    }
+    
+    // Create license with appropriate tier
     const license = createLicenseFromPayment(
       session.customer_details?.email,
       session.customer_details?.name,
       session.id,
-      session.payment_intent
+      session.payment_intent,
+      tier,
+      deviceLimit
     );
     
-    console.log(`License created for session ${session.id}: ${license.licenseKey}`);
+    console.log(`License created for session ${session.id}: ${license.licenseKey} (tier: ${tier}, limit: ${deviceLimit})`);
   }
   
   res.json({ received: true });
@@ -351,11 +379,18 @@ app.get('/success', async (req, res) => {
         if (session.payment_status === 'paid') {
           const existing = db.prepare('SELECT * FROM licenses WHERE stripe_session_id = ?').get(session_id);
           if (!existing) {
+            // Determine tier from metadata
+            const productType = session.metadata?.product_type || 'pro';
+            const tier = productType === 'device_pack' ? 'device_pack' : 'pro';
+            const deviceLimit = productType === 'device_pack' ? DEVICE_PACK_SIZE : null;
+            
             const newLicense = createLicenseFromPayment(
               session.customer_details?.email,
               session.customer_details?.name,
               session.id,
-              session.payment_intent
+              session.payment_intent,
+              tier,
+              deviceLimit
             );
             return res.send(generateSuccessPage(newLicense));
           }
@@ -419,11 +454,22 @@ app.get('/cancel', (req, res) => {
 });
 
 function generateSuccessPage(license) {
+  // Determine tier display text
+  const tierDisplay = license.tier === 'device_pack' 
+    ? `Device Pack (+${license.deviceLimit} devices)` 
+    : 'Pro (Unlimited Devices)';
+  const pageTitle = license.tier === 'device_pack' 
+    ? 'Purchase Complete - CoreBit Device Pack' 
+    : 'Purchase Complete - CoreBit Pro';
+  const activationNote = license.tier === 'device_pack'
+    ? 'This license adds 10 devices to your limit. You can add multiple Device Pack licenses to increase your limit further.'
+    : 'Your license is tied to your server once activated. Keep this key safe!';
+    
   return `
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Purchase Complete - CoreBit Pro</title>
+      <title>${pageTitle}</title>
       <style>
         body { font-family: system-ui, sans-serif; max-width: 700px; margin: 50px auto; padding: 20px; background: #0f172a; color: #e2e8f0; }
         h1 { color: #22c55e; }
@@ -448,7 +494,7 @@ function generateSuccessPage(license) {
         <div style="text-align: center;">
           <button class="copy-btn" onclick="copyLicense()">Copy License Key</button>
         </div>
-        <p class="info">Tier: <strong>Pro</strong> (Unlimited Devices)</p>
+        <p class="info">Tier: <strong>${tierDisplay}</strong></p>
         <p class="info">Updates Valid Until: <strong>${new Date(license.updatesValidUntil).toLocaleDateString()}</strong></p>
       </div>
       
@@ -461,7 +507,7 @@ function generateSuccessPage(license) {
           <li>Paste your license key: <code>${license.licenseKey}</code></li>
           <li>Click <strong>Activate</strong></li>
         </ol>
-        <p style="color: #94a3b8;">Your license is tied to your server once activated. Keep this key safe!</p>
+        <p style="color: #94a3b8;">${activationNote}</p>
       </div>
       
       <script>

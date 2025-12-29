@@ -116,20 +116,34 @@ The recovery feature is only active when `ADMIN_RECOVERY_SECRET` is set. Always 
 
 ## Licensing System
 
-CoreBit uses a tiered licensing model:
+CoreBit uses a flexible, multi-license model:
 
 -   **Free Tier:** Fully functional, limited to 10 devices
 -   **Pro Tier:** Unlimited devices, 1 year of update entitlement
+-   **Device Pack Tier:** Stackable +10 device licenses, 1 year of update entitlement each
+
+**Multi-License Support:**
+-   Multiple licenses can be activated on a single installation
+-   Device packs are cumulative: 3 packs = 10 free + 30 licensed = 40 total devices
+-   Pro license provides unlimited devices (overrides device packs)
+-   Placeholder devices never count toward license limits
 
 **Key Concepts:**
 -   **Server Fingerprint:** Unique hash of hostname + MAC + machine-id, ties license to specific server
 -   **Permanent Activation:** Once activated, works forever without internet (offline-friendly)
 -   **Update Entitlement:** License includes 1 year of updates from purchase date; new versions built after expiry require renewal
+-   **Backward Compatibility:** Supports both old single-license and new multi-license storage formats
 
 **License Management:**
--   Settings page shows license status, tier, device count, and fingerprint
+-   Settings page shows license status, tier, device count, active licenses, and fingerprint
+-   "Upgrade to Pro" and "Add Device Pack (+10)" buttons for purchases
 -   Manual activation via "Enter License Key" button (admin only)
 -   Device limit enforced at creation time (single and batch)
+
+**Stripe Integration (Licensing Server):**
+-   `STRIPE_PRICE_ID` - Pro license price ID
+-   `STRIPE_PRICE_ID_DEVICE_PACK` - Device pack price ID (default: price_1SjckoIEfpt7OIJOAL1swxmf)
+-   Checkout flow supports product type via metadata
 
 **Creating Licenses:**
 Use `scripts/create-license.js` to generate licenses:
@@ -138,9 +152,9 @@ node scripts/create-license.js <fingerprint> [tier] [deviceLimit] [yearsOfUpdate
 ```
 
 **Files:**
--   `server/licensing.ts` - Licensing service (fingerprint, storage, validation, update checking)
+-   `server/licensing.ts` - Licensing service (fingerprint, multi-license storage, validation, update checking)
 -   `shared/schema.ts` - License database table
--   `license.json` - Local license storage file (created on activation)
+-   `license.json` - Local license storage file (supports array of licenses)
 
 ## Release Management System
 

@@ -3,14 +3,18 @@ import { networkInterfaces, hostname } from 'os';
 import { readFileSync, existsSync, writeFileSync } from 'fs';
 import { db } from './db';
 import { licenses, devices } from '@shared/schema';
-import { eq, count } from 'drizzle-orm';
+import { eq, count, sql, ne } from 'drizzle-orm';
 
 const LICENSE_FILE_PATH = './license.json';
 const BUILD_DATE = process.env.BUILD_DATE || new Date().toISOString().split('T')[0];
 const FREE_DEVICE_LIMIT = 10;
+const DEVICE_PACK_SIZE = 10; // Each device pack license adds 10 devices
+
+export type LicenseTier = 'free' | 'pro' | 'device_pack';
 
 export interface LicenseInfo {
-  tier: 'free' | 'pro';
+  tier: LicenseTier;
+  effectiveTier: 'free' | 'pro' | 'device_pack'; // The tier used for display
   deviceLimit: number | null;
   currentDeviceCount: number;
   canAddDevice: boolean;
@@ -19,16 +23,23 @@ export interface LicenseInfo {
   isUpdateEntitled: boolean;
   fingerprint: string;
   isActivated: boolean;
+  licenses: StoredLicense[]; // All activated licenses
+  totalPackDevices: number; // Total devices from all device packs
 }
 
 export interface StoredLicense {
   licenseKey: string;
-  tier: 'free' | 'pro';
-  deviceLimit: number | null;
+  tier: LicenseTier;
+  deviceLimit: number | null; // For device_pack, this is typically 10
   fingerprint: string;
   purchaseDate: string | null;
   updatesValidUntil: string | null;
   signature: string;
+}
+
+// Storage format that supports multiple licenses
+export interface LicenseStorage {
+  licenses: StoredLicense[];
 }
 
 export function generateFingerprint(): string {
@@ -65,25 +76,62 @@ export function generateFingerprint(): string {
   return createHash('sha256').update(combined).digest('hex').substring(0, 32);
 }
 
-export function getStoredLicense(): StoredLicense | null {
+// Get all stored licenses (supports both old single-license and new multi-license format)
+export function getStoredLicenses(): StoredLicense[] {
   try {
     if (existsSync(LICENSE_FILE_PATH)) {
       const content = readFileSync(LICENSE_FILE_PATH, 'utf-8');
-      return JSON.parse(content) as StoredLicense;
+      const parsed = JSON.parse(content);
+      
+      // Check if it's the new multi-license format
+      if (parsed.licenses && Array.isArray(parsed.licenses)) {
+        return parsed.licenses as StoredLicense[];
+      }
+      
+      // Old single-license format - convert to array
+      if (parsed.licenseKey) {
+        return [parsed as StoredLicense];
+      }
     }
   } catch {
   }
-  return null;
+  return [];
 }
 
-export function storeLicense(license: StoredLicense): void {
+// Legacy function for backward compatibility
+export function getStoredLicense(): StoredLicense | null {
+  const licenses = getStoredLicenses();
+  // Return the "primary" license (pro > device_pack > first)
+  const proLicense = licenses.find(l => l.tier === 'pro');
+  if (proLicense) return proLicense;
+  
+  return licenses.length > 0 ? licenses[0] : null;
+}
+
+// Store all licenses
+export function storeLicenses(licenses: StoredLicense[]): void {
   try {
-    writeFileSync(LICENSE_FILE_PATH, JSON.stringify(license, null, 2));
-    console.log('[License] Saved license to', LICENSE_FILE_PATH);
+    const storage: LicenseStorage = { licenses };
+    writeFileSync(LICENSE_FILE_PATH, JSON.stringify(storage, null, 2));
+    console.log('[License] Saved', licenses.length, 'license(s) to', LICENSE_FILE_PATH);
   } catch (error) {
     console.error('[License] Failed to save license file:', error);
     throw error;
   }
+}
+
+// Legacy function - adds or updates a single license
+export function storeLicense(license: StoredLicense): void {
+  const existing = getStoredLicenses();
+  const index = existing.findIndex(l => l.licenseKey === license.licenseKey);
+  
+  if (index >= 0) {
+    existing[index] = license;
+  } else {
+    existing.push(license);
+  }
+  
+  storeLicenses(existing);
 }
 
 export function validateLicense(license: StoredLicense): boolean {
@@ -109,35 +157,79 @@ export function isUpdateEntitled(license: StoredLicense | null): boolean {
   return buildDate <= expiryDate;
 }
 
+// Get device count excluding placeholder devices (placeholders don't count toward license)
 export async function getDeviceCount(): Promise<number> {
-  const result = await db.select({ count: count() }).from(devices);
+  const result = await db
+    .select({ count: count() })
+    .from(devices)
+    .where(sql`${devices.type} != 'placeholder'`);
   return result[0]?.count || 0;
 }
 
 export async function getLicenseInfo(): Promise<LicenseInfo> {
   const fingerprint = generateFingerprint();
-  const storedLicense = getStoredLicense();
+  const allLicenses = getStoredLicenses();
   const deviceCount = await getDeviceCount();
   
-  if (storedLicense && validateLicense(storedLicense)) {
-    const deviceLimit = storedLicense.deviceLimit;
-    const canAdd = deviceLimit === null || deviceCount < deviceLimit;
-    
+  // Filter to only valid licenses (matching fingerprint)
+  const validLicenses = allLicenses.filter(l => validateLicense(l));
+  
+  // Check for a pro license (unlimited)
+  const proLicense = validLicenses.find(l => l.tier === 'pro');
+  if (proLicense) {
     return {
-      tier: storedLicense.tier,
-      deviceLimit: storedLicense.deviceLimit,
+      tier: 'pro',
+      effectiveTier: 'pro',
+      deviceLimit: null, // Unlimited
       currentDeviceCount: deviceCount,
-      canAddDevice: canAdd,
-      purchaseDate: storedLicense.purchaseDate,
-      updatesValidUntil: storedLicense.updatesValidUntil,
-      isUpdateEntitled: isUpdateEntitled(storedLicense),
+      canAddDevice: true,
+      purchaseDate: proLicense.purchaseDate,
+      updatesValidUntil: proLicense.updatesValidUntil,
+      isUpdateEntitled: isUpdateEntitled(proLicense),
       fingerprint,
       isActivated: true,
+      licenses: validLicenses,
+      totalPackDevices: 0,
     };
   }
   
+  // Calculate total devices from device_pack licenses
+  const packLicenses = validLicenses.filter(l => l.tier === 'device_pack');
+  const totalPackDevices = packLicenses.reduce((sum, l) => sum + (l.deviceLimit || DEVICE_PACK_SIZE), 0);
+  
+  // Total device limit = free tier + all pack licenses
+  const totalDeviceLimit = FREE_DEVICE_LIMIT + totalPackDevices;
+  
+  if (packLicenses.length > 0) {
+    // Find most recent purchase date and latest update entitlement
+    const sortedByDate = [...packLicenses].sort((a, b) => 
+      new Date(b.purchaseDate || 0).getTime() - new Date(a.purchaseDate || 0).getTime()
+    );
+    const latestLicense = sortedByDate[0];
+    
+    // Check if any license has update entitlement
+    const hasUpdateEntitlement = packLicenses.some(l => isUpdateEntitled(l));
+    
+    return {
+      tier: 'device_pack',
+      effectiveTier: 'device_pack',
+      deviceLimit: totalDeviceLimit,
+      currentDeviceCount: deviceCount,
+      canAddDevice: deviceCount < totalDeviceLimit,
+      purchaseDate: latestLicense?.purchaseDate || null,
+      updatesValidUntil: latestLicense?.updatesValidUntil || null,
+      isUpdateEntitled: hasUpdateEntitlement,
+      fingerprint,
+      isActivated: true,
+      licenses: validLicenses,
+      totalPackDevices,
+    };
+  }
+  
+  // No paid licenses - free tier
   return {
     tier: 'free',
+    effectiveTier: 'free',
     deviceLimit: FREE_DEVICE_LIMIT,
     currentDeviceCount: deviceCount,
     canAddDevice: deviceCount < FREE_DEVICE_LIMIT,
@@ -146,6 +238,8 @@ export async function getLicenseInfo(): Promise<LicenseInfo> {
     isUpdateEntitled: false,
     fingerprint,
     isActivated: false,
+    licenses: [],
+    totalPackDevices: 0,
   };
 }
 
@@ -156,12 +250,18 @@ export async function canAddDevice(): Promise<{ allowed: boolean; reason?: strin
     if (info.tier === 'free') {
       return {
         allowed: false,
-        reason: `Free tier is limited to ${FREE_DEVICE_LIMIT} devices. Upgrade to Pro for unlimited devices.`,
+        reason: `Free tier is limited to ${FREE_DEVICE_LIMIT} devices. Purchase a Device Pack (+10 devices) or upgrade to Pro for unlimited devices.`,
+      };
+    }
+    if (info.tier === 'device_pack') {
+      return {
+        allowed: false,
+        reason: `Device limit of ${info.deviceLimit} reached (${FREE_DEVICE_LIMIT} free + ${info.totalPackDevices} from packs). Add another Device Pack or upgrade to Pro.`,
       };
     }
     return {
       allowed: false,
-      reason: `Device limit of ${info.deviceLimit} reached. Contact support to increase your limit.`,
+      reason: `Device limit of ${info.deviceLimit} reached. Add a Device Pack or contact support.`,
     };
   }
   
@@ -171,47 +271,47 @@ export async function canAddDevice(): Promise<{ allowed: boolean; reason?: strin
 export async function canModifyDevices(): Promise<{ allowed: boolean; reason?: string; readOnly: boolean }> {
   const info = await getLicenseInfo();
   
-  // If we have a valid Pro license, all modifications are allowed
-  if (info.isActivated && info.tier === 'pro') {
+  // If we have a valid Pro or device_pack license, all modifications are allowed
+  if (info.isActivated && (info.tier === 'pro' || info.tier === 'device_pack')) {
     return { allowed: true, readOnly: false };
   }
   
-  // If device count is within free tier limit, modifications are allowed
-  if (info.currentDeviceCount <= FREE_DEVICE_LIMIT) {
+  // If device count is within device limit (free or licensed), modifications are allowed
+  if (info.deviceLimit && info.currentDeviceCount <= info.deviceLimit) {
     return { allowed: true, readOnly: false };
   }
   
-  // Over free tier limit without valid license = read-only mode
+  // Over device limit without valid license = read-only mode
   return {
     allowed: false,
     readOnly: true,
-    reason: `Read-only mode: You have ${info.currentDeviceCount} devices but no Pro license. Existing devices continue working, but editing connection-critical fields (IP, credentials, type) is disabled. Upgrade to Pro to unlock full editing.`,
+    reason: `Read-only mode: You have ${info.currentDeviceCount} devices but your license only allows ${info.deviceLimit}. Existing devices continue working, but editing connection-critical fields is disabled. Add a Device Pack or upgrade to Pro.`,
   };
 }
 
 export async function canDeleteDevices(): Promise<{ allowed: boolean; reason?: string }> {
   const info = await getLicenseInfo();
   
-  // If we have a valid Pro license, deletion is allowed
-  if (info.isActivated && info.tier === 'pro') {
+  // If we have a valid Pro or device_pack license, deletion is allowed
+  if (info.isActivated && (info.tier === 'pro' || info.tier === 'device_pack')) {
     return { allowed: true };
   }
   
-  // If device count is within free tier limit, deletion is allowed
-  if (info.currentDeviceCount <= FREE_DEVICE_LIMIT) {
+  // If device count is within device limit, deletion is allowed
+  if (info.deviceLimit && info.currentDeviceCount <= info.deviceLimit) {
     return { allowed: true };
   }
   
-  // Over free tier limit without valid license = no deletion (prevents gaming the limit)
+  // Over device limit without valid license = no deletion
   return {
     allowed: false,
-    reason: `Read-only mode: Deleting devices is disabled when over the free tier limit without a Pro license. This prevents circumventing the device limit.`,
+    reason: `Deleting devices is disabled when over your device limit. Add a Device Pack or upgrade to Pro.`,
   };
 }
 
 export async function activateLicense(
   licenseKey: string,
-  tier: 'free' | 'pro',
+  tier: LicenseTier,
   deviceLimit: number | null,
   purchaseDate: string,
   updatesValidUntil: string,

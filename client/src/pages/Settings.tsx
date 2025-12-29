@@ -539,8 +539,18 @@ function DangerZoneSection() {
   );
 }
 
+interface StoredLicense {
+  licenseKey: string;
+  tier: 'free' | 'pro' | 'device_pack';
+  deviceLimit: number | null;
+  fingerprint: string;
+  purchaseDate: string | null;
+  updatesValidUntil: string | null;
+}
+
 interface LicenseInfo {
-  tier: 'free' | 'pro';
+  tier: 'free' | 'pro' | 'device_pack';
+  effectiveTier: 'free' | 'pro' | 'device_pack';
   deviceLimit: number | null;
   currentDeviceCount: number;
   canAddDevice: boolean;
@@ -552,6 +562,8 @@ interface LicenseInfo {
   buildDate: string;
   readOnly?: boolean;
   readOnlyReason?: string;
+  licenses?: StoredLicense[];
+  totalPackDevices?: number;
 }
 
 interface AppConfig {
@@ -564,7 +576,8 @@ function LicenseSection() {
   const [activationDialogOpen, setActivationDialogOpen] = useState(false);
   const [licenseKey, setLicenseKey] = useState('');
   const [activating, setActivating] = useState(false);
-  const [upgrading, setUpgrading] = useState(false);
+  const [upgradingPro, setUpgradingPro] = useState(false);
+  const [upgradingPack, setUpgradingPack] = useState(false);
 
   const { data: config } = useQuery<AppConfig>({
     queryKey: ["/api/config"],
@@ -577,14 +590,16 @@ function LicenseSection() {
     queryKey: ["/api/license"],
   });
 
-  const handleUpgrade = async () => {
-    setUpgrading(true);
+  const handleUpgrade = async (product: 'pro' | 'device_pack' = 'pro') => {
+    const setLoading = product === 'pro' ? setUpgradingPro : setUpgradingPack;
+    setLoading(true);
     try {
       const response = await fetch(`${licensingServerUrl}/api/stripe/checkout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fingerprint: license?.fingerprint,
+          product,
         }),
       });
       
@@ -601,17 +616,17 @@ function LicenseSection() {
         // Give the redirect a moment to happen
         setTimeout(() => {
           // If we're still here after 3s, the redirect might have been blocked
-          setUpgrading(false);
+          setLoading(false);
         }, 3000);
       } catch (navError) {
         // Fallback: open in new tab
         window.open(url, '_blank');
         toast({ description: "Checkout opened in a new tab" });
-        setUpgrading(false);
+        setLoading(false);
       }
     } catch (error: any) {
       toast({ variant: "destructive", description: error.message || "Failed to start checkout. Please try again." });
-      setUpgrading(false);
+      setLoading(false);
     }
   };
 
@@ -661,9 +676,18 @@ function LicenseSection() {
     }
   };
 
-  const tierColors = {
+  const tierColors: Record<string, string> = {
     free: 'bg-muted text-muted-foreground',
     pro: 'bg-primary text-primary-foreground',
+    device_pack: 'bg-blue-500 text-white',
+  };
+  
+  const getTierDisplay = (tier: string) => {
+    switch (tier) {
+      case 'pro': return 'Pro';
+      case 'device_pack': return 'Device Packs';
+      default: return 'Free';
+    }
   };
 
   return (
@@ -688,8 +712,8 @@ function LicenseSection() {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Tier:</span>
-                <Badge className={tierColors[license?.tier || 'free']}>
-                  {license?.tier === 'pro' ? 'Pro' : 'Free'}
+                <Badge className={tierColors[license?.effectiveTier || 'free']}>
+                  {getTierDisplay(license?.effectiveTier || 'free')}
                 </Badge>
               </div>
               {license?.isActivated && (
@@ -710,7 +734,7 @@ function LicenseSection() {
                 <span className="text-muted-foreground">Current Devices:</span>
                 <div className="font-medium">{license?.currentDeviceCount || 0}</div>
               </div>
-              {license?.tier === 'pro' && (
+              {(license?.effectiveTier === 'pro' || license?.effectiveTier === 'device_pack') && (
                 <>
                   <div>
                     <span className="text-muted-foreground">Purchase Date:</span>
@@ -730,15 +754,36 @@ function LicenseSection() {
                   </div>
                 </>
               )}
+              {license?.effectiveTier === 'device_pack' && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Device Packs:</span>
+                  <div className="font-medium">
+                    {license?.licenses?.filter(l => l.tier === 'device_pack').length || 0} pack(s) 
+                    (+{license?.totalPackDevices || 0} devices)
+                  </div>
+                </div>
+              )}
             </div>
 
-            {license?.tier === 'free' && (
+            {license?.effectiveTier === 'free' && (
               <div className="p-4 bg-muted/50 rounded-lg space-y-2">
                 <p className="text-sm">
                   You're using the free tier with a limit of {license?.deviceLimit} devices.
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Upgrade to Pro for unlimited devices and priority support.
+                  Upgrade to Pro for unlimited devices, or purchase Device Packs (+10 devices each).
+                </p>
+              </div>
+            )}
+
+            {license?.effectiveTier === 'device_pack' && (
+              <div className="p-4 bg-muted/50 rounded-lg space-y-2">
+                <p className="text-sm">
+                  You have {license.licenses?.filter(l => l.tier === 'device_pack').length} device pack(s) active,
+                  giving you a total limit of {license.deviceLimit} devices (10 free + {license.totalPackDevices} from packs).
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Need more? Upgrade to Pro for unlimited devices, or add more Device Packs.
                 </p>
               </div>
             )}
@@ -762,7 +807,7 @@ function LicenseSection() {
               </div>
             )}
 
-            {!license?.isUpdateEntitled && license?.tier === 'pro' && (
+            {!license?.isUpdateEntitled && (license?.effectiveTier === 'pro' || license?.effectiveTier === 'device_pack') && (
               <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg space-y-2">
                 <p className="text-sm text-yellow-600 dark:text-yellow-400">
                   Your update entitlement has expired. Renew to get access to new versions.
@@ -775,25 +820,45 @@ function LicenseSection() {
               <div className="mt-1">Build Date: {license?.buildDate}</div>
             </div>
 
-            <div className="flex gap-2 pt-2">
-              {license?.tier === 'free' && (
-                <Button 
-                  onClick={handleUpgrade}
-                  disabled={upgrading}
-                  data-testid="button-upgrade"
-                >
-                  {upgrading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Redirecting...
-                    </>
-                  ) : (
-                    <>
-                      <Crown className="h-4 w-4 mr-2" />
-                      Upgrade to Pro
-                    </>
-                  )}
-                </Button>
+            <div className="flex flex-wrap gap-2 pt-2">
+              {license?.effectiveTier !== 'pro' && (
+                <>
+                  <Button 
+                    onClick={() => handleUpgrade('pro')}
+                    disabled={upgradingPro || upgradingPack}
+                    data-testid="button-upgrade-pro"
+                  >
+                    {upgradingPro ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Redirecting...
+                      </>
+                    ) : (
+                      <>
+                        <Crown className="h-4 w-4 mr-2" />
+                        Upgrade to Pro
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    variant="outline"
+                    onClick={() => handleUpgrade('device_pack')}
+                    disabled={upgradingPro || upgradingPack}
+                    data-testid="button-buy-device-pack"
+                  >
+                    {upgradingPack ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Redirecting...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Device Pack (+10)
+                      </>
+                    )}
+                  </Button>
+                </>
               )}
               {isAdmin && (
                 <Button 
@@ -814,7 +879,7 @@ function LicenseSection() {
           <DialogHeader>
             <DialogTitle>Activate License</DialogTitle>
             <DialogDescription>
-              Enter your license key to activate CoreBit Pro
+              Enter your license key to activate CoreBit. Supports both Pro and Device Pack licenses.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
