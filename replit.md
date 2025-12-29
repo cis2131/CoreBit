@@ -38,6 +38,19 @@ The application employs a client-server architecture.
 **Technical Implementations:**
 -   TypeScript strict mode, React Query for data handling, Drizzle ORM for type-safe queries, Zod for validation.
 
+## Deployment Options
+
+**Traditional Server Deployment:**
+-   Uses `deploy/kickstart.sh` for automated installation
+-   Installs Node.js, PostgreSQL, and systemd service
+-   Supports updates via `--update` flag
+
+**Docker Deployment:**
+-   Uses `docker/docker-compose.yml` with PostgreSQL included
+-   Data persists in Docker volumes across updates
+-   Update with: `docker compose pull && docker compose up -d`
+-   GitHub Actions automatically publishes to `ghcr.io/clausdk/corebit`
+
 ## External Dependencies
 
 -   **Database:** PostgreSQL.

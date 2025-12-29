@@ -1,0 +1,92 @@
+# CoreBit Network Manager - Docker Compose
+# 
+# Quick Start (using pre-built image from GitHub Container Registry):
+#   1. Copy .env.example to .env and configure
+#   2. Run: docker compose up -d
+#   3. Access at: http://localhost:3000
+#
+# Building locally (from source):
+#   docker compose up -d --build
+#
+# Default login: admin / admin123
+#
+# Updating:
+#   docker compose pull && docker compose up -d
+
+services:
+  #=============================================================================
+  # PostgreSQL Database
+  #=============================================================================
+  db:
+    image: postgres:16-alpine
+    container_name: corebit-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-corebit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-corebit123}
+      POSTGRES_DB: ${POSTGRES_DB:-corebit}
+    volumes:
+      - corebit_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-corebit} -d ${POSTGRES_DB:-corebit}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - corebit-network
+
+  #=============================================================================
+  # CoreBit Application
+  #=============================================================================
+  app:
+    # Use pre-built image from GitHub Container Registry
+    image: ghcr.io/clausdk/corebit:latest
+    # Uncomment to build from source instead of pulling from registry:
+    # build:
+    #   context: ..
+    #   dockerfile: docker/Dockerfile
+    container_name: corebit-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-corebit}:${POSTGRES_PASSWORD:-corebit123}@db:5432/${POSTGRES_DB:-corebit}
+      PGHOST: db
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:-corebit}
+      PGUSER: ${POSTGRES_USER:-corebit}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-corebit123}
+      SESSION_SECRET: ${SESSION_SECRET:-please-change-this-secret-in-production}
+    volumes:
+      - corebit_backups:/app/backups
+      - corebit_data:/app/data
+    networks:
+      - corebit-network
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+#=============================================================================
+# Persistent Volumes
+#=============================================================================
+volumes:
+  corebit_db:
+    name: corebit_db
+  corebit_backups:
+    name: corebit_backups
+  corebit_data:
+    name: corebit_data
+
+#=============================================================================
+# Network
+#=============================================================================
+networks:
+  corebit-network:
+    name: corebit-network
+    driver: bridge

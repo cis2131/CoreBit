@@ -1,0 +1,45 @@
+# Dependencies
+node_modules
+npm-debug.log
+
+# Build outputs
+dist
+*.tgz
+
+# Development files
+.env
+.env.local
+.env.*.local
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Docker
+docker/
+Dockerfile
+docker-compose*.yml
+
+# Documentation
+docs/
+
+# Testing
+coverage/
+.nyc_output/
+*.test.ts
+*.spec.ts
+
+# Misc
+.DS_Store
+Thumbs.db
+*.log
+backups/
+attached_assets/
+.replit
+replit.nix
